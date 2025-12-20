@@ -1,0 +1,642 @@
+"""
+Device Registration API
+
+REST API endpoints for device registration and push notification management.
+Supports mobile wallet device registration for push challenges.
+"""
+from __future__ import annotations
+
+import logging
+from datetime import datetime, timezone
+from typing import Annotated, Any, Optional
+from uuid import UUID
+
+from fastapi import APIRouter, Depends, HTTPException, Header, Path, Query, status
+from pydantic import BaseModel, Field
+
+from .device_registry import DeviceInfo, DeviceRegistry, DeviceRegistration
+from .adapters.mock import MockNotificationAdapter
+
+logger = logging.getLogger(__name__)
+
+router = APIRouter(prefix="/api/devices", tags=["devices"])
+
+
+# =============================================================================
+# Request/Response Models
+# =============================================================================
+
+class DeviceRegistrationRequest(BaseModel):
+    """Request to register a device for push notifications."""
+    device_id: str = Field(
+        ...,
+        description="Device ID in format '<org_id>:<platform_device_id>' or just '<platform_device_id>'",
+        examples=["550e8400-e29b-41d4-a716-446655440000:ABC123DEF456"],
+    )
+    fcm_token: str = Field(
+        ...,
+        description="Firebase Cloud Messaging token for push delivery",
+        min_length=1,
+    )
+    platform: str = Field(
+        ...,
+        description="Device platform: ios, android, or web",
+        pattern="^(ios|android|web)$",
+    )
+    public_key: Optional[str] = Field(
+        None,
+        description="RSA public key in base64-encoded PKCS#1 DER format for challenge signature verification",
+        examples=["MIIBCgKCAQEA..."],
+    )
+    app_version: Optional[str] = Field(
+        None,
+        description="Application version string",
+        examples=["1.0.0", "2.1.3-beta"],
+    )
+    os_version: Optional[str] = Field(
+        None,
+        description="Operating system version",
+        examples=["iOS 17.2", "Android 14"],
+    )
+    device_model: Optional[str] = Field(
+        None,
+        description="Device model identifier",
+        examples=["iPhone 15 Pro", "Pixel 8"],
+    )
+    preferences: Optional[dict[str, Any]] = Field(
+        default_factory=dict,
+        description="Notification preferences",
+    )
+
+
+class DeviceRegistrationResponse(BaseModel):
+    """Response after device registration."""
+    device_id: str
+    registration_id: str
+    organization_id: Optional[str] = None
+    public_key_kid: Optional[str] = None
+    registered_at: datetime
+    
+    class Config:
+        from_attributes = True
+
+
+class KeyRotationRequest(BaseModel):
+    """Request to rotate device public key."""
+    public_key: str = Field(
+        ...,
+        description="New RSA public key in base64-encoded PKCS#1 DER format",
+    )
+    grace_period_days: int = Field(
+        default=30,
+        description="Days to keep old key valid for overlap",
+        ge=1,
+        le=90,
+    )
+
+
+class KeyRotationResponse(BaseModel):
+    """Response after key rotation."""
+    device_id: str
+    old_key_kid: Optional[str] = None
+    new_key_kid: str
+    grace_period_ends: Optional[datetime] = None
+
+
+class DeviceListResponse(BaseModel):
+    """List of registered devices."""
+    devices: list[DeviceRegistrationResponse]
+    total_count: int
+
+
+class PushChallengeRequest(BaseModel):
+    """Request to create a push challenge."""
+    title: str = Field(
+        ...,
+        description="Challenge title shown to user",
+    )
+    question: str = Field(
+        ...,
+        description="Question or action prompt",
+    )
+    nonce: str = Field(
+        ...,
+        description="Random nonce for challenge-response",
+    )
+    credential_id: Optional[str] = Field(
+        None,
+        description="Associated credential ID if applicable",
+    )
+    data: Optional[dict[str, Any]] = Field(
+        default_factory=dict,
+        description="Additional challenge data",
+    )
+    ttl_seconds: int = Field(
+        default=120,
+        description="Time-to-live for the challenge",
+        ge=30,
+        le=600,
+    )
+
+
+class PushChallengeResponse(BaseModel):
+    """Response after creating a push challenge."""
+    challenge_id: str
+    device_id: str
+    created_at: datetime
+    expires_at: datetime
+
+
+class PendingChallengeResponse(BaseModel):
+    """A pending push challenge."""
+    challenge_id: str
+    title: str
+    question: str
+    nonce: str
+    credential_id: Optional[str] = None
+    data: dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime
+    ttl_seconds: int
+
+
+class ChallengeListResponse(BaseModel):
+    """List of pending challenges."""
+    challenges: list[PendingChallengeResponse]
+    count: int
+
+
+class ChallengeResponseRequest(BaseModel):
+    """Response to a push challenge."""
+    response: str = Field(
+        ...,
+        description="Response value: 'accept' or 'reject'",
+        pattern="^(accept|reject)$",
+    )
+    signature: Optional[str] = Field(
+        None,
+        description="Cryptographic signature over challenge nonce (base64)",
+    )
+
+
+# =============================================================================
+# Dependencies
+# =============================================================================
+
+async def get_device_registry() -> DeviceRegistry:
+    """Get device registry instance. Override in app setup."""
+    # This would be injected by the app's dependency system
+    # For now, raise an error if not configured
+    raise HTTPException(
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        detail="Device registry not configured",
+    )
+
+
+async def get_mock_adapter() -> Optional[MockNotificationAdapter]:
+    """Get mock adapter for testing. Only available in test mode."""
+    # Returns None in production, configured in test mode
+    return None
+
+
+def parse_device_id(device_id: str) -> tuple[Optional[UUID], str]:
+    """
+    Parse device ID into org_id and platform_device_id.
+    
+    Format: '<org_id>:<platform_device_id>' or just '<platform_device_id>'
+    
+    Returns:
+        Tuple of (organization_id, platform_device_id)
+    """
+    if ':' in device_id:
+        parts = device_id.split(':', 1)
+        try:
+            org_id = UUID(parts[0])
+            return org_id, parts[1]
+        except ValueError:
+            # Not a valid UUID, treat whole thing as device ID
+            return None, device_id
+    return None, device_id
+
+
+# =============================================================================
+# Device Registration Endpoints
+# =============================================================================
+
+@router.post(
+    "/register",
+    response_model=DeviceRegistrationResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Register a device for push notifications",
+    description="""
+    Register a mobile device to receive push notifications.
+    
+    The device_id should be in the format `<org_id>:<platform_device_id>` 
+    to support multi-organization scenarios. The organization ID is extracted
+    from the device ID and stored with the registration.
+    
+    If the device is already registered, the FCM token is updated.
+    
+    Optionally include a public_key (base64 PKCS#1 DER) for challenge signature verification.
+    """,
+)
+async def register_device(
+    request: DeviceRegistrationRequest,
+    user_id: Annotated[str, Header(alias="X-User-ID")] = None,
+    registry: DeviceRegistry = Depends(get_device_registry),
+) -> DeviceRegistrationResponse:
+    """Register a device for push notifications."""
+    if not user_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="X-User-ID header required",
+        )
+    
+    # Parse organization from device ID
+    org_id, platform_device_id = parse_device_id(request.device_id)
+    
+    device_info = DeviceInfo(
+        device_id=request.device_id,  # Store full device ID
+        platform=request.platform,
+        fcm_token=request.fcm_token,
+        app_version=request.app_version,
+        os_version=request.os_version,
+        device_model=request.device_model,
+        preferences=request.preferences,
+        public_key=request.public_key,
+    )
+    
+    registration = await registry.register_device(
+        user_id=user_id,
+        device_info=device_info,
+        organization_id=org_id,
+    )
+    
+    logger.info(f"Device registered: {request.device_id} for user {user_id}")
+    
+    return DeviceRegistrationResponse(
+        device_id=registration.device_id,
+        registration_id=str(registration.id),
+        organization_id=str(registration.organization_id) if registration.organization_id else None,
+        public_key_kid=registration.public_key_kid,
+        registered_at=registration.created_at,
+    )
+
+
+@router.delete(
+    "/{device_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Unregister a device",
+    description="Remove a device registration and stop receiving push notifications.",
+)
+async def unregister_device(
+    device_id: Annotated[str, Path(description="Device ID to unregister")],
+    user_id: Annotated[str, Header(alias="X-User-ID")] = None,
+    registry: DeviceRegistry = Depends(get_device_registry),
+) -> None:
+    """Unregister a device."""
+    if not user_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="X-User-ID header required",
+        )
+    
+    success = await registry.unregister_device(
+        user_id=user_id,
+        device_id=device_id,
+    )
+    
+    if not success:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Device registration not found",
+        )
+    
+    logger.info(f"Device unregistered: {device_id} for user {user_id}")
+
+
+@router.post(
+    "/{device_id}/rotate-key",
+    response_model=KeyRotationResponse,
+    summary="Rotate device public key",
+    description="""
+    Rotate the RSA public key for a device.
+    
+    The old key remains valid for a grace period (default 30 days) to allow
+    for in-flight challenges. The new key is activated immediately.
+    """,
+)
+async def rotate_device_key(
+    device_id: Annotated[str, Path(description="Device ID to rotate key for")],
+    request: KeyRotationRequest,
+    user_id: Annotated[str, Header(alias="X-User-ID")] = None,
+    registry: DeviceRegistry = Depends(get_device_registry),
+) -> KeyRotationResponse:
+    """Rotate device public key."""
+    if not user_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="X-User-ID header required",
+        )
+    
+    # Get current key ID before rotation
+    device = await registry.get_device_by_id(device_id)
+    if not device:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Device not found",
+        )
+    
+    old_kid = device.public_key_kid
+    
+    updated = await registry.rotate_public_key(
+        device_id=device_id,
+        new_public_key=request.public_key,
+        grace_period_days=request.grace_period_days,
+    )
+    
+    if not updated:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Failed to rotate key - invalid public key format",
+        )
+    
+    logger.info(f"Key rotated for device {device_id}: {old_kid} -> {updated.public_key_kid}")
+    
+    return KeyRotationResponse(
+        device_id=device_id,
+        old_key_kid=old_kid,
+        new_key_kid=updated.public_key_kid,
+        grace_period_ends=updated.key_valid_until,
+    )
+
+
+@router.get(
+    "",
+    response_model=DeviceListResponse,
+    summary="List registered devices",
+    description="Get all registered devices for the current user.",
+)
+async def list_devices(
+    user_id: Annotated[str, Header(alias="X-User-ID")] = None,
+    organization_id: Annotated[Optional[str], Query(description="Filter by organization")] = None,
+    registry: DeviceRegistry = Depends(get_device_registry),
+) -> DeviceListResponse:
+    """List registered devices for a user."""
+    if not user_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="X-User-ID header required",
+        )
+    
+    org_uuid = UUID(organization_id) if organization_id else None
+    
+    devices = await registry.get_user_devices(
+        user_id=user_id,
+        organization_id=org_uuid,
+    )
+    
+    return DeviceListResponse(
+        devices=[
+            DeviceRegistrationResponse(
+                device_id=d.device_id,
+                registration_id=str(d.id),
+                organization_id=str(d.organization_id) if d.organization_id else None,
+                registered_at=d.created_at,
+            )
+            for d in devices
+        ],
+        total_count=len(devices),
+    )
+
+
+# =============================================================================
+# Push Challenge Endpoints (for testing and polling)
+# =============================================================================
+
+push_router = APIRouter(prefix="/api/push", tags=["push-notifications"])
+
+
+@push_router.get(
+    "/challenges",
+    response_model=ChallengeListResponse,
+    summary="Poll for pending push challenges",
+    description="""
+    Poll for pending push challenges for a device.
+    
+    Mobile wallets call this endpoint to check for pending authentication
+    or authorization challenges when push notifications are not available.
+    """,
+)
+async def get_pending_challenges(
+    device_id: Annotated[str, Query(description="Device ID to get challenges for")],
+    mock_adapter: Optional[MockNotificationAdapter] = Depends(get_mock_adapter),
+) -> ChallengeListResponse:
+    """Get pending challenges for a device."""
+    if not mock_adapter:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Push challenges endpoint only available in test mode",
+        )
+    
+    challenges = await mock_adapter.get_pending_challenges(device_id)
+    
+    return ChallengeListResponse(
+        challenges=[
+            PendingChallengeResponse(
+                challenge_id=c["challenge_id"],
+                title=c["data"].get("title", ""),
+                question=c["data"].get("question", ""),
+                nonce=c["data"].get("nonce", ""),
+                credential_id=c["data"].get("credential_id"),
+                data=c["data"].get("data", {}),
+                created_at=datetime.fromisoformat(c["created_at"]),
+                ttl_seconds=c.get("ttl_seconds", 120),
+            )
+            for c in challenges
+        ],
+        count=len(challenges),
+    )
+
+
+@push_router.post(
+    "/challenges/{challenge_id}/respond",
+    status_code=status.HTTP_200_OK,
+    summary="Respond to a push challenge",
+    description="""
+    Submit a response (accept/reject) to a push challenge.
+    
+    For 'accept' responses with a signature, the signature is verified against
+    the device's registered public key using RSA PKCS#1 SHA-256.
+    """,
+)
+async def respond_to_challenge(
+    challenge_id: Annotated[str, Path(description="Challenge ID to respond to")],
+    device_id: Annotated[str, Query(description="Device ID responding")],
+    request: ChallengeResponseRequest,
+    mock_adapter: Optional[MockNotificationAdapter] = Depends(get_mock_adapter),
+    registry: DeviceRegistry = Depends(get_device_registry),
+) -> dict[str, Any]:
+    """Respond to a push challenge."""
+    if not mock_adapter:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Push challenges endpoint only available in test mode",
+        )
+    
+    # Lookup device to get public key for signature verification
+    public_key_der = None
+    if request.signature:
+        try:
+            device = await registry.get_device_by_id(device_id)
+            if device and device.public_key_der and registry.is_key_valid(device):
+                public_key_der = device.public_key_der
+        except Exception as e:
+            logger.warning(f"Could not lookup device for signature verification: {e}")
+    
+    success, error = await mock_adapter.respond_to_challenge(
+        device_id=device_id,
+        challenge_id=challenge_id,
+        response=request.response,
+        signature=request.signature,
+        public_key_der=public_key_der,
+    )
+    
+    if not success:
+        if error == "Invalid signature":
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid challenge signature",
+            )
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=error or "Challenge not found or already responded",
+        )
+    
+    return {
+        "success": True,
+        "challenge_id": challenge_id,
+        "response": request.response,
+        "signature_verified": bool(public_key_der and request.signature),
+    }
+
+
+# =============================================================================
+# Test-Only Endpoints (only available in test mode)
+# =============================================================================
+
+test_router = APIRouter(prefix="/api/test/notifications", tags=["test-notifications"])
+
+
+@test_router.post(
+    "/challenges",
+    response_model=PushChallengeResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="[TEST] Create a push challenge",
+    description="Create a push challenge for testing. Only available in test mode.",
+)
+async def create_push_challenge(
+    device_id: Annotated[str, Query(description="Target device ID")],
+    request: PushChallengeRequest,
+    mock_adapter: Optional[MockNotificationAdapter] = Depends(get_mock_adapter),
+) -> PushChallengeResponse:
+    """Create a push challenge for testing."""
+    if not mock_adapter:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Test endpoints only available in test mode",
+        )
+    
+    challenge_data = {
+        "title": request.title,
+        "question": request.question,
+        "nonce": request.nonce,
+        "credential_id": request.credential_id,
+        "data": request.data,
+    }
+    
+    challenge_id = await mock_adapter.create_push_challenge(
+        device_id=device_id,
+        challenge_data=challenge_data,
+        ttl_seconds=request.ttl_seconds,
+    )
+    
+    now = datetime.now(timezone.utc)
+    
+    return PushChallengeResponse(
+        challenge_id=challenge_id,
+        device_id=device_id,
+        created_at=now,
+        expires_at=datetime.fromtimestamp(
+            now.timestamp() + request.ttl_seconds, tz=timezone.utc
+        ),
+    )
+
+
+@test_router.get(
+    "",
+    summary="[TEST] Get all stored notifications",
+    description="Retrieve all notifications stored by mock adapter. For test assertions.",
+)
+async def get_all_notifications(
+    limit: Annotated[int, Query(ge=1, le=100)] = 50,
+    event_type: Annotated[Optional[str], Query(description="Filter by event type")] = None,
+    mock_adapter: Optional[MockNotificationAdapter] = Depends(get_mock_adapter),
+) -> dict[str, Any]:
+    """Get all stored notifications."""
+    if not mock_adapter:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Test endpoints only available in test mode",
+        )
+    
+    if event_type:
+        notifications = await mock_adapter.get_notifications_by_event_type(
+            event_type=event_type,
+            limit=limit,
+        )
+    else:
+        notifications = await mock_adapter.get_all_notifications(limit=limit)
+    
+    return {
+        "notifications": notifications,
+        "count": len(notifications),
+    }
+
+
+@test_router.delete(
+    "",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="[TEST] Clear all stored notifications",
+    description="Clear all notifications from mock storage. For test cleanup.",
+)
+async def clear_all_notifications(
+    mock_adapter: Optional[MockNotificationAdapter] = Depends(get_mock_adapter),
+) -> None:
+    """Clear all stored notifications."""
+    if not mock_adapter:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Test endpoints only available in test mode",
+        )
+    
+    await mock_adapter.clear_all_notifications()
+
+
+@test_router.delete(
+    "/challenges",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="[TEST] Clear all push challenges",
+    description="Clear all push challenges from mock storage.",
+)
+async def clear_all_challenges(
+    device_id: Annotated[Optional[str], Query(description="Device ID to clear, or all if not specified")] = None,
+    mock_adapter: Optional[MockNotificationAdapter] = Depends(get_mock_adapter),
+) -> None:
+    """Clear push challenges."""
+    if not mock_adapter:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Test endpoints only available in test mode",
+        )
+    
+    await mock_adapter.clear_challenges(device_id=device_id)

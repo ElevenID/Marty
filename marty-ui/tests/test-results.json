@@ -1,0 +1,638 @@
+{
+  "config": {
+    "configFile": "/Users/adamburdett/Github/work/Marty/marty-ui/tests/playwright.config.js",
+    "rootDir": "/Users/adamburdett/Github/work/Marty/marty-ui/tests/e2e",
+    "forbidOnly": false,
+    "fullyParallel": true,
+    "globalSetup": "/Users/adamburdett/Github/work/Marty/marty-ui/tests/utils/global-setup.js",
+    "globalTeardown": "/Users/adamburdett/Github/work/Marty/marty-ui/tests/utils/global-teardown.js",
+    "globalTimeout": 0,
+    "grep": {},
+    "grepInvert": null,
+    "maxFailures": 0,
+    "metadata": {
+      "actualWorkers": 5
+    },
+    "preserveOutput": "always",
+    "reporter": [
+      [
+        "html",
+        null
+      ],
+      [
+        "json",
+        {
+          "outputFile": "test-results.json"
+        }
+      ],
+      [
+        "junit",
+        {
+          "outputFile": "test-results.xml"
+        }
+      ]
+    ],
+    "reportSlowTests": {
+      "max": 5,
+      "threshold": 300000
+    },
+    "quiet": false,
+    "projects": [
+      {
+        "outputDir": "/Users/adamburdett/Github/work/Marty/marty-ui/tests/test-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 5
+        },
+        "id": "chromium",
+        "name": "chromium",
+        "testDir": "/Users/adamburdett/Github/work/Marty/marty-ui/tests/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "**/*.@(spec|test).?(c|m)[jt]s?(x)"
+        ],
+        "timeout": 30000
+      },
+      {
+        "outputDir": "/Users/adamburdett/Github/work/Marty/marty-ui/tests/test-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 5
+        },
+        "id": "firefox",
+        "name": "firefox",
+        "testDir": "/Users/adamburdett/Github/work/Marty/marty-ui/tests/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "**/*.@(spec|test).?(c|m)[jt]s?(x)"
+        ],
+        "timeout": 30000
+      },
+      {
+        "outputDir": "/Users/adamburdett/Github/work/Marty/marty-ui/tests/test-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 5
+        },
+        "id": "webkit",
+        "name": "webkit",
+        "testDir": "/Users/adamburdett/Github/work/Marty/marty-ui/tests/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "**/*.@(spec|test).?(c|m)[jt]s?(x)"
+        ],
+        "timeout": 30000
+      },
+      {
+        "outputDir": "/Users/adamburdett/Github/work/Marty/marty-ui/tests/test-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 5
+        },
+        "id": "Mobile Chrome",
+        "name": "Mobile Chrome",
+        "testDir": "/Users/adamburdett/Github/work/Marty/marty-ui/tests/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "**/*.@(spec|test).?(c|m)[jt]s?(x)"
+        ],
+        "timeout": 30000
+      },
+      {
+        "outputDir": "/Users/adamburdett/Github/work/Marty/marty-ui/tests/test-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 5
+        },
+        "id": "Mobile Safari",
+        "name": "Mobile Safari",
+        "testDir": "/Users/adamburdett/Github/work/Marty/marty-ui/tests/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "**/*.@(spec|test).?(c|m)[jt]s?(x)"
+        ],
+        "timeout": 30000
+      }
+    ],
+    "shard": null,
+    "updateSnapshots": "missing",
+    "updateSourceMethod": "patch",
+    "version": "1.56.0",
+    "workers": 5,
+    "webServer": {
+      "command": "echo \"Demo should be running\"",
+      "url": "http://localhost:9080",
+      "reuseExistingServer": true,
+      "timeout": 120000
+    }
+  },
+  "suites": [
+    {
+      "title": "push-notifications/challenge-flow.spec.js",
+      "file": "push-notifications/challenge-flow.spec.js",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "Push Challenge Creation",
+          "file": "push-notifications/challenge-flow.spec.js",
+          "line": 19,
+          "column": 6,
+          "specs": [
+            {
+              "title": "can create a push challenge for a device",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 2912,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2025-12-20T01:45:46.663Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "850a4ee7582d8a7f8875-65b4728ac06987461455",
+              "file": "push-notifications/challenge-flow.spec.js",
+              "line": 44,
+              "column": 3
+            },
+            {
+              "title": "can poll for pending challenges",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 1,
+                      "parallelIndex": 1,
+                      "status": "passed",
+                      "duration": 2932,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2025-12-20T01:45:46.658Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "850a4ee7582d8a7f8875-47cb95776f507cd7916d",
+              "file": "push-notifications/challenge-flow.spec.js",
+              "line": 57,
+              "column": 3
+            },
+            {
+              "title": "can respond to a challenge with accept",
+              "ok": false,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 2,
+                      "parallelIndex": 2,
+                      "status": "failed",
+                      "duration": 2938,
+                      "error": {
+                        "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32mtrue\u001b[39m\nReceived: \u001b[31mundefined\u001b[39m",
+                        "stack": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32mtrue\u001b[39m\nReceived: \u001b[31mundefined\u001b[39m\n    at /Users/adamburdett/Github/work/Marty/marty-ui/tests/e2e/push-notifications/challenge-flow.spec.js:91:28",
+                        "location": {
+                          "file": "/Users/adamburdett/Github/work/Marty/marty-ui/tests/e2e/push-notifications/challenge-flow.spec.js",
+                          "column": 28,
+                          "line": 91
+                        },
+                        "snippet": "\u001b[0m \u001b[90m 89 |\u001b[39m     )\u001b[33m;\u001b[39m\n \u001b[90m 90 |\u001b[39m     \n\u001b[31m\u001b[1m>\u001b[22m\u001b[39m\u001b[90m 91 |\u001b[39m     expect(result\u001b[33m.\u001b[39msuccess)\u001b[33m.\u001b[39mtoBe(\u001b[36mtrue\u001b[39m)\u001b[33m;\u001b[39m\n \u001b[90m    |\u001b[39m                            \u001b[31m\u001b[1m^\u001b[22m\u001b[39m\n \u001b[90m 92 |\u001b[39m     expect(result\u001b[33m.\u001b[39mresponse)\u001b[33m.\u001b[39mtoBe(\u001b[32m'accept'\u001b[39m)\u001b[33m;\u001b[39m\n \u001b[90m 93 |\u001b[39m     \n \u001b[90m 94 |\u001b[39m     \u001b[90m// Challenge should no longer be pending\u001b[39m\u001b[0m"
+                      },
+                      "errors": [
+                        {
+                          "location": {
+                            "file": "/Users/adamburdett/Github/work/Marty/marty-ui/tests/e2e/push-notifications/challenge-flow.spec.js",
+                            "column": 28,
+                            "line": 91
+                          },
+                          "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32mtrue\u001b[39m\nReceived: \u001b[31mundefined\u001b[39m\n\n\u001b[0m \u001b[90m 89 |\u001b[39m     )\u001b[33m;\u001b[39m\n \u001b[90m 90 |\u001b[39m     \n\u001b[31m\u001b[1m>\u001b[22m\u001b[39m\u001b[90m 91 |\u001b[39m     expect(result\u001b[33m.\u001b[39msuccess)\u001b[33m.\u001b[39mtoBe(\u001b[36mtrue\u001b[39m)\u001b[33m;\u001b[39m\n \u001b[90m    |\u001b[39m                            \u001b[31m\u001b[1m^\u001b[22m\u001b[39m\n \u001b[90m 92 |\u001b[39m     expect(result\u001b[33m.\u001b[39mresponse)\u001b[33m.\u001b[39mtoBe(\u001b[32m'accept'\u001b[39m)\u001b[33m;\u001b[39m\n \u001b[90m 93 |\u001b[39m     \n \u001b[90m 94 |\u001b[39m     \u001b[90m// Challenge should no longer be pending\u001b[39m\u001b[0m\n\u001b[2m    at /Users/adamburdett/Github/work/Marty/marty-ui/tests/e2e/push-notifications/challenge-flow.spec.js:91:28\u001b[22m"
+                        }
+                      ],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2025-12-20T01:45:46.663Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "screenshot",
+                          "contentType": "image/png",
+                          "path": "/Users/adamburdett/Github/work/Marty/marty-ui/tests/test-results/push-notifications-challen-0fe93--to-a-challenge-with-accept-chromium/test-failed-1.png"
+                        },
+                        {
+                          "name": "video",
+                          "contentType": "video/webm",
+                          "path": "/Users/adamburdett/Github/work/Marty/marty-ui/tests/test-results/push-notifications-challen-0fe93--to-a-challenge-with-accept-chromium/video.webm"
+                        },
+                        {
+                          "name": "error-context",
+                          "contentType": "text/markdown",
+                          "path": "/Users/adamburdett/Github/work/Marty/marty-ui/tests/test-results/push-notifications-challen-0fe93--to-a-challenge-with-accept-chromium/error-context.md"
+                        }
+                      ],
+                      "errorLocation": {
+                        "file": "/Users/adamburdett/Github/work/Marty/marty-ui/tests/e2e/push-notifications/challenge-flow.spec.js",
+                        "column": 28,
+                        "line": 91
+                      }
+                    }
+                  ],
+                  "status": "unexpected"
+                }
+              ],
+              "id": "850a4ee7582d8a7f8875-c66ae92b2f1c846eff2a",
+              "file": "push-notifications/challenge-flow.spec.js",
+              "line": 73,
+              "column": 3
+            },
+            {
+              "title": "can respond to a challenge with reject",
+              "ok": false,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 3,
+                      "parallelIndex": 3,
+                      "status": "failed",
+                      "duration": 2978,
+                      "error": {
+                        "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32mtrue\u001b[39m\nReceived: \u001b[31mundefined\u001b[39m",
+                        "stack": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32mtrue\u001b[39m\nReceived: \u001b[31mundefined\u001b[39m\n    at /Users/adamburdett/Github/work/Marty/marty-ui/tests/e2e/push-notifications/challenge-flow.spec.js:116:28",
+                        "location": {
+                          "file": "/Users/adamburdett/Github/work/Marty/marty-ui/tests/e2e/push-notifications/challenge-flow.spec.js",
+                          "column": 28,
+                          "line": 116
+                        },
+                        "snippet": "\u001b[0m \u001b[90m 114 |\u001b[39m     )\u001b[33m;\u001b[39m\n \u001b[90m 115 |\u001b[39m     \n\u001b[31m\u001b[1m>\u001b[22m\u001b[39m\u001b[90m 116 |\u001b[39m     expect(result\u001b[33m.\u001b[39msuccess)\u001b[33m.\u001b[39mtoBe(\u001b[36mtrue\u001b[39m)\u001b[33m;\u001b[39m\n \u001b[90m     |\u001b[39m                            \u001b[31m\u001b[1m^\u001b[22m\u001b[39m\n \u001b[90m 117 |\u001b[39m     expect(result\u001b[33m.\u001b[39mresponse)\u001b[33m.\u001b[39mtoBe(\u001b[32m'reject'\u001b[39m)\u001b[33m;\u001b[39m\n \u001b[90m 118 |\u001b[39m   })\u001b[33m;\u001b[39m\n \u001b[90m 119 |\u001b[39m\u001b[0m"
+                      },
+                      "errors": [
+                        {
+                          "location": {
+                            "file": "/Users/adamburdett/Github/work/Marty/marty-ui/tests/e2e/push-notifications/challenge-flow.spec.js",
+                            "column": 28,
+                            "line": 116
+                          },
+                          "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32mtrue\u001b[39m\nReceived: \u001b[31mundefined\u001b[39m\n\n\u001b[0m \u001b[90m 114 |\u001b[39m     )\u001b[33m;\u001b[39m\n \u001b[90m 115 |\u001b[39m     \n\u001b[31m\u001b[1m>\u001b[22m\u001b[39m\u001b[90m 116 |\u001b[39m     expect(result\u001b[33m.\u001b[39msuccess)\u001b[33m.\u001b[39mtoBe(\u001b[36mtrue\u001b[39m)\u001b[33m;\u001b[39m\n \u001b[90m     |\u001b[39m                            \u001b[31m\u001b[1m^\u001b[22m\u001b[39m\n \u001b[90m 117 |\u001b[39m     expect(result\u001b[33m.\u001b[39mresponse)\u001b[33m.\u001b[39mtoBe(\u001b[32m'reject'\u001b[39m)\u001b[33m;\u001b[39m\n \u001b[90m 118 |\u001b[39m   })\u001b[33m;\u001b[39m\n \u001b[90m 119 |\u001b[39m\u001b[0m\n\u001b[2m    at /Users/adamburdett/Github/work/Marty/marty-ui/tests/e2e/push-notifications/challenge-flow.spec.js:116:28\u001b[22m"
+                        }
+                      ],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2025-12-20T01:45:46.665Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "screenshot",
+                          "contentType": "image/png",
+                          "path": "/Users/adamburdett/Github/work/Marty/marty-ui/tests/test-results/push-notifications-challen-57117--to-a-challenge-with-reject-chromium/test-failed-1.png"
+                        },
+                        {
+                          "name": "video",
+                          "contentType": "video/webm",
+                          "path": "/Users/adamburdett/Github/work/Marty/marty-ui/tests/test-results/push-notifications-challen-57117--to-a-challenge-with-reject-chromium/video.webm"
+                        },
+                        {
+                          "name": "error-context",
+                          "contentType": "text/markdown",
+                          "path": "/Users/adamburdett/Github/work/Marty/marty-ui/tests/test-results/push-notifications-challen-57117--to-a-challenge-with-reject-chromium/error-context.md"
+                        }
+                      ],
+                      "errorLocation": {
+                        "file": "/Users/adamburdett/Github/work/Marty/marty-ui/tests/e2e/push-notifications/challenge-flow.spec.js",
+                        "column": 28,
+                        "line": 116
+                      }
+                    }
+                  ],
+                  "status": "unexpected"
+                }
+              ],
+              "id": "850a4ee7582d8a7f8875-7c70af1e215960d79e00",
+              "file": "push-notifications/challenge-flow.spec.js",
+              "line": 99,
+              "column": 3
+            },
+            {
+              "title": "expired challenges are not returned",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 4,
+                      "parallelIndex": 4,
+                      "status": "passed",
+                      "duration": 5053,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2025-12-20T01:45:46.664Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "850a4ee7582d8a7f8875-19fc739089384b68f97c",
+              "file": "push-notifications/challenge-flow.spec.js",
+              "line": 120,
+              "column": 3
+            },
+            {
+              "title": "multiple challenges can be pending simultaneously",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 1303,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2025-12-20T01:45:49.972Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "850a4ee7582d8a7f8875-862cc198a676756c85c9",
+              "file": "push-notifications/challenge-flow.spec.js",
+              "line": 139,
+              "column": 3
+            }
+          ]
+        },
+        {
+          "title": "Push Challenge with Credential Operations",
+          "file": "push-notifications/challenge-flow.spec.js",
+          "line": 162,
+          "column": 6,
+          "specs": [
+            {
+              "title": "challenge can reference a credential ID",
+              "ok": false,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 1,
+                      "parallelIndex": 1,
+                      "status": "failed",
+                      "duration": 1247,
+                      "error": {
+                        "message": "TypeError: Cannot read properties of undefined (reading 'verifier')",
+                        "stack": "TypeError: Cannot read properties of undefined (reading 'verifier')\n    at /Users/adamburdett/Github/work/Marty/marty-ui/tests/e2e/push-notifications/challenge-flow.spec.js:209:23",
+                        "location": {
+                          "file": "/Users/adamburdett/Github/work/Marty/marty-ui/tests/e2e/push-notifications/challenge-flow.spec.js",
+                          "column": 23,
+                          "line": 209
+                        },
+                        "snippet": "\u001b[0m \u001b[90m 207 |\u001b[39m     expect(found)\u001b[33m.\u001b[39mtoBeTruthy()\u001b[33m;\u001b[39m\n \u001b[90m 208 |\u001b[39m     expect(found\u001b[33m.\u001b[39mcredential_id)\u001b[33m.\u001b[39mtoBe(credentialId)\u001b[33m;\u001b[39m\n\u001b[31m\u001b[1m>\u001b[22m\u001b[39m\u001b[90m 209 |\u001b[39m     expect(found\u001b[33m.\u001b[39mdata\u001b[33m.\u001b[39mverifier)\u001b[33m.\u001b[39mtoBe(\u001b[32m'Border Control'\u001b[39m)\u001b[33m;\u001b[39m\n \u001b[90m     |\u001b[39m                       \u001b[31m\u001b[1m^\u001b[22m\u001b[39m\n \u001b[90m 210 |\u001b[39m   })\u001b[33m;\u001b[39m\n \u001b[90m 211 |\u001b[39m })\u001b[33m;\u001b[39m\n \u001b[90m 212 |\u001b[39m\u001b[0m"
+                      },
+                      "errors": [
+                        {
+                          "location": {
+                            "file": "/Users/adamburdett/Github/work/Marty/marty-ui/tests/e2e/push-notifications/challenge-flow.spec.js",
+                            "column": 23,
+                            "line": 209
+                          },
+                          "message": "TypeError: Cannot read properties of undefined (reading 'verifier')\n\n\u001b[0m \u001b[90m 207 |\u001b[39m     expect(found)\u001b[33m.\u001b[39mtoBeTruthy()\u001b[33m;\u001b[39m\n \u001b[90m 208 |\u001b[39m     expect(found\u001b[33m.\u001b[39mcredential_id)\u001b[33m.\u001b[39mtoBe(credentialId)\u001b[33m;\u001b[39m\n\u001b[31m\u001b[1m>\u001b[22m\u001b[39m\u001b[90m 209 |\u001b[39m     expect(found\u001b[33m.\u001b[39mdata\u001b[33m.\u001b[39mverifier)\u001b[33m.\u001b[39mtoBe(\u001b[32m'Border Control'\u001b[39m)\u001b[33m;\u001b[39m\n \u001b[90m     |\u001b[39m                       \u001b[31m\u001b[1m^\u001b[22m\u001b[39m\n \u001b[90m 210 |\u001b[39m   })\u001b[33m;\u001b[39m\n \u001b[90m 211 |\u001b[39m })\u001b[33m;\u001b[39m\n \u001b[90m 212 |\u001b[39m\u001b[0m\n\u001b[2m    at /Users/adamburdett/Github/work/Marty/marty-ui/tests/e2e/push-notifications/challenge-flow.spec.js:209:23\u001b[22m"
+                        }
+                      ],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2025-12-20T01:45:49.991Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "screenshot",
+                          "contentType": "image/png",
+                          "path": "/Users/adamburdett/Github/work/Marty/marty-ui/tests/test-results/push-notifications-challen-b645f-n-reference-a-credential-ID-chromium/test-failed-1.png"
+                        },
+                        {
+                          "name": "video",
+                          "contentType": "video/webm",
+                          "path": "/Users/adamburdett/Github/work/Marty/marty-ui/tests/test-results/push-notifications-challen-b645f-n-reference-a-credential-ID-chromium/video.webm"
+                        },
+                        {
+                          "name": "error-context",
+                          "contentType": "text/markdown",
+                          "path": "/Users/adamburdett/Github/work/Marty/marty-ui/tests/test-results/push-notifications-challen-b645f-n-reference-a-credential-ID-chromium/error-context.md"
+                        }
+                      ],
+                      "errorLocation": {
+                        "file": "/Users/adamburdett/Github/work/Marty/marty-ui/tests/e2e/push-notifications/challenge-flow.spec.js",
+                        "column": 23,
+                        "line": 209
+                      }
+                    }
+                  ],
+                  "status": "unexpected"
+                }
+              ],
+              "id": "850a4ee7582d8a7f8875-30b726d00a0f1a6ea48a",
+              "file": "push-notifications/challenge-flow.spec.js",
+              "line": 186,
+              "column": 3
+            }
+          ]
+        },
+        {
+          "title": "Mock Notification Storage",
+          "file": "push-notifications/challenge-flow.spec.js",
+          "line": 213,
+          "column": 6,
+          "specs": [
+            {
+              "title": "can retrieve stored notifications",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 5,
+                      "parallelIndex": 2,
+                      "status": "passed",
+                      "duration": 188,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2025-12-20T01:45:50.574Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "850a4ee7582d8a7f8875-f60229debdd56e64164f",
+              "file": "push-notifications/challenge-flow.spec.js",
+              "line": 221,
+              "column": 3
+            },
+            {
+              "title": "can filter notifications by event type",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 6,
+                      "parallelIndex": 3,
+                      "status": "passed",
+                      "duration": 203,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2025-12-20T01:45:50.600Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "850a4ee7582d8a7f8875-062306b5e876c69a5cb7",
+              "file": "push-notifications/challenge-flow.spec.js",
+              "line": 231,
+              "column": 3
+            },
+            {
+              "title": "can clear all notifications",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 5,
+                      "parallelIndex": 2,
+                      "status": "passed",
+                      "duration": 101,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2025-12-20T01:45:50.938Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "850a4ee7582d8a7f8875-78c8589521fe73d2d486",
+              "file": "push-notifications/challenge-flow.spec.js",
+              "line": 241,
+              "column": 3
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "errors": [],
+  "stats": {
+    "startTime": "2025-12-20T01:45:46.000Z",
+    "duration": 6142.929,
+    "expected": 7,
+    "skipped": 0,
+    "unexpected": 3,
+    "flaky": 0
+  }
+}

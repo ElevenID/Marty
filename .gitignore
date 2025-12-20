@@ -30,8 +30,13 @@ env/
 venv/
 
 # Test data (scraped/sensitive data should not be tracked)
+tests/data/
+!tests/data/.gitkeep
 tests/scraped_data/
-tests/data/scraped/
+tests/generated_data/
+tests/test_data_mock_csca/
+tests/test_data_csca_standalone/
+tests/**/test_data*/
 **/scraped_data/
 ENV/
 env.bak/
@@ -48,6 +53,16 @@ venv.bak/
 .DS_Store
 .DS_Store?
 ._*
+
+# Framework (local development)
+marty-microservices-framework/
+
+# Node.js
+node_modules/
+
+# Rust build artifacts
+target/
+
 .Spotlight-V100
 .Trashes
 ehthumbs.db

@@ -1,0 +1,18 @@
+{
+  "schema_version": "1.0.0",
+  "description": "Bundled IACA (Issuing Authority Certificate Authority) certificates for mDL verification",
+  "source": "AAMVA VICAL / State DOT publications",
+  "last_updated": null,
+  "vical_version": null,
+  "vical_sequence": null,
+  "notes": [
+    "These are interim certificates for development and testing.",
+    "For production, obtain official IACA certificates via AAMVA DTS API.",
+    "To obtain AAMVA DTS access:",
+    "1. Apply for AAMVA membership at https://aamva.org/membership (2-4 weeks)",
+    "2. Request DTS API access through the AAMVA member portal",
+    "3. Receive OAuth2 credentials and configure backend secrets"
+  ],
+  "jurisdictions": [],
+  "certificates": []
+}

@@ -72,6 +72,88 @@ roles:
       - resource: "*/metrics"
         action: "read"
 
+  # Administrator role - users who manage travel document creation
+  administrator:
+    description: "Travel document administrators - manage document creation and applicant vetting"
+    allowed_actions:
+      - document:create
+      - document:read
+      - document:update
+      - document:sign
+      - document:verify
+      - document:revoke
+      - applicant:read
+      - applicant:update
+      - applicant:vet
+      - application:read
+      - application:update
+      - application:approve
+      - application:reject
+      - vetting:create
+      - vetting:read
+      - vetting:update
+      - biometric:enroll
+      - biometric:verify
+      - kyc:review
+      - kyc:approve
+      - kyc:reject
+    allowed_resources:
+      - documents
+      - applicants
+      - applications
+      - vetting
+      - biometrics
+      - kyc
+    permissions:
+      - resource: "documents/*"
+        action: "*"
+      - resource: "applicants/*"
+        action: "*"
+      - resource: "applications/*"
+        action: "*"
+      - resource: "vetting/*"
+        action: "*"
+      - resource: "biometrics/*"
+        action: "*"
+      - resource: "kyc/*"
+        action: "*"
+
+  # Applicant role - citizens seeking travel documents
+  applicant:
+    description: "Travel document applicants - citizens seeking to obtain travel documents"
+    allowed_actions:
+      - application:create
+      - application:view_own
+      - application:update_own
+      - application:cancel_own
+      - document:view_own
+      - kyc:submit
+      - profile:view_own
+      - profile:update_own
+    allowed_resources:
+      - own_applications
+      - own_documents
+      - own_profile
+      - kyc_submission
+    permissions:
+      # Applicants can only access their own resources (scoped by user_id)
+      - resource: "applications/{user_id}/*"
+        action: "read"
+      - resource: "applications/{user_id}/*"
+        action: "create"
+      - resource: "applications/{user_id}/*"
+        action: "update"
+      - resource: "documents/{user_id}/*"
+        action: "read"
+      - resource: "profile/{user_id}"
+        action: "read"
+      - resource: "profile/{user_id}"
+        action: "update"
+      - resource: "kyc/{user_id}/*"
+        action: "create"
+      - resource: "kyc/{user_id}/*"
+        action: "read"
+
 # Policy definitions
 policies:
   # Anonymous access policy

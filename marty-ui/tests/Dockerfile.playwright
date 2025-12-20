@@ -1,0 +1,26 @@
+# Playwright Test Runner Dockerfile
+# Runs E2E tests inside Docker network for consistent CI/CD execution
+
+FROM mcr.microsoft.com/playwright:v1.40.0-jammy
+
+WORKDIR /tests
+
+# Copy package files first for better layer caching
+COPY package*.json ./
+
+# Install dependencies
+RUN npm ci
+
+# Copy test files
+COPY . .
+
+# Set environment variables for containerized execution
+ENV CI=true
+ENV TEST_PROVIDER=mailhog
+ENV MAILHOG_URL=http://mailhog:8025
+ENV BASE_URL=http://ui:80
+ENV API_URL=http://oid4vc-api:8000
+ENV KEYCLOAK_URL=http://keycloak:8080
+
+# Default command runs all tests
+CMD ["npx", "playwright", "test", "--reporter=list"]

@@ -1,1 +1,0 @@
-{"certificate_id": "f327da12-c64d-4cba-b389-9e3bae6b102c", "subject": "CN=Expiring CSCA 142c9a15, O=Mock Test", "status": "VALID", "not_before": "2025-05-12T04:33:42.523808+00:00", "not_after": "2025-05-22T04:33:42.523808+00:00", "certificate_data": "MOCK_CERTIFICATE_FOR_CN=Expiring CSCA 142c9a15, O=Mock Test", "key_algorithm": "RSA", "key_size": 2048}

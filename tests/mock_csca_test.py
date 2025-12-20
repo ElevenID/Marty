@@ -113,7 +113,7 @@ class MockCscaService:
         """Initialize the service with test data."""
         self.certificates = {}
         self.revoked_certificates = {}
-        self.test_dir = os.path.join(os.path.dirname(__file__), "test_data_mock_csca")
+        self.test_dir = os.path.join(os.path.dirname(__file__), "data", "mock_csca")
         os.makedirs(self.test_dir, exist_ok=True)
         logger.info(f"Initialized MockCscaService with test directory: {self.test_dir}")
 

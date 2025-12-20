@@ -1,0 +1,200 @@
+import React, { useMemo } from 'react';
+import { Tabs, Tab, Box, Button, Typography, Avatar, Chip, Tooltip } from '@mui/material';
+import { Link, useLocation } from 'react-router-dom';
+import { useAuth } from '../hooks/useAuth';
+import LoginIcon from '@mui/icons-material/Login';
+import LogoutIcon from '@mui/icons-material/Logout';
+import AdminPanelSettingsIcon from '@mui/icons-material/AdminPanelSettings';
+import PersonIcon from '@mui/icons-material/Person';
+import BusinessIcon from '@mui/icons-material/Business';
+import StorefrontIcon from '@mui/icons-material/Storefront';
+
+/**
+ * Administrator navigation tabs
+ */
+const ADMIN_TABS = [
+  { label: 'Dashboard', path: '/dashboard', exact: true },
+  { label: 'Travel Docs', path: '/documents' },
+  { label: 'Applicants', path: '/applicants' },
+  { label: 'Verify', path: '/verifier' },
+  { label: 'Wallet', path: '/wallet' },
+  { label: 'Advanced', path: '/enhanced' },
+  { label: 'Admin', path: '/admin', prefixes: ['/admin'] },
+];
+
+/**
+ * Vendor navigation tabs
+ */
+const VENDOR_TABS = [
+  { label: 'Dashboard', path: '/vendor', exact: true },
+  { label: 'API Keys', path: '/vendor/api-keys' },
+  { label: 'Applicants', path: '/vendor/applicants' },
+  { label: 'Credentials', path: '/vendor/credentials' },
+  { label: 'Invitations', path: '/vendor/invitations' },
+  { label: 'Settings', path: '/vendor/settings', prefixes: ['/vendor/settings'] },
+];
+
+/**
+ * Applicant navigation tabs
+ */
+const APPLICANT_TABS = [
+  { label: 'Credentials', path: '/credentials', exact: true },
+  { label: 'My Applications', path: '/my-applications' },
+  { label: 'My Documents', path: '/my-documents' },
+  { label: 'Profile', path: '/profile' },
+];
+
+/**
+ * Public navigation tabs (not logged in)
+ * Only show Home - the Login button in the nav bar handles authentication
+ */
+const PUBLIC_TABS = [
+  { label: 'Home', path: '/', exact: true },
+];
+
+function Navigation() {
+  const location = useLocation();
+  const { isAuthenticated, isAdministrator, isApplicant, isVendor, organizationName, user, login, logout } = useAuth();
+
+  // Select tabs based on user type
+  const tabs = useMemo(() => {
+    if (!isAuthenticated) return PUBLIC_TABS;
+    if (isAdministrator) return ADMIN_TABS;
+    if (isVendor) return VENDOR_TABS;
+    if (isApplicant) return APPLICANT_TABS;
+    return PUBLIC_TABS;
+  }, [isAuthenticated, isAdministrator, isVendor, isApplicant]);
+
+  // Find current tab index
+  const getCurrentTab = () => {
+    const path = location.pathname;
+
+    for (let i = 0; i < tabs.length; i++) {
+      const tab = tabs[i];
+
+      // Exact match
+      if (tab.exact && path === tab.path) return i;
+
+      // Prefix match (for nested routes like /admin/*)
+      if (tab.prefixes) {
+        if (tab.prefixes.some((prefix) => path.startsWith(prefix))) return i;
+      }
+
+      // Non-exact path match
+      if (!tab.exact && path === tab.path) return i;
+    }
+
+    return 0; // Default to first tab
+  };
+
+  // Get user display info
+  const getUserDisplayName = () => {
+    if (!user) return '';
+    return user.name || user.email || 'User';
+  };
+
+  const getUserTypeLabel = () => {
+    if (isAdministrator) return 'Administrator';
+    if (isVendor) return 'Vendor';
+    if (isApplicant) return 'Applicant';
+    return 'User';
+  };
+
+  const getUserTypeColor = () => {
+    if (isAdministrator) return 'primary';
+    if (isVendor) return 'secondary';
+    if (isApplicant) return 'info';
+    return 'default';
+  };
+
+  const getUserTypeIcon = () => {
+    if (isAdministrator) return <AdminPanelSettingsIcon />;
+    if (isVendor) return <StorefrontIcon />;
+    return <PersonIcon />;
+  };
+
+  return (
+    <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 3 }}>
+      <Box
+        sx={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          px: 2,
+          py: 1,
+        }}
+      >
+        {/* Navigation Tabs */}
+        <Tabs value={getCurrentTab()} aria-label="navigation">
+          {tabs.map((tab, index) => (
+            <Tab key={tab.path} label={tab.label} component={Link} to={tab.path} />
+          ))}
+        </Tabs>
+
+        {/* User Info & Auth Actions */}
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+          {isAuthenticated ? (
+            <>
+              {/* Organization Badge (for vendors) */}
+              {isVendor && organizationName && (
+                <Tooltip title="Your Organization">
+                  <Chip
+                    icon={<BusinessIcon />}
+                    label={organizationName}
+                    size="small"
+                    variant="filled"
+                    color="default"
+                    sx={{ mr: 1 }}
+                  />
+                </Tooltip>
+              )}
+
+              {/* User Type Badge */}
+              <Chip
+                icon={getUserTypeIcon()}
+                label={getUserTypeLabel()}
+                color={getUserTypeColor()}
+                size="small"
+                variant="outlined"
+              />
+
+              {/* User Avatar & Name */}
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                <Avatar sx={{ width: 32, height: 32, bgcolor: 'primary.main' }}>
+                  {getUserDisplayName().charAt(0).toUpperCase()}
+                </Avatar>
+                <Typography variant="body2" color="textSecondary">
+                  {getUserDisplayName()}
+                </Typography>
+              </Box>
+
+              {/* Logout Button */}
+              <Button
+                variant="outlined"
+                size="small"
+                startIcon={<LogoutIcon />}
+                onClick={logout}
+                color="inherit"
+              >
+                Logout
+              </Button>
+            </>
+          ) : (
+            /* Login Button */
+            <Button
+              variant="contained"
+              size="small"
+              startIcon={<LoginIcon />}
+              onClick={login}
+              color="primary"
+            >
+              Login
+            </Button>
+          )}
+        </Box>
+      </Box>
+    </Box>
+  );
+}
+
+export default Navigation;

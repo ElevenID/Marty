@@ -194,13 +194,13 @@ class CertificateParser:
     def extract_certificate_info(cert: x509.Certificate) -> dict[str, Any]:
         """Extract relevant information from a certificate."""
         try:
-            # Basic certificate info
+            # Basic certificate info - use UTC-aware attributes
             info = {
                 "subject": cert.subject.rfc4514_string(),
                 "issuer": cert.issuer.rfc4514_string(),
                 "serial_number": str(cert.serial_number),
-                "not_before": cert.not_valid_before.isoformat(),
-                "not_after": cert.not_valid_after.isoformat(),
+                "not_before": cert.not_valid_before_utc.isoformat().replace("+00:00", "Z"),
+                "not_after": cert.not_valid_after_utc.isoformat().replace("+00:00", "Z"),
                 "signature_algorithm": cert.signature_algorithm_oid._name,
             }
 

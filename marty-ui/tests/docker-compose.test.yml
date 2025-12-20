@@ -1,0 +1,297 @@
+# Test environment for E2E testing
+# Usage: docker-compose -f docker-compose.test.yml up -d
+# Run tests: docker compose -f docker-compose.test.yml --profile test up playwright
+
+services:
+  # =============================================================================
+  # Core Application Services (Test Mode)
+  # =============================================================================
+  oid4vc-api:
+    build:
+      context: ../..
+      dockerfile: marty-ui/docker/api.Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      - ADAPTER_MODE=${ADAPTER_MODE:-spruceid}
+      - STORAGE_MODE=${STORAGE_MODE:-memory}
+      - TEST_MODE=true
+      - ENABLE_TEST_ENDPOINTS=true
+      # Use mock notification adapter for testing
+      - NOTIFICATION_ADAPTER=mock
+      # Authentication Configuration
+      - OIDC_ISSUER_URL=http://localhost:8180/realms/marty
+      - OIDC_BACKEND_ISSUER_URL=http://keycloak:8080/realms/marty
+      - OIDC_CLIENT_ID=marty-ui
+      - OIDC_REDIRECT_URI=http://localhost:9080/auth/callback
+      - OIDC_POST_LOGOUT_REDIRECT_URI=http://localhost:9080
+      # Redis Configuration
+      - REDIS_URL=redis://redis:6379/0
+      - SESSION_SECRET=test-session-secret-for-e2e
+      # Cookie Configuration (test defaults)
+      - COOKIE_SECURE=false
+      - COOKIE_SAMESITE=lax
+      # Database Configuration
+      - APPLICANT_DB_URL=postgresql+asyncpg://marty:marty@applicant-db:5432/marty_applicants
+    volumes:
+      - ../src:/app/src
+      - ../../marty-microservices-framework:/app/marty-microservices-framework
+    depends_on:
+      keycloak:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      applicant-db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 20s
+
+  ui:
+    build:
+      context: ..
+      dockerfile: docker/ui.Dockerfile
+      args:
+        NGINX_CONFIG: nginx.dev.conf
+    ports:
+      - "9080:80"
+    environment:
+      - REACT_APP_API_URL=http://localhost:8000
+      - REACT_APP_KEYCLOAK_URL=http://localhost:8180
+      - REACT_APP_KEYCLOAK_REALM=marty
+      - REACT_APP_KEYCLOAK_CLIENT_ID=marty-ui
+      - REACT_APP_TEST_MODE=true
+    depends_on:
+      oid4vc-api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:80"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  # =============================================================================
+  # Authentication (Keycloak with seeded test users)
+  # =============================================================================
+  keycloak:
+    image: quay.io/keycloak/keycloak:25.0
+    command:
+      - start-dev
+      - --import-realm
+      - --features=organization
+    ports:
+      - "8180:8080"
+    environment:
+      - KEYCLOAK_ADMIN=admin
+      - KEYCLOAK_ADMIN_PASSWORD=admin
+      - KC_DB=postgres
+      - KC_DB_URL=jdbc:postgresql://keycloak-db:5432/keycloak
+      - KC_DB_USERNAME=keycloak
+      - KC_DB_PASSWORD=keycloak
+      - KC_HEALTH_ENABLED=true
+      - KC_METRICS_ENABLED=true
+      # SMTP Configuration (MailHog for testing)
+      - KC_SPI_EMAIL_SENDER=default
+      - KC_SPI_EMAIL_SENDER_DEFAULT_HOST=mailhog
+      - KC_SPI_EMAIL_SENDER_DEFAULT_PORT=1025
+      - KC_SPI_EMAIL_SENDER_DEFAULT_FROM=noreply@marty.demo
+      - KC_SPI_EMAIL_SENDER_DEFAULT_FROM_DISPLAY_NAME=Marty Trust Services
+      # Demo Admin user
+      - DEMO_ADMIN_EMAIL=admin@marty.demo
+      - DEMO_ADMIN_FIRST_NAME=Admin
+      - DEMO_ADMIN_LAST_NAME=User
+      - DEMO_ADMIN_PASSWORD=Admin123!
+      # Demo Vendor user
+      - DEMO_VENDOR_EMAIL=vendor@marty.demo
+      - DEMO_VENDOR_FIRST_NAME=Vendor
+      - DEMO_VENDOR_LAST_NAME=Admin
+      - DEMO_VENDOR_PASSWORD=Vendor123!
+      # Demo Applicant shared password
+      - DEMO_APPLICANT_PASSWORD=Applicant123!
+      # Demo Applicant 1
+      - DEMO_APPLICANT1_EMAIL=john.doe@marty.demo
+      - DEMO_APPLICANT1_FIRST_NAME=John
+      - DEMO_APPLICANT1_LAST_NAME=Doe
+      - DEMO_APPLICANT1_NATIONALITY=USA
+      - DEMO_APPLICANT1_DOB=1985-03-15
+      # Demo Applicant 2
+      - DEMO_APPLICANT2_EMAIL=jane.smith@marty.demo
+      - DEMO_APPLICANT2_FIRST_NAME=Jane
+      - DEMO_APPLICANT2_LAST_NAME=Smith
+      - DEMO_APPLICANT2_NATIONALITY=GBR
+      - DEMO_APPLICANT2_DOB=1990-07-22
+      # Demo Applicant 3
+      - DEMO_APPLICANT3_EMAIL=carlos.garcia@marty.demo
+      - DEMO_APPLICANT3_FIRST_NAME=Carlos
+      - DEMO_APPLICANT3_LAST_NAME=Garcia
+      - DEMO_APPLICANT3_NATIONALITY=ESP
+      - DEMO_APPLICANT3_DOB=1978-11-08
+    volumes:
+      - ../config/keycloak:/opt/keycloak/data/import:ro
+      - ../config/keycloak/themes/marty:/opt/keycloak/themes/marty:ro
+    depends_on:
+      keycloak-db:
+        condition: service_healthy
+      mailhog:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/localhost/9000 && echo -e 'GET /health/ready HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3 && cat <&3 | grep -q '200 OK'"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 30s
+
+  # =============================================================================
+  # Email Testing (MailHog)
+  # =============================================================================
+  mailhog:
+    image: mailhog/mailhog:latest
+    ports:
+      - "8025:8025"  # Web UI
+      - "1025:1025"  # SMTP
+    environment:
+      - MH_STORAGE=memory
+      - MH_UI_WEB_PATH=/
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8025"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+
+  # =============================================================================
+  # Databases
+  # =============================================================================
+  keycloak-db:
+    image: postgres:15-alpine
+    environment:
+      - POSTGRES_DB=keycloak
+      - POSTGRES_USER=keycloak
+      - POSTGRES_PASSWORD=keycloak
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U keycloak -d keycloak"]
+      interval: 3s
+      timeout: 3s
+      retries: 5
+
+  applicant-db:
+    image: postgres:15-alpine
+    environment:
+      - POSTGRES_DB=marty_applicants
+      - POSTGRES_USER=marty
+      - POSTGRES_PASSWORD=marty
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U marty -d marty_applicants"]
+      interval: 3s
+      timeout: 3s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly no --maxmemory 64mb --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 5
+
+  # =============================================================================
+  # Mobile Wallet Simulator (Flutter Web - for E2E testing)
+  # =============================================================================
+  wallet-simulator:
+    build:
+      context: ../../../marty-authenticator
+      dockerfile: docker/Dockerfile.flutter.web.test
+    ports:
+      - "9081:80"
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:80"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    environment:
+      - TEST_MODE=true
+      - MARTY_API_URL=http://oid4vc-api:8000
+    depends_on:
+      oid4vc-api:
+        condition: service_healthy
+
+  # =============================================================================
+  # Playwright Test Runner (Containerized E2E Tests)
+  # =============================================================================
+  playwright:
+    build:
+      context: .
+      dockerfile: Dockerfile.playwright
+    environment:
+      - CI=true
+      - TEST_PROVIDER=mailhog
+      - MAILHOG_URL=http://mailhog:8025
+      - BASE_URL=http://ui:80
+      - API_URL=http://oid4vc-api:8000
+      - KEYCLOAK_URL=http://keycloak:8080
+      # Override for external Keycloak URL (used in browser redirects)
+      - OIDC_ISSUER_URL=http://localhost:8180/realms/marty
+    volumes:
+      # Mount test results for access from host
+      - ./test-results:/tests/test-results
+      - ./playwright-report:/tests/playwright-report
+    depends_on:
+      ui:
+        condition: service_healthy
+      mailhog:
+        condition: service_healthy
+      keycloak:
+        condition: service_healthy
+    # Don't start automatically - run manually or via profiles
+    profiles:
+      - test
+
+  # =============================================================================
+  # Pytest Test Runner (Unit & Integration Tests)
+  # =============================================================================
+  pytest:
+    build:
+      context: ../..
+      dockerfile: marty-ui/tests/Dockerfile.pytest
+    environment:
+      - PYTHONPATH=/app/src:/app/marty-microservices-framework
+      - TEST_MODE=true
+      # Database Configuration for integration tests
+      - APPLICANT_DB_URL=postgresql+asyncpg://marty:marty@applicant-db:5432/marty_applicants
+      - REDIS_URL=redis://redis:6379/0
+    volumes:
+      # Mount source code for live changes
+      - ../src:/app/src:ro
+      - ../../marty-microservices-framework:/app/marty-microservices-framework:ro
+      # Mount tests for live changes
+      - ../../tests:/app/tests:ro
+      # Mount test results for access from host
+      - ./pytest-results:/app/pytest-results
+    working_dir: /app
+    # Default command runs API key tests
+    command: >
+      pytest tests/unit/api_keys/ -v --tb=short
+      --junitxml=/app/pytest-results/junit.xml
+      --html=/app/pytest-results/report.html
+      --self-contained-html
+    # Don't start automatically - run via profiles
+    profiles:
+      - pytest
+      - test-all
+
+# No volumes - use tmpfs for faster test runs and clean state
+networks:
+  default:
+    name: marty-test-network

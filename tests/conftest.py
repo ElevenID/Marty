@@ -500,6 +500,200 @@ def enhanced_csca_service_stub():
     return EnhancedMockCscaServiceStub()
 
 
+# =============================================================================
+# Email Testing Fixtures
+# =============================================================================
+
+class MockEmailHelpers:
+    """
+    Mock email helper for Python unit tests (CI/CD environments).
+    
+    Provides in-memory email storage compatible with MailHog API structure.
+    """
+    
+    def __init__(self):
+        """Initialize in-memory email storage."""
+        self.emails = {}  # Dict[str, List[dict]] - recipient -> emails
+    
+    def get_all_emails(self):
+        """Get all emails from mock storage."""
+        all_emails = []
+        for emails in self.emails.values():
+            all_emails.extend(emails)
+        return sorted(all_emails, key=lambda e: e['Created'], reverse=True)
+    
+    def get_emails_to(self, email: str):
+        """Get emails sent to a specific address."""
+        return self.emails.get(email, [])
+    
+    def wait_for_email(self, email: str, subject_contains: str = None, timeout: int = 30):
+        """
+        Mock wait for email (returns immediately if email exists).
+        
+        In mock mode, this doesn't actually wait, it just checks if the email exists.
+        For realistic testing, emails must be pre-populated via mock_send_email.
+        """
+        emails = self.get_emails_to(email)
+        for msg in emails:
+            subject = msg['Content']['Headers']['Subject'][0]
+            if not subject_contains or subject_contains in subject:
+                return msg
+        return None
+    
+    def extract_link(self, email: dict, pattern: str = r'https?://[^\s"<>]+'):
+        """Extract link from email body."""
+        import re
+        body = email['Content'].get('Body', '')
+        matches = re.findall(pattern, body)
+        return matches[0] if matches else None
+    
+    def clear_all_emails(self):
+        """Clear all emails from mock storage."""
+        self.emails.clear()
+    
+    def mock_send_email(self, to: str, subject: str, body: str, from_email: str = 'noreply@marty.demo'):
+        """
+        Mock sending an email (for testing email sending functionality).
+        
+        Args:
+            to: Recipient email address
+            subject: Email subject
+            body: Email body (HTML or plain text)
+            from_email: Sender email address
+        
+        Returns:
+            dict: Mock email object in MailHog format
+        """
+        import datetime
+        import random
+        import string
+        
+        email_id = f"mock-{''.join(random.choices(string.ascii_lowercase + string.digits, k=12))}"
+        email = {
+            'ID': email_id,
+            'Created': datetime.datetime.utcnow().isoformat() + 'Z',
+            'Raw': {
+                'From': from_email,
+                'To': [to],
+                'Data': f"From: {from_email}\r\nTo: {to}\r\nSubject: {subject}\r\n\r\n{body}"
+            },
+            'Content': {
+                'Headers': {
+                    'Subject': [subject],
+                    'From': [from_email],
+                    'To': [to],
+                    'Date': [datetime.datetime.utcnow().strftime('%a, %d %b %Y %H:%M:%S +0000')],
+                    'Content-Type': ['text/html; charset=UTF-8']
+                },
+                'Body': body,
+                'Size': len(body),
+                'MIME': None
+            }
+        }
+        
+        if to not in self.emails:
+            self.emails[to] = []
+        self.emails[to].append(email)
+        return email
+
+
+class MailHogHelpers:
+    """
+    MailHog API helper for Python integration tests.
+    
+    Provides direct access to MailHog HTTP API for email testing.
+    """
+    
+    def __init__(self, mailhog_url: str = None):
+        """Initialize MailHog helper."""
+        self.mailhog_url = mailhog_url or os.getenv('MAILHOG_URL', 'http://localhost:8025')
+    
+    def get_all_emails(self):
+        """Get all emails from MailHog."""
+        import requests
+        response = requests.get(f'{self.mailhog_url}/api/v2/messages')
+        response.raise_for_status()
+        data = response.json()
+        return data.get('items', [])
+    
+    def get_emails_to(self, email: str):
+        """Get emails sent to a specific address."""
+        all_emails = self.get_all_emails()
+        return [
+            msg for msg in all_emails
+            if any(email in to for to in msg.get('Raw', {}).get('To', []))
+            or any(email in to for to in msg.get('Content', {}).get('Headers', {}).get('To', []))
+        ]
+    
+    def wait_for_email(self, email: str, subject_contains: str = None, timeout: int = 30):
+        """Wait for an email to arrive."""
+        import time
+        start_time = time.time()
+        
+        while time.time() - start_time < timeout:
+            emails = self.get_emails_to(email)
+            for msg in emails:
+                subject = msg.get('Content', {}).get('Headers', {}).get('Subject', [''])[0]
+                if not subject_contains or subject_contains in subject:
+                    return msg
+            time.sleep(1)
+        
+        raise TimeoutError(f"Timeout waiting for email to {email}")
+    
+    def extract_link(self, email: dict, pattern: str = r'https?://[^\s"<>]+'):
+        """Extract link from email body."""
+        import re
+        body = email.get('Content', {}).get('Body', '')
+        matches = re.findall(pattern, body)
+        return matches[0] if matches else None
+    
+    def clear_all_emails(self):
+        """Clear all emails from MailHog."""
+        import requests
+        response = requests.delete(f'{self.mailhog_url}/api/v1/messages')
+        response.raise_for_status()
+
+
+@pytest.fixture
+def email_helper(request):
+    """
+    Environment-aware email testing helper.
+    
+    Returns MailHogHelpers for integration tests, MockEmailHelpers for unit tests.
+    Checks TEST_PROVIDER environment variable and test markers.
+    """
+    test_provider = os.getenv('TEST_PROVIDER', 'mailhog')
+    
+    # Check if test is marked as integration
+    is_integration = request.node.get_closest_marker('integration') is not None
+    
+    if test_provider == 'mock' or not is_integration:
+        return MockEmailHelpers()
+    else:
+        return MailHogHelpers()
+
+
+@pytest.fixture
+def mailhog_client():
+    """
+    Direct MailHog client for integration tests.
+    
+    Use this fixture when you explicitly need MailHog (not the mock).
+    Session-scoped for efficiency.
+    """
+    return MailHogHelpers()
+
+
+@pytest.fixture(scope='session')
+def mock_email_helper():
+    """
+    Session-scoped mock email helper for shared state across tests.
+    
+    Use this for test scenarios that need to share email state.
+    """
+    return MockEmailHelpers()
+
+
 # Test helper functions
 def create_test_image(width: int = 100, height: int = 100):
     """Create a test image for OCR/MRZ testing."""

@@ -77,8 +77,8 @@ class TestIsolationManager:
     def reset_test_data(self):
         """Reset test data to initial state."""
         test_data_dirs = [
-            self.project_root / "tests" / "test_data_mock_csca",
-            self.project_root / "tests" / "test_data_csca_standalone",
+            self.project_root / "tests" / "data" / "mock_csca",
+            self.project_root / "tests" / "data" / "csca_standalone",
         ]
 
         for data_dir in test_data_dirs:

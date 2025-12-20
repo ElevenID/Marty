@@ -37,13 +37,13 @@ class TestDataLoader:
     def __init__(self, data_root: Path | None = None):
         """Initialize with data root directory."""
         if data_root is None:
-            # Default to scraped data directory within tests
-            self.data_root = Path(__file__).parents[1] / "scraped_data"
+            # Default to scraped data directory within tests/data
+            self.data_root = Path(__file__).parents[1] / "data" / "scraped"
         else:
             self.data_root = Path(data_root)
 
         # Also check for generated data directory
-        self.generated_data_root = Path(__file__).parents[1] / "generated_data"
+        self.generated_data_root = Path(__file__).parents[1] / "data" / "generated"
 
         # Check if scraped data is available
         self.has_scraped_data = self.data_root.exists()

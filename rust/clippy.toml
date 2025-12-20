@@ -1,0 +1,20 @@
+# Clippy configuration
+# See https://doc.rust-lang.org/clippy/configuration.html
+
+# Minimum Rust version to consider for suggestions
+msrv = "1.75.0"
+
+# Warn on functions with too many arguments
+too-many-arguments-threshold = 8
+
+# Warn on types with too many fields
+too-many-lines-threshold = 200
+
+# Warn on high cognitive complexity
+cognitive-complexity-threshold = 25
+
+# Allowed names for variables (disable some pedantic lints)
+allowed-idents-below-min-chars = ["x", "y", "z", "i", "j", "k", "n", "e", "f", "id", "db", "tx", "rx", "pk", "sk"]
+
+# Standard prefixes for doc comments
+doc-valid-idents = ["MRTD", "ICAO", "ISO", "PACE", "BAC", "EAC", "DG", "SOD", "mDL", "mDoc", "CBOR", "COSE", "W3C", "DID", "VC", "VP", "JWT", "JWK", "CRL", "OCSP", "OID", "ASN", "DER", "PEM", "PKCS", "RSA", "ECDSA", "EdDSA", "SHA", "AES", "HMAC", "HKDF", "PBKDF", "TLS", "SSL", "HTTP", "HTTPS", "JSON", "YAML", "TOML", "XML", "UTF", "ASCII", "UUID", "URI", "URL", "API", "SDK", "CLI", "UI", "gRPC", "REST", "GraphQL", "OAuth", "OIDC", "SAML"]

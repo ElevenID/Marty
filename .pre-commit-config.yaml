@@ -259,6 +259,67 @@ repos:
         args: [--quiet, --fail-under=50]
         files: ^src/(services|marty_common)/.*\.py$
 
+  # Rust code quality and security checks
+  - repo: local
+    hooks:
+      - id: rust-fmt
+        name: Rust Format Check
+        entry: bash -c 'cd rust && cargo fmt --all -- --check'
+        language: system
+        files: ^rust/.*\.rs$
+        pass_filenames: false
+        description: "Check Rust code formatting with rustfmt"
+
+      - id: rust-clippy
+        name: Rust Clippy Linting
+        entry: bash -c 'cd rust && cargo clippy --all-targets 2>&1 | grep -E "^error\[E" && exit 1 || exit 0'
+        language: system
+        files: ^rust/.*\.rs$
+        pass_filenames: false
+        description: "Run Clippy linter on Rust code (errors only, warnings allowed)"
+
+      - id: rust-check
+        name: Rust Compile Check
+        entry: bash -c 'cd rust && cargo check --all-targets'
+        language: system
+        files: ^rust/.*\.(rs|toml)$
+        pass_filenames: false
+        description: "Check Rust code compiles without errors"
+
+      - id: rust-test
+        name: Rust Unit Tests
+        entry: bash -c 'cd rust && cargo test'
+        language: system
+        files: ^rust/.*\.rs$
+        pass_filenames: false
+        stages: [pre-push]
+        description: "Run Rust unit tests (on pre-push only for speed)"
+
+      - id: rust-audit
+        name: Rust Security Audit
+        entry: bash -c 'cd rust && cargo audit'
+        language: system
+        files: ^rust/Cargo\.(toml|lock)$
+        pass_filenames: false
+        description: "Audit Rust dependencies for security vulnerabilities"
+
+      - id: rust-deny
+        name: Rust Dependency Check
+        entry: bash -c 'cd rust && cargo deny check'
+        language: system
+        files: ^rust/Cargo\.(toml|lock)$
+        pass_filenames: false
+        description: "Check Rust dependencies for licenses, bans, and advisories"
+
+      - id: rust-doc
+        name: Rust Documentation Check
+        entry: bash -c 'cd rust && RUSTDOCFLAGS="-D warnings" cargo doc --no-deps'
+        language: system
+        files: ^rust/.*\.rs$
+        pass_filenames: false
+        stages: [pre-push]
+        description: "Check Rust documentation builds without warnings"
+
   # Enhanced framework validation hooks for newer features
   - repo: local
     hooks:
@@ -309,5 +370,6 @@ ci:
   autoupdate_branch: ''
   autoupdate_commit_msg: '[pre-commit.ci] pre-commit autoupdate'
   autoupdate_schedule: weekly
-  skip: [mypy, xenon, python-safety-dependencies-check, commitizen, interrogate]  # Skip slow hooks in CI
+  # Skip slow hooks and Rust hooks (require local toolchain) in pre-commit.ci
+  skip: [mypy, xenon, python-safety-dependencies-check, commitizen, interrogate, rust-fmt, rust-clippy, rust-check, rust-test, rust-audit, rust-deny, rust-doc]
   submodules: false

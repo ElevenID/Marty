@@ -1,13 +1,13 @@
 [build-system]
-requires = ["setuptools>=61.0", "wheel", "setuptools_scm[toml]>=6.2"]
-build-backend = "setuptools.build_meta"
+requires = ["maturin>=1.0,<2.0"]
+build-backend = "maturin"
 
 [project]
 name = "marty-trust-pki-plugin"
 version = "1.0.0"
 description = "Marty Trust PKI Plugin for MMF - Enterprise-grade PKI and trust services for secure digital identity document management (eMRTD, mDL, DTC) with ICAO compliance"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 license = {text = "Proprietary"}
 dependencies = [
     # Core plugin dependencies
@@ -55,6 +55,11 @@ dependencies = [
     "marty-msf>=1.0.0", # Marty Microservices Framework
 ]
 
+[tool.maturin]
+features = ["pyo3/extension-module"]
+python-source = "src"
+module-name = "marty_plugin._marty_rs"
+
 [project.optional-dependencies]
 biometric = [
     "face-recognition>=1.3.0",
@@ -99,6 +104,7 @@ markers = [
     "openid4vp: marks tests as OpenID4VP presentation protocol tests",
     "mdoc_presentation: marks tests for mDoc presentation flows",
     "mdl_presentation: marks tests for mDL presentation flows",
+    "cross_sdk: marks tests for cross-SDK compatibility testing",
 ]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
@@ -128,25 +134,7 @@ compile-protos = "src.compile_protos:compile_all_protos"
 
 # MMF Plugin Entry Points
 [project.entry-points."mmf.plugins"]
-marty = "src.mmf_plugin:MartyPlugin"
-
-[tool.ruff]
-line-length = 100
-target-version = "py39"
-extend-exclude = [
-    "marty-microservices-framework/templates/**/*",
-    "templates/**/*",
-    "demo-openwallet-sdk/**/*",
-    "proto/v1/**/*",  # Generated protobuf files
-    "temp_debug/**/*",
-    "test_env/**/*",
-    "build/**/*",
-    "dist/**/*",
-    ".venv/**/*",
-    "*.generated.py",
-    "*_pb2.py",
-    "*_pb2_grpc.py",
-]
+marty = "marty_plugin.plugin:MartyPlugin"
 
 [tool.ruff.lint]
 # Start with basic essential checks only
@@ -234,8 +222,7 @@ explicit_package_bases = true
 # Service-specific paths for better coverage
 files = ["src/services/", "src/marty_common/"]
 
-# Generated protobuf files - no type checking
-[[tool.mypy.overrides]]
+
 module = "src.proto.*"
 ignore_errors = true
 
@@ -400,7 +387,7 @@ exclude_lines = [
 
 [tool.uv]
 # UV-specific configurations - fixed format
-sources = { marty-grpc = { path = ".", editable = true } }
+sources = { marty-grpc = { path = ".", editable = true }, marty-msf = { path = "marty-microservices-framework", editable = true } }
 
 [dependency-groups]
 dev = [

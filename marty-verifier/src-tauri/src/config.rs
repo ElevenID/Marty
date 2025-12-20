@@ -1,0 +1,155 @@
+//! Application configuration
+
+use std::path::PathBuf;
+
+use directories::ProjectDirs;
+use serde::{Deserialize, Serialize};
+
+use crate::error::{AppError, AppResult};
+
+// Re-export crate types for convenience
+pub use marty_sync::SyncConfig;
+pub use marty_reporting::ReportingConfig;
+
+/// Main application configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AppConfig {
+    /// Data directory for secure storage
+    pub data_dir: PathBuf,
+
+    /// Ed25519 public key for license validation (base64 encoded)
+    pub license_public_key: String,
+
+    /// Sync configuration
+    #[serde(default)]
+    pub sync_config: SyncConfig,
+
+    /// Reporting configuration
+    #[serde(default)]
+    pub reporting_config: ReportingConfig,
+
+    /// UI configuration
+    #[serde(default)]
+    pub ui_config: UiConfig,
+
+    /// Retention policy
+    #[serde(default)]
+    pub retention: RetentionConfig,
+}
+
+/// UI configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UiConfig {
+    /// Hardware tier override (None = auto-detect)
+    pub hardware_tier_override: Option<String>,
+
+    /// Kiosk mode (fullscreen, no exit)
+    pub kiosk_mode: bool,
+
+    /// Show offline status banner
+    pub show_offline_banner: bool,
+
+    /// Theme (light, dark, system)
+    pub theme: String,
+
+    /// Language code
+    pub language: String,
+}
+
+/// Data retention configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RetentionConfig {
+    /// Verification event retention in days
+    pub verification_events_days: u32,
+
+    /// Audit log retention in days
+    pub audit_log_days: u32,
+
+    /// Encrypt PII fields at rest
+    pub encrypt_pii: bool,
+
+    /// Fields to redact before reporting
+    pub redacted_fields: Vec<String>,
+}
+
+impl Default for AppConfig {
+    fn default() -> Self {
+        Self {
+            data_dir: default_data_dir(),
+            license_public_key: String::new(),
+            sync_config: SyncConfig::default(),
+            reporting_config: ReportingConfig::default(),
+            ui_config: UiConfig::default(),
+            retention: RetentionConfig::default(),
+        }
+    }
+}
+
+impl Default for UiConfig {
+    fn default() -> Self {
+        Self {
+            hardware_tier_override: None,
+            kiosk_mode: false,
+            show_offline_banner: true,
+            theme: "system".to_string(),
+            language: "en".to_string(),
+        }
+    }
+}
+
+impl Default for RetentionConfig {
+    fn default() -> Self {
+        Self {
+            verification_events_days: 30,
+            audit_log_days: 90,
+            encrypt_pii: true,
+            redacted_fields: vec![
+                "portrait".to_string(),
+                "signature".to_string(),
+                "biometric_template".to_string(),
+            ],
+        }
+    }
+}
+
+impl AppConfig {
+    /// Load configuration from disk or create default
+    pub fn load() -> AppResult<Self> {
+        let config_path = default_config_path();
+
+        if config_path.exists() {
+            let contents = std::fs::read_to_string(&config_path)?;
+            let config: AppConfig = serde_json::from_str(&contents)?;
+            Ok(config)
+        } else {
+            let config = AppConfig::default();
+            config.save()?;
+            Ok(config)
+        }
+    }
+
+    /// Save configuration to disk
+    pub fn save(&self) -> AppResult<()> {
+        let config_path = default_config_path();
+
+        if let Some(parent) = config_path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+
+        let contents = serde_json::to_string_pretty(self)?;
+        std::fs::write(&config_path, contents)?;
+        Ok(())
+    }
+}
+
+fn default_data_dir() -> PathBuf {
+    ProjectDirs::from("com", "marty", "verifier")
+        .map(|dirs| dirs.data_dir().to_path_buf())
+        .unwrap_or_else(|| PathBuf::from("./data"))
+}
+
+fn default_config_path() -> PathBuf {
+    ProjectDirs::from("com", "marty", "verifier")
+        .map(|dirs| dirs.config_dir().join("config.json"))
+        .unwrap_or_else(|| PathBuf::from("./config.json"))
+}
