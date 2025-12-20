@@ -32,11 +32,12 @@ import {
   VendorCreateOrgStep,
   CompletionStep,
   ConfirmOrgDialog,
+  WalletPairingStep,
 } from './onboarding';
 
 const API_BASE_URL = process.env.REACT_APP_API_URL || '/api';
 
-const STEPS_APPLICANT = ['Choose Your Role', 'Join Organization', 'Complete'];
+const STEPS_APPLICANT = ['Choose Your Role', 'Join Organization', 'Connect Wallet', 'Complete'];
 const STEPS_VENDOR = ['Choose Your Role', 'Create Organization', 'Complete'];
 
 /**
@@ -62,6 +63,8 @@ const OnboardingPage = () => {
   // Vendor org creation
   const [newOrgName, setNewOrgName] = useState('');
   const [newOrgDescription, setNewOrgDescription] = useState('');
+  const [newOrgType, setNewOrgType] = useState('');
+  const [jurisdiction, setJurisdiction] = useState('');
   const [isDiscoverable, setIsDiscoverable] = useState(false);
   const [membershipMode, setMembershipMode] = useState('invite_only');
   
@@ -69,6 +72,10 @@ const OnboardingPage = () => {
   const [resultInviteCode, setResultInviteCode] = useState(null);
   const [resultOrgName, setResultOrgName] = useState(null);
   const [membershipStatus, setMembershipStatus] = useState(null);
+  
+  // Wallet pairing state
+  const [walletPaired, setWalletPaired] = useState(false);
+  const [pairedDeviceId, setPairedDeviceId] = useState(null);
 
   // Confirmation dialog
   const [confirmDialogOpen, setConfirmDialogOpen] = useState(false);
@@ -166,11 +173,9 @@ const OnboardingPage = () => {
 
       setResultOrgName(data.organization_name);
       setMembershipStatus('joined');
+      // Move to wallet pairing step
       setActiveStep(2);
-
-      setTimeout(() => {
-        navigate('/dashboard');
-      }, 3000);
+      setSubmitting(false);
     } catch (err) {
       setError(err.message);
       setSubmitting(false);
@@ -213,11 +218,9 @@ const OnboardingPage = () => {
 
       setResultOrgName(data.organization_name);
       setMembershipStatus(data.membership_status);
+      // Move to wallet pairing step
       setActiveStep(2);
-
-      setTimeout(() => {
-        navigate('/dashboard');
-      }, 3000);
+      setSubmitting(false);
     } catch (err) {
       setError(err.message);
       setSubmitting(false);
@@ -225,6 +228,12 @@ const OnboardingPage = () => {
   };
 
   const handleCompleteApplicantWithoutOrg = async () => {
+    // Skip org, go directly to wallet pairing
+    setMembershipStatus('none');
+    setActiveStep(2);
+  };
+
+  const handleFinalizeApplicantOnboarding = async (withWallet = false) => {
     setSubmitting(true);
     setError(null);
 
@@ -235,6 +244,9 @@ const OnboardingPage = () => {
         credentials: 'include',
         body: JSON.stringify({
           user_type: 'applicant',
+          organization_id: selectedOrgForConfirm?.id || null,
+          wallet_paired: withWallet,
+          device_id: pairedDeviceId,
         }),
       });
 
@@ -244,9 +256,11 @@ const OnboardingPage = () => {
         throw new Error(data.detail || 'Failed to complete setup');
       }
 
-      setMembershipStatus('none');
-      setActiveStep(2);
+      // Move to completion step
+      setActiveStep(3);
+      setSubmitting(false);
 
+      // Redirect after showing completion
       setTimeout(() => {
         navigate('/dashboard');
       }, 3000);
@@ -274,6 +288,8 @@ const OnboardingPage = () => {
           user_type: 'vendor',
           organization_name: newOrgName.trim(),
           organization_description: newOrgDescription.trim() || null,
+          organization_type: newOrgType || null,
+          jurisdiction: jurisdiction.trim() || null,
           is_discoverable: isDiscoverable,
           membership_mode: membershipMode,
         }),
@@ -390,6 +406,10 @@ const OnboardingPage = () => {
               onOrgNameChange={setNewOrgName}
               orgDescription={newOrgDescription}
               onOrgDescriptionChange={setNewOrgDescription}
+              orgType={newOrgType}
+              onOrgTypeChange={setNewOrgType}
+              jurisdiction={jurisdiction}
+              onJurisdictionChange={setJurisdiction}
               isDiscoverable={isDiscoverable}
               onDiscoverableChange={setIsDiscoverable}
               membershipMode={membershipMode}
@@ -397,17 +417,33 @@ const OnboardingPage = () => {
             />
           )}
 
-          {/* Step 3: Completion */}
-          {activeStep === 2 && (
+          {/* Step 3: Applicant - Wallet Pairing */}
+          {activeStep === 2 && userType === 'applicant' && (
+            <WalletPairingStep
+              onPairingComplete={(data) => {
+                setWalletPaired(true);
+                setPairedDeviceId(data.device_id);
+                handleFinalizeApplicantOnboarding(true);
+              }}
+              onSkip={() => handleFinalizeApplicantOnboarding(false)}
+              submitting={submitting}
+            />
+          )}
+
+          {/* Step 3/4: Completion */}
+          {((activeStep === 3 && userType === 'applicant') || 
+            (activeStep === 2 && userType === 'vendor')) && (
             <CompletionStep
               userType={userType}
               resultOrgName={resultOrgName}
               resultInviteCode={resultInviteCode}
               membershipStatus={membershipStatus}
+              walletPaired={walletPaired}
+              pairedDeviceId={pairedDeviceId}
             />
           )}
 
-          {/* Navigation Buttons */}
+          {/* Navigation Buttons - show for step 0-1 only */}
           {activeStep < 2 && (
             <Box
               sx={{
@@ -435,7 +471,7 @@ const OnboardingPage = () => {
                   onClick={handleNext}
                   disabled={!userType}
                   endIcon={<ArrowForwardIcon />}
-                  data-testid="onboarding-continue-btn"
+                  data-testid="continue-btn"
                 >
                   Continue
                 </Button>

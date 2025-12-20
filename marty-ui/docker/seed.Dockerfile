@@ -1,5 +1,7 @@
+# syntax=docker/dockerfile:1
 # Seed Service Dockerfile
 # Runs demo data seeding script as a one-shot container
+# Optimized with BuildKit cache mounts
 
 FROM python:3.11-slim
 
@@ -10,9 +12,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy requirements and install Python dependencies
+# Copy requirements and install Python dependencies with BuildKit cache
 COPY requirements.txt* ./
-RUN pip install --no-cache-dir \
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install --no-cache-dir \
     sqlalchemy[asyncio] \
     asyncpg \
     aiosqlite \

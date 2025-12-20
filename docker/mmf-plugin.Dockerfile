@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1
 # Multi-stage Dockerfile for Marty MMF Plugin
 # Optimized for both development and production deployment in Kubernetes
 
@@ -25,10 +26,14 @@ WORKDIR /app
 COPY pyproject.toml uv.lock ./
 COPY requirements_cedar.txt ./
 
-# Install dependencies using uv
-RUN uv venv /opt/venv
+# Install dependencies using uv with BuildKit cache
+RUN --mount=type=cache,target=/root/.cache/uv \
+    --mount=type=cache,target=/root/.cache/pip \
+    uv venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
-RUN uv pip install -r pyproject.toml
+RUN --mount=type=cache,target=/root/.cache/uv \
+    --mount=type=cache,target=/root/.cache/pip \
+    uv pip install -r pyproject.toml
 
 # Copy source code
 COPY src/ ./src/

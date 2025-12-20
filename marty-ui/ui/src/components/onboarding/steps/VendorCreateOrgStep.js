@@ -18,6 +18,9 @@ import {
   Alert,
   Switch,
   Fade,
+  InputLabel,
+  Select,
+  MenuItem,
 } from '@mui/material';
 import LockIcon from '@mui/icons-material/Lock';
 import LockOpenIcon from '@mui/icons-material/LockOpen';
@@ -30,6 +33,10 @@ const VendorCreateOrgStep = ({
   onOrgNameChange,
   orgDescription,
   onOrgDescriptionChange,
+  orgType,
+  onOrgTypeChange,
+  jurisdiction,
+  onJurisdictionChange,
   isDiscoverable,
   onDiscoverableChange,
   membershipMode,
@@ -50,7 +57,7 @@ const VendorCreateOrgStep = ({
           Set up your organization to start issuing travel documents
         </Typography>
 
-        <Box sx={{ maxWidth: 600, mx: 'auto' }}>
+        <Box sx={{ maxWidth: 600, mx: 'auto' }} data-testid="org-details-form">
           {/* Organization Info */}
           <Typography variant="subtitle1" fontWeight="bold" sx={{ mb: 2 }}>
             Organization Details
@@ -65,6 +72,36 @@ const VendorCreateOrgStep = ({
             sx={{ mb: 2 }}
             data-testid="org-name-input"
           />
+          
+          <FormControl fullWidth sx={{ mb: 2 }}>
+            <InputLabel id="org-type-label">Organization Type</InputLabel>
+            <Select
+              labelId="org-type-label"
+              value={orgType || ''}
+              onChange={(e) => onOrgTypeChange(e.target.value)}
+              label="Organization Type"
+              data-testid="org-type-select"
+            >
+              <MenuItem value="government">Government Agency</MenuItem>
+              <MenuItem value="enterprise">Enterprise / Corporation</MenuItem>
+              <MenuItem value="educational">Educational Institution</MenuItem>
+              <MenuItem value="healthcare">Healthcare Provider</MenuItem>
+              <MenuItem value="financial">Financial Services</MenuItem>
+              <MenuItem value="other">Other</MenuItem>
+            </Select>
+          </FormControl>
+          
+          <TextField
+            fullWidth
+            label="Jurisdiction"
+            value={jurisdiction || ''}
+            onChange={(e) => onJurisdictionChange(e.target.value)}
+            placeholder="e.g., US-TX, EU, CA-ON"
+            helperText="Region or jurisdiction your organization operates in"
+            sx={{ mb: 2 }}
+            data-testid="jurisdiction-input"
+          />
+          
           <TextField
             fullWidth
             label="Description (optional)"

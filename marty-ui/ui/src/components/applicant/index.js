@@ -6,3 +6,4 @@
 
 export { default as CredentialCatalog } from './CredentialCatalog';
 export { default as PaymentCheckout } from './PaymentCheckout';
+export { default as ApplicationForm } from './ApplicationForm';

@@ -23,6 +23,8 @@ const CompletionStep = ({
   resultOrgName,
   resultInviteCode,
   membershipStatus,
+  walletPaired,
+  pairedDeviceId,
 }) => {
   const copyInviteCode = () => {
     navigator.clipboard.writeText(resultInviteCode);
@@ -30,7 +32,7 @@ const CompletionStep = ({
 
   return (
     <Fade in>
-      <Box sx={{ textAlign: 'center', py: 6 }}>
+      <Box sx={{ textAlign: 'center', py: 6 }} data-testid="setup-complete">
         <CheckCircleIcon sx={{ fontSize: 80, color: 'success.main', mb: 2 }} />
         <Typography variant="h4" gutterBottom>
           You're All Set!
@@ -40,7 +42,7 @@ const CompletionStep = ({
           <Box sx={{ my: 4, maxWidth: 400, mx: 'auto' }}>
             <Alert severity="success" sx={{ mb: 2 }}>
               <Typography variant="body2">
-                Your organization <strong>{resultOrgName}</strong> has been created!
+                Your organization <strong data-testid="org-name-display">{resultOrgName}</strong> has been created!
               </Typography>
             </Alert>
             <Paper variant="outlined" sx={{ p: 3, bgcolor: 'grey.50' }}>
@@ -48,11 +50,11 @@ const CompletionStep = ({
                 Your Invite Code:
               </Typography>
               <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 1 }}>
-                <Typography variant="h4" fontFamily="monospace" fontWeight="bold">
+                <Typography variant="h4" fontFamily="monospace" fontWeight="bold" data-testid="invite-code-display">
                   {resultInviteCode}
                 </Typography>
                 <Tooltip title="Copy to clipboard">
-                  <Button size="small" onClick={copyInviteCode}>
+                  <Button size="small" onClick={copyInviteCode} data-testid="copy-invite-code-btn">
                     <ContentCopyIcon />
                   </Button>
                 </Tooltip>
@@ -73,6 +75,27 @@ const CompletionStep = ({
         {userType === 'applicant' && membershipStatus === 'pending_approval' && (
           <Alert severity="info" sx={{ maxWidth: 400, mx: 'auto', mb: 3 }}>
             Your request to join <strong>{resultOrgName}</strong> is pending approval.
+          </Alert>
+        )}
+
+        {userType === 'applicant' && walletPaired && (
+          <Alert severity="success" sx={{ maxWidth: 400, mx: 'auto', mb: 3 }} data-testid="wallet-paired-success">
+            <Typography variant="body2">
+              Wallet paired successfully!
+              {pairedDeviceId && (
+                <Typography variant="caption" display="block" sx={{ mt: 0.5 }}>
+                  Device ID: {pairedDeviceId}
+                </Typography>
+              )}
+            </Typography>
+          </Alert>
+        )}
+
+        {userType === 'applicant' && walletPaired === false && (
+          <Alert severity="warning" sx={{ maxWidth: 400, mx: 'auto', mb: 3 }} data-testid="wallet-skipped-warning">
+            <Typography variant="body2">
+              Wallet pairing was skipped. You can pair your wallet later from your profile settings.
+            </Typography>
           </Alert>
         )}
 

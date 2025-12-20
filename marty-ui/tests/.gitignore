@@ -4,6 +4,7 @@ package-lock.json
 
 # Test artifacts
 test-results/
+test-results.json
 playwright-report/
 test-results.xml
 

@@ -197,9 +197,9 @@ const VerifierDemo = () => {
   };
 
   return (
-    <Container maxWidth="md">
-      <Paper sx={{ p: 3 }}>
-        <Typography variant="h4" component="h1" gutterBottom align="center">
+    <Container maxWidth="md" data-testid="verifier-demo">
+      <Paper sx={{ p: 3 }} data-testid="verifier-demo-paper">
+        <Typography variant="h4" component="h1" gutterBottom align="center" data-testid="verifier-title">
           <VerifiedIcon sx={{ fontSize: 48, mr: 2, verticalAlign: 'middle' }} />
           Credential Verifier
         </Typography>
@@ -225,6 +225,7 @@ const VerifierDemo = () => {
                     disabled={verificationState === 'scanning' || loading}
                     fullWidth
                     sx={{ mb: 2 }}
+                    data-testid="scan-qr-button"
                   >
                     {verificationState === 'scanning' ? (
                       <>
@@ -249,6 +250,7 @@ const VerifierDemo = () => {
                     onChange={(e) => setPresentationData(e.target.value)}
                     sx={{ mt: 2 }}
                     placeholder="Paste verifiable presentation JSON..."
+                    data-testid="presentation-data-input"
                   />
                 </Box>
               </CardContent>
@@ -269,6 +271,7 @@ const VerifierDemo = () => {
                   disabled={!presentationData || loading || verificationState === 'verifying'}
                   fullWidth
                   sx={{ mb: 2 }}
+                  data-testid="verify-button"
                 >
                   {verificationState === 'verifying' ? (
                     <>
@@ -285,6 +288,7 @@ const VerifierDemo = () => {
                     variant="outlined"
                     onClick={reset}
                     fullWidth
+                    data-testid="reset-button"
                   >
                     Reset
                   </Button>
@@ -335,15 +339,16 @@ const VerifierDemo = () => {
                       color={verificationResult.verified ? 'success' : 'error'}
                       icon={verificationResult.verified ? <VerifiedIcon /> : <ErrorIcon />}
                       size="large"
+                      data-testid="verification-result-chip"
                     />
                   </Box>
 
                   {verificationResult.verified ? (
-                    <Alert severity="success" sx={{ mb: 2 }}>
+                    <Alert severity="success" sx={{ mb: 2 }} data-testid="verification-success-alert">
                       Credential verification successful! The presentation is valid and trustworthy.
                     </Alert>
                   ) : (
-                    <Alert severity="error" sx={{ mb: 2 }}>
+                    <Alert severity="error" sx={{ mb: 2 }} data-testid="verification-error-alert">
                       {verificationResult.error || 'Credential verification failed'}
                     </Alert>
                   )}

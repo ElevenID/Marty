@@ -1,14 +1,35 @@
-# Dockerfile for document-signer service
-FROM python:3.10-slim
+# syntax=docker/dockerfile:1
+# Multi-stage Dockerfile for document-signer service
+# Optimized with BuildKit cache mounts
+
+# =============================================================================
+# Builder Stage
+# =============================================================================
+FROM python:3.10-slim AS builder
 
 WORKDIR /app
 
+# Install UV and build dependencies
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir uv
+
 COPY ../../pyproject.toml ../../uv.lock /app/
 
-# Install UV and use it to install dependencies
-RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir uv && \
+# Install dependencies with BuildKit cache
+RUN --mount=type=cache,target=/root/.cache/uv \
+    --mount=type=cache,target=/root/.cache/pip \
     uv pip install --system -e .
+
+# =============================================================================
+# Runtime Stage
+# =============================================================================
+FROM python:3.10-slim AS runtime
+
+WORKDIR /app
+
+# Copy installed packages from builder
+COPY --from=builder /usr/local/lib/python3.10/site-packages /usr/local/lib/python3.10/site-packages
+COPY --from=builder /usr/local/bin /usr/local/bin
 
 # Create the proto directory structure
 RUN mkdir -p /app/src/proto
@@ -31,8 +52,13 @@ RUN cd /app && python -m grpc_tools.protoc \
     --grpc_python_out=./src/proto \
     ./proto/*.proto
 
-# Create data directories
-RUN mkdir -p /app/data
+# Create non-root user
+RUN groupadd -r marty && useradd -r -g marty marty
+
+# Create data directories with proper permissions
+RUN mkdir -p /app/data && chown -R marty:marty /app
+
+USER marty
 
 # Command to run when container starts
 ENV SERVICE_NAME=document-signer

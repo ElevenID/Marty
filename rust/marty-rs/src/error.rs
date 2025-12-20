@@ -30,11 +30,15 @@
 //! }
 //! ```
 
+#[cfg(feature = "python")]
 use pyo3::exceptions::{PyIndexError, PyKeyError, PyRuntimeError, PyTypeError, PyValueError};
+#[cfg(feature = "python")]
 use pyo3::PyErr;
 use std::fmt;
 use thiserror::Error;
+#[cfg(feature = "python")]
 use tracing::{error, warn};
+#[cfg(feature = "python")]
 use tracing_error::SpanTrace;
 
 /// Wrapper around std::backtrace::Backtrace to avoid thiserror's unstable feature detection.
@@ -645,9 +649,10 @@ impl MartyError {
 }
 
 // =============================================================================
-// PyO3 Conversions
+// PyO3 Conversions (only compiled with python feature)
 // =============================================================================
 
+#[cfg(feature = "python")]
 impl From<MartyError> for PyErr {
     fn from(err: MartyError) -> PyErr {
         // Log the error before converting

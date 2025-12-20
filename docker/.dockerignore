@@ -1,0 +1,101 @@
+# Docker ignore for Marty builds - reduces context size and improves caching
+
+# Git
+.git
+.gitignore
+
+# IDE and editors
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Python artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+*.egg
+.eggs/
+dist/
+build/
+*.whl
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+.env.local
+.env.*.local
+
+# Testing
+tests/
+test/
+*_test.py
+test_*.py
+pytest.ini
+.pytest_cache/
+.coverage
+htmlcov/
+coverage/
+.tox/
+.nox/
+
+# Documentation
+docs/
+*.md
+!README.md
+*.rst
+*.txt
+!requirements*.txt
+
+# Reports and logs
+reports/
+*.log
+*.xml
+mypy-report.xml
+bandit-report.json
+
+# Temporary files
+temp_debug/
+tmp/
+*.tmp
+*.temp
+
+# Development files
+examples/
+demo-service/
+scripts/
+k8s/
+
+# Other Docker files (avoid recursion)
+Dockerfile*
+docker-compose*
+.dockerignore
+
+# Data directories (mount at runtime instead)
+data/
+
+# Rust build artifacts (handled separately)
+rust/target/
+
+# UI build artifacts (handled in their own Dockerfiles)
+marty-ui/node_modules/
+marty-ui/build/
+marty-ui/coverage/
+
+# macOS
+.DS_Store
+._*
+.Spotlight-V100
+.Trashes
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini

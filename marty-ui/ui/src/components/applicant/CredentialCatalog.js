@@ -231,9 +231,9 @@ const CredentialCatalog = () => {
   };
 
   return (
-    <Container maxWidth="lg">
+    <Container maxWidth="lg" data-testid="credential-catalog-page">
       <Box sx={{ mb: 4 }}>
-        <Typography variant="h4" component="h1" gutterBottom>
+        <Typography variant="h4" component="h1" gutterBottom data-testid="catalog-title">
           <CredentialIcon sx={{ mr: 2, verticalAlign: 'middle' }} />
           Credential Catalog
         </Typography>
@@ -244,7 +244,7 @@ const CredentialCatalog = () => {
       </Box>
 
       {/* Search and Filters */}
-      <Paper sx={{ p: 2, mb: 3 }}>
+      <Paper sx={{ p: 2, mb: 3 }} data-testid="catalog-filters">
         <Grid container spacing={2} alignItems="center">
           <Grid item xs={12} md={6}>
             <TextField
@@ -252,6 +252,7 @@ const CredentialCatalog = () => {
               placeholder="Search credentials..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
+              data-testid="credential-search"
               InputProps={{
                 startAdornment: (
                   <InputAdornment position="start">
@@ -268,6 +269,7 @@ const CredentialCatalog = () => {
                 value={categoryFilter}
                 label="Category"
                 onChange={(e) => setCategoryFilter(e.target.value)}
+                data-testid="category-filter"
                 startAdornment={
                   <InputAdornment position="start">
                     <FilterIcon />
@@ -283,7 +285,7 @@ const CredentialCatalog = () => {
             </FormControl>
           </Grid>
           <Grid item xs={12} md={2}>
-            <Typography variant="body2" color="text.secondary" textAlign="center">
+            <Typography variant="body2" color="text.secondary" textAlign="center" data-testid="credentials-count">
               {filteredCredentials.length} credential{filteredCredentials.length !== 1 ? 's' : ''} found
             </Typography>
           </Grid>
@@ -320,6 +322,9 @@ const CredentialCatalog = () => {
             return (
               <Grid item xs={12} sm={6} md={4} key={credential.id}>
                 <Card 
+                  data-testid={`credential-card-${credential.id}`}
+                  data-credential-type={credential.id}
+                  data-credential-status={hasApplied ? 'applied' : 'available'}
                   sx={{ 
                     height: '100%', 
                     display: 'flex', 
@@ -340,19 +345,20 @@ const CredentialCatalog = () => {
                   </Box>
                   <CardContent sx={{ flexGrow: 1 }}>
                     <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                      <Typography variant="h6" gutterBottom>
+                      <Typography variant="h6" gutterBottom data-testid="credential-name">
                         {credential.name}
                       </Typography>
                       <Tooltip title="View details">
                         <IconButton 
                           size="small" 
                           onClick={() => handleViewDetails(credential)}
+                          data-testid="credential-details-btn"
                         >
                           <InfoIcon />
                         </IconButton>
                       </Tooltip>
                     </Box>
-                    <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                    <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }} data-testid="credential-description">
                       {credential.description}
                     </Typography>
                     <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', mb: 1 }}>
@@ -360,12 +366,14 @@ const CredentialCatalog = () => {
                         label={credential.category} 
                         size="small" 
                         variant="outlined" 
+                        data-testid="credential-category"
                       />
                       <Chip 
                         icon={<PriceIcon />}
                         label={credential.processingFee ? `$${credential.processingFee}` : 'Free'} 
                         size="small" 
                         color={credential.processingFee ? 'default' : 'success'}
+                        data-testid="credential-fee"
                       />
                     </Box>
                     {getApplicationStatus(credential.id)}
@@ -376,6 +384,7 @@ const CredentialCatalog = () => {
                       variant={hasApplied ? 'outlined' : 'contained'}
                       disabled={hasApplied}
                       onClick={() => handleApply(credential)}
+                      data-testid="apply-btn"
                     >
                       {hasApplied ? 'Application Pending' : 'Apply Now'}
                     </Button>

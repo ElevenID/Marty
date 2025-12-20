@@ -14,6 +14,7 @@ import TravelDocuments from './components/TravelDocuments';
 import VerifierDemo from './components/VerifierDemo';
 import WalletDemo from './components/WalletDemo';
 import EnhancedVerifierDemo from './components/EnhancedVerifierDemo';
+import PresentationRequestCreator from './components/verifier/PresentationRequestCreator';
 import Navigation from './components/Navigation';
 import AdminDashboard from './components/AdminDashboard';
 import PassportDemo from './components/PassportDemo';
@@ -29,7 +30,11 @@ import OnboardingPage from './components/OnboardingPage';
 import MyApplications from './components/MyApplications';
 import MyDocuments from './components/MyDocuments';
 import ProfilePage from './components/ProfilePage';
-import { VendorDashboard, APIKeyManager, CredentialConfigManager } from './components/vendor';
+import WalletSetup from './components/WalletSetup';
+import NotificationPreferences from './components/NotificationPreferences';
+import { VendorDashboard, APIKeyManager, CredentialConfigManager, MDocConfigManager, InviteApplicants } from './components/vendor';
+import { ApplicationForm } from './components/applicant';
+import InviteAcceptPage from './components/InviteAcceptPage';
 
 const theme = createTheme({
   palette: {
@@ -101,6 +106,14 @@ function App() {
                   element={
                     <AdminRoute>
                       <VerifierDemo />
+                    </AdminRoute>
+                  }
+                />
+                <Route
+                  path="/verifier/create-request"
+                  element={
+                    <AdminRoute>
+                      <PresentationRequestCreator />
                     </AdminRoute>
                   }
                 />
@@ -202,6 +215,25 @@ function App() {
                     </VendorRoute>
                   }
                 />
+                <Route
+                  path="/vendor/mdoc-config"
+                  element={
+                    <VendorRoute>
+                      <MDocConfigManager />
+                    </VendorRoute>
+                  }
+                />
+                <Route
+                  path="/vendor/invitations"
+                  element={
+                    <VendorRoute>
+                      <InviteApplicants />
+                    </VendorRoute>
+                  }
+                />
+
+                {/* Public invite accept route */}
+                <Route path="/invite/accept" element={<InviteAcceptPage />} />
 
                 {/* Applicant-Only Routes */}
                 <Route
@@ -221,10 +253,44 @@ function App() {
                   }
                 />
                 <Route
+                  path="/apply"
+                  element={
+                    <ApplicantRoute>
+                      <ApplicationForm />
+                    </ApplicantRoute>
+                  }
+                />
+                <Route
+                  path="/apply/:credentialType"
+                  element={
+                    <ApplicantRoute>
+                      <ApplicationForm />
+                    </ApplicantRoute>
+                  }
+                />
+                <Route
                   path="/profile"
                   element={
                     <ProtectedRoute>
                       <ProfilePage />
+                    </ProtectedRoute>
+                  }
+                />
+
+                {/* Wallet Setup & Notifications */}
+                <Route
+                  path="/wallet/setup"
+                  element={
+                    <ProtectedRoute>
+                      <WalletSetup />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/settings/notifications"
+                  element={
+                    <ProtectedRoute>
+                      <NotificationPreferences />
                     </ProtectedRoute>
                   }
                 />

@@ -661,6 +661,118 @@ class WalletBridge {
   get isReady() {
     return this._isReady;
   }
+
+  // ===========================================================================
+  // OID4VP Presentation Request Methods
+  // ===========================================================================
+
+  /**
+   * Store a credential in the wallet's localStorage
+   * @param {object} credential - Credential object with jwt, type, claims, etc.
+   */
+  async storeCredential(credential) {
+    return this.sendMessage('STORE_CREDENTIAL', { credential }, 'CREDENTIAL_STORED');
+  }
+
+  /**
+   * Process an OID4VP presentation request
+   * Sends the request to the wallet which finds matching credentials
+   * @param {string} requestUri - The OID4VP request URI
+   * @param {string} credentialType - The type of credential being requested
+   * @returns {Promise<object>} - Object with matching_credentials array
+   */
+  async processOid4vpRequest(requestUri, credentialType = null) {
+    return this.sendMessage(
+      'PROCESS_OID4VP_REQUEST',
+      { request_uri: requestUri, credential_type: credentialType },
+      'OID4VP_PROCESSED'
+    );
+  }
+
+  /**
+   * Approve a presentation request and create a Verifiable Presentation
+   * Uses WASM for real crypto if available, otherwise creates mock VP
+   * @param {object} options - Approval options
+   * @param {number} options.credentialIndex - Index of credential to use (default: 0)
+   * @param {string} options.audience - Verifier audience (default: 'demo_verifier')
+   * @param {string} options.nonce - Challenge nonce for replay protection
+   * @param {string} options.callbackUrl - URL to submit the presentation to
+   * @returns {Promise<object>} - Object with vp_jwt
+   */
+  async approvePresentation(options = {}) {
+    const { credentialIndex = 0, audience = 'demo_verifier', nonce = null, callbackUrl = null } = options;
+    return this.sendMessage(
+      'APPROVE_PRESENTATION',
+      { credential_index: credentialIndex, audience, nonce, callback_url: callbackUrl },
+      'PRESENTATION_APPROVED'
+    );
+  }
+
+  /**
+   * Wait for a presentation to be submitted to the verifier
+   * Polls the verifier API for the presentation submission
+   * @param {string} requestId - The presentation request ID
+   * @param {number} timeout - Timeout in ms
+   * @returns {Promise<object>} - The submitted presentation data
+   */
+  async waitForPresentationSubmission(requestId, timeout = 30000) {
+    const startTime = Date.now();
+    while (Date.now() - startTime < timeout) {
+      try {
+        const response = await this.page.request.get(
+          `${this.apiUrl}/api/test/request-presentation/${requestId}/status`
+        );
+        if (response.ok()) {
+          const data = await response.json();
+          if (data.status === 'submitted') {
+            return data;
+          }
+        }
+      } catch (err) {
+        // Continue polling
+      }
+      await this.page.waitForTimeout(500);
+    }
+    throw new Error(`Timeout waiting for presentation submission for request ${requestId}`);
+  }
+
+  /**
+   * Complete OID4VP flow: process request, approve with first matching credential
+   * This is a convenience method for E2E tests
+   * @param {string} requestUri - The OID4VP request URI
+   * @param {string} credentialType - The type of credential being requested
+   * @param {object} options - Additional options for approval
+   * @returns {Promise<object>} - Object with vp_jwt and matching credential info
+   */
+  async completeOid4vpFlow(requestUri, credentialType = null, options = {}) {
+    // Process the request to find matching credentials
+    const processResult = await this.processOid4vpRequest(requestUri, credentialType);
+    
+    if (!processResult.success) {
+      throw new Error(`Failed to process OID4VP request: ${processResult.error}`);
+    }
+
+    if (processResult.matching_count === 0) {
+      throw new Error('No matching credentials found for presentation request');
+    }
+
+    // Approve with the first matching credential (or specified index)
+    const approvalResult = await this.approvePresentation({
+      credentialIndex: options.credentialIndex || 0,
+      audience: options.audience,
+      nonce: options.nonce,
+      callbackUrl: options.callbackUrl,
+    });
+
+    if (!approvalResult.success) {
+      throw new Error(`Failed to approve presentation: ${approvalResult.error}`);
+    }
+
+    return {
+      ...approvalResult,
+      matching_credentials: processResult.matching_credentials,
+    };
+  }
 }
 
 // =============================================================================

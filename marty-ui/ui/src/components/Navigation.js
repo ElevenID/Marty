@@ -114,7 +114,7 @@ function Navigation() {
   };
 
   return (
-    <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 3 }}>
+    <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 3 }} data-testid="navigation-container">
       <Box
         sx={{
           display: 'flex',
@@ -125,9 +125,15 @@ function Navigation() {
         }}
       >
         {/* Navigation Tabs */}
-        <Tabs value={getCurrentTab()} aria-label="navigation">
+        <Tabs value={getCurrentTab()} aria-label="navigation" data-testid="navigation-tabs">
           {tabs.map((tab, index) => (
-            <Tab key={tab.path} label={tab.label} component={Link} to={tab.path} />
+            <Tab 
+              key={tab.path} 
+              label={tab.label} 
+              component={Link} 
+              to={tab.path}
+              data-testid={`nav-tab-${tab.label.toLowerCase().replace(/\s+/g, '-')}`}
+            />
           ))}
         </Tabs>
 
@@ -156,6 +162,7 @@ function Navigation() {
                 color={getUserTypeColor()}
                 size="small"
                 variant="outlined"
+                data-testid="user-type-badge"
               />
 
               {/* User Avatar & Name */}
@@ -175,6 +182,7 @@ function Navigation() {
                 startIcon={<LogoutIcon />}
                 onClick={logout}
                 color="inherit"
+                data-testid="logout-button"
               >
                 Logout
               </Button>
@@ -187,6 +195,7 @@ function Navigation() {
               startIcon={<LoginIcon />}
               onClick={login}
               color="primary"
+              data-testid="login-button"
             >
               Login
             </Button>

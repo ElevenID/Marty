@@ -213,9 +213,25 @@ function LandingPage() {
             '&:hover': { bgcolor: 'grey.100' },
             px: 4,
             py: 1.5,
+            mr: 2,
           }}
         >
           Sign In to Continue
+        </Button>
+        <Button
+          variant="outlined"
+          size="large"
+          onClick={() => register()}
+          data-testid="get-started-btn"
+          sx={{
+            borderColor: 'white',
+            color: 'white',
+            '&:hover': { bgcolor: 'rgba(255,255,255,0.1)', borderColor: 'white' },
+            px: 4,
+            py: 1.5,
+          }}
+        >
+          Get Started
         </Button>
       </Box>
 

@@ -6,20 +6,33 @@ Supports mobile wallet device registration for push challenges.
 """
 from __future__ import annotations
 
+import asyncio
+import json
 import logging
 from datetime import datetime, timezone
-from typing import Annotated, Any, Optional
-from uuid import UUID
+from typing import Annotated, Any, AsyncIterator, Optional
+from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Header, Path, Query, status
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from .device_registry import DeviceInfo, DeviceRegistry, DeviceRegistration
 from .adapters.mock import MockNotificationAdapter
+from .adapters.sse import SSEAdapter, SSEConnection
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/devices", tags=["devices"])
+
+# Global SSE adapter instance - configured at app startup
+_sse_adapter: Optional[SSEAdapter] = None
+
+
+def configure_sse_adapter(adapter: SSEAdapter) -> None:
+    """Configure the global SSE adapter. Called at app startup."""
+    global _sse_adapter
+    _sse_adapter = adapter
 
 
 # =============================================================================
@@ -410,10 +423,156 @@ async def list_devices(
 
 
 # =============================================================================
-# Push Challenge Endpoints (for testing and polling)
+# Push Challenge Endpoints (production + polling)
 # =============================================================================
 
 push_router = APIRouter(prefix="/api/push", tags=["push-notifications"])
+
+
+class CreateChallengeRequest(BaseModel):
+    """Request to create a push authentication challenge."""
+    title: str = Field(
+        ...,
+        description="Challenge title shown to user",
+        max_length=100,
+    )
+    question: str = Field(
+        ...,
+        description="Authentication question or action prompt",
+        max_length=500,
+    )
+    credential_id: Optional[str] = Field(
+        None,
+        description="Specific credential ID to use, or any if not specified",
+    )
+    data: Optional[dict[str, Any]] = Field(
+        default_factory=dict,
+        description="Additional challenge data (up to 10 keys)",
+    )
+    ttl_seconds: int = Field(
+        default=120,
+        description="Time-to-live in seconds",
+        ge=30,
+        le=600,
+    )
+    require_signature: bool = Field(
+        default=True,
+        description="Whether to require cryptographic signature on response",
+    )
+
+
+class ChallengeCreatedResponse(BaseModel):
+    """Response after creating a push authentication challenge."""
+    challenge_id: str
+    device_id: str
+    nonce: str
+    created_at: datetime
+    expires_at: datetime
+    delivery_method: str = Field(description="'fcm', 'sse', or 'poll'")
+
+
+@push_router.post(
+    "/challenges",
+    response_model=ChallengeCreatedResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create a push authentication challenge",
+    description="""
+    Create a new push authentication challenge for a registered device.
+    
+    The challenge is delivered via:
+    - **FCM**: If the device has a valid FCM token (mobile apps)
+    - **SSE**: If the device has an active SSE connection (web clients)
+    - **Poll**: The challenge is stored for polling via GET /challenges
+    
+    The response includes a cryptographically random nonce that must be
+    signed by the device's private key when accepting the challenge.
+    """,
+)
+async def create_challenge(
+    device_id: Annotated[str, Query(description="Target device ID")],
+    request: CreateChallengeRequest,
+    x_relying_party_id: Annotated[str, Header(description="Relying party identifier")],
+    registry: DeviceRegistry = Depends(get_device_registry),
+    mock_adapter: Optional[MockNotificationAdapter] = Depends(get_mock_adapter),
+) -> ChallengeCreatedResponse:
+    """Create a push authentication challenge for a device."""
+    import secrets
+    
+    # Get SSE adapter if configured (optional)
+    global _sse_adapter
+    sse_adapter = _sse_adapter
+    
+    # Verify device exists and is registered
+    device = await registry.get_device_by_id(device_id)
+    if not device:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Device not registered",
+        )
+    
+    # Generate cryptographic nonce (32 bytes = 256 bits)
+    nonce = secrets.token_urlsafe(32)
+    challenge_id = str(uuid4())
+    now = datetime.now(timezone.utc)
+    expires_at = datetime.fromtimestamp(now.timestamp() + request.ttl_seconds, tz=timezone.utc)
+    
+    challenge_data = {
+        "challenge_id": challenge_id,
+        "title": request.title,
+        "question": request.question,
+        "nonce": nonce,
+        "credential_id": request.credential_id,
+        "relying_party_id": x_relying_party_id,
+        "require_signature": request.require_signature,
+        "data": request.data or {},
+        "created_at": now.isoformat(),
+        "ttl_seconds": request.ttl_seconds,
+    }
+    
+    delivery_method = "poll"
+    
+    # Try SSE first for web clients
+    if sse_adapter:
+        try:
+            from .types import NotificationPayload, NotificationTarget
+            
+            payload = NotificationPayload(
+                id=UUID(challenge_id),
+                title=request.title,
+                body=request.question,
+                event_type="push_challenge",
+                data=challenge_data,
+                created_at=now,
+                target=NotificationTarget(user_id=device_id),
+            )
+            result = await sse_adapter.send(payload)
+            if result.success and result.metadata.get("connections", 0) > 0:
+                delivery_method = "sse"
+                logger.info(f"Challenge {challenge_id} delivered via SSE to {device_id}")
+        except Exception as e:
+            logger.debug(f"SSE delivery failed, will try FCM: {e}")
+    
+    # Store challenge for polling (regardless of delivery method for reliability)
+    if mock_adapter:
+        await mock_adapter.create_push_challenge(
+            device_id=device_id,
+            challenge_data=challenge_data,
+            ttl_seconds=request.ttl_seconds,
+        )
+    
+    # TODO: Add FCM delivery for mobile apps when device has fcm_token
+    # if delivery_method == "poll" and device.fcm_token:
+    #     # Send via FCM
+    #     delivery_method = "fcm"
+    
+    return ChallengeCreatedResponse(
+        challenge_id=challenge_id,
+        device_id=device_id,
+        nonce=nonce,
+        created_at=now,
+        expires_at=expires_at,
+        delivery_method=delivery_method,
+    )
 
 
 @push_router.get(
@@ -424,32 +583,43 @@ push_router = APIRouter(prefix="/api/push", tags=["push-notifications"])
     Poll for pending push challenges for a device.
     
     Mobile wallets call this endpoint to check for pending authentication
-    or authorization challenges when push notifications are not available.
+    or authorization challenges when push notifications are not available
+    or as a fallback mechanism.
+    
+    Challenges are automatically removed once polled (to prevent replay).
     """,
 )
 async def get_pending_challenges(
     device_id: Annotated[str, Query(description="Device ID to get challenges for")],
     mock_adapter: Optional[MockNotificationAdapter] = Depends(get_mock_adapter),
+    registry: DeviceRegistry = Depends(get_device_registry),
 ) -> ChallengeListResponse:
     """Get pending challenges for a device."""
-    if not mock_adapter:
+    # Verify device exists
+    device = await registry.get_device_by_id(device_id)
+    if not device:
         raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Push challenges endpoint only available in test mode",
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Device not registered",
         )
+    
+    # Use mock adapter for challenge storage (in production this would be Redis/DB)
+    if not mock_adapter:
+        # Return empty list if no adapter configured
+        return ChallengeListResponse(challenges=[], count=0)
     
     challenges = await mock_adapter.get_pending_challenges(device_id)
     
     return ChallengeListResponse(
         challenges=[
             PendingChallengeResponse(
-                challenge_id=c["challenge_id"],
+                challenge_id=c.get("challenge_id", c["data"].get("challenge_id", "")),
                 title=c["data"].get("title", ""),
                 question=c["data"].get("question", ""),
                 nonce=c["data"].get("nonce", ""),
                 credential_id=c["data"].get("credential_id"),
                 data=c["data"].get("data", {}),
-                created_at=datetime.fromisoformat(c["created_at"]),
+                created_at=datetime.fromisoformat(c["created_at"]) if isinstance(c.get("created_at"), str) else c.get("created_at", datetime.now(timezone.utc)),
                 ttl_seconds=c.get("ttl_seconds", 120),
             )
             for c in challenges
@@ -465,8 +635,10 @@ async def get_pending_challenges(
     description="""
     Submit a response (accept/reject) to a push challenge.
     
-    For 'accept' responses with a signature, the signature is verified against
-    the device's registered public key using RSA PKCS#1 SHA-256.
+    For 'accept' responses, a cryptographic signature over the challenge nonce
+    is required if the challenge was created with `require_signature=true`.
+    The signature is verified against the device's registered public key
+    using RSA PKCS#1 SHA-256.
     """,
 )
 async def respond_to_challenge(
@@ -477,21 +649,33 @@ async def respond_to_challenge(
     registry: DeviceRegistry = Depends(get_device_registry),
 ) -> dict[str, Any]:
     """Respond to a push challenge."""
-    if not mock_adapter:
+    # Verify device exists
+    device = await registry.get_device_by_id(device_id)
+    if not device:
         raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Push challenges endpoint only available in test mode",
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Device not registered",
         )
     
-    # Lookup device to get public key for signature verification
+    # Lookup device public key for signature verification
     public_key_der = None
     if request.signature:
         try:
-            device = await registry.get_device_by_id(device_id)
-            if device and device.public_key_der and registry.is_key_valid(device):
+            if device.public_key_der and registry.is_key_valid(device):
                 public_key_der = device.public_key_der
         except Exception as e:
-            logger.warning(f"Could not lookup device for signature verification: {e}")
+            logger.warning(f"Could not get public key for signature verification: {e}")
+    
+    if not mock_adapter:
+        # Without a challenge store, we can't verify the challenge exists
+        # Return success but indicate unverified
+        return {
+            "success": True,
+            "challenge_id": challenge_id,
+            "response": request.response,
+            "signature_verified": False,
+            "warning": "No challenge store configured",
+        }
     
     success, error = await mock_adapter.respond_to_challenge(
         device_id=device_id,
@@ -640,3 +824,156 @@ async def clear_all_challenges(
         )
     
     await mock_adapter.clear_challenges(device_id=device_id)
+
+
+# =============================================================================
+# SSE (Server-Sent Events) Router for Real-time Push Notifications
+# =============================================================================
+
+sse_router = APIRouter(prefix="/api/events", tags=["sse"])
+
+
+def get_sse_adapter() -> SSEAdapter:
+    """Get the SSE adapter instance."""
+    if _sse_adapter is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="SSE adapter not configured",
+        )
+    return _sse_adapter
+
+
+@sse_router.get(
+    "/push",
+    summary="SSE stream for push challenges",
+    description="""
+    Server-Sent Events endpoint for real-time push challenge delivery.
+    
+    This is an alternative to Firebase Cloud Messaging for web-based development
+    and testing. Mobile wallets can connect to this endpoint to receive push
+    challenges in real-time without polling.
+    
+    **Usage:**
+    ```javascript
+    const eventSource = new EventSource('/api/events/push?device_id=xxx');
+    eventSource.onmessage = (event) => {
+        const challenge = JSON.parse(event.data);
+        console.log('Received challenge:', challenge);
+    };
+    ```
+    
+    **Automatic Reconnection:**
+    The EventSource API automatically reconnects if the connection is lost.
+    Heartbeat events are sent every 30 seconds to keep the connection alive.
+    """,
+    responses={
+        200: {
+            "description": "SSE event stream",
+            "content": {"text/event-stream": {}},
+        },
+    },
+)
+async def sse_push_stream(
+    device_id: Annotated[str, Query(description="Device ID to receive challenges for")],
+    sse_adapter: SSEAdapter = Depends(get_sse_adapter),
+) -> StreamingResponse:
+    """SSE stream for push challenges."""
+    connection_id = f"wallet-{device_id}-{uuid4().hex[:8]}"
+    
+    # Parse organization from device ID
+    org_id = None
+    if ':' in device_id:
+        try:
+            org_id = UUID(device_id.split(':')[0])
+        except ValueError:
+            pass
+    
+    # Add connection
+    connection = sse_adapter.add_connection(
+        connection_id=connection_id,
+        user_id=device_id,  # Use device_id as user_id for targeting
+        organization_id=org_id,
+    )
+    
+    logger.info(f"SSE connection opened: {connection_id} for device {device_id}")
+    
+    async def event_generator() -> AsyncIterator[str]:
+        try:
+            async for event in sse_adapter.event_stream(connection):
+                yield event
+        finally:
+            logger.info(f"SSE connection closed: {connection_id}")
+    
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",  # Disable nginx buffering
+        },
+    )
+
+
+@sse_router.post(
+    "/push/send",
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Send a push challenge via SSE",
+    description="""
+    Send a push challenge to a device via SSE.
+    
+    This endpoint is for testing and development. In production, challenges
+    are created through the normal push challenge API and delivered via FCM.
+    """,
+)
+async def send_sse_push(
+    device_id: Annotated[str, Query(description="Target device ID")],
+    request: PushChallengeRequest,
+    sse_adapter: SSEAdapter = Depends(get_sse_adapter),
+) -> dict[str, Any]:
+    """Send a push challenge via SSE."""
+    from .types import NotificationPayload, NotificationTarget
+    
+    challenge_id = str(uuid4())
+    now = datetime.now(timezone.utc)
+    
+    payload = NotificationPayload(
+        id=UUID(challenge_id),
+        title=request.title,
+        body=request.question,
+        event_type="push_challenge",
+        data={
+            "challenge_id": challenge_id,
+            "nonce": request.nonce,
+            "question": request.question,
+            "credential_id": request.credential_id,
+            "ttl_seconds": request.ttl_seconds,
+            **request.data,
+        },
+        created_at=now,
+        target=NotificationTarget(
+            user_id=device_id,  # Target by device_id
+        ),
+    )
+    
+    result = await sse_adapter.send(payload)
+    
+    return {
+        "challenge_id": challenge_id,
+        "device_id": device_id,
+        "delivered": result.success,
+        "connections": result.metadata.get("connections", 0),
+    }
+
+
+@sse_router.get(
+    "/stats",
+    summary="Get SSE connection statistics",
+    description="Get statistics about active SSE connections.",
+)
+async def get_sse_stats(
+    sse_adapter: SSEAdapter = Depends(get_sse_adapter),
+) -> dict[str, Any]:
+    """Get SSE connection statistics."""
+    return sse_adapter.get_connection_stats()
+

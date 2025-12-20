@@ -88,27 +88,32 @@ function MyDocuments() {
   };
 
   return (
-    <Box>
+    <Box data-testid="my-documents-page">
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
-        <Typography variant="h4" component="h1">
+        <Typography variant="h4" component="h1" data-testid="documents-title">
           My Travel Documents
         </Typography>
 
-        <Button variant="outlined" startIcon={<RefreshIcon />} onClick={fetchDocuments}>
+        <Button 
+          variant="outlined" 
+          startIcon={<RefreshIcon />} 
+          onClick={fetchDocuments}
+          data-testid="refresh-documents-btn"
+        >
           Refresh
         </Button>
       </Box>
 
       {/* Error Display */}
       {error && (
-        <Alert severity="error" sx={{ mb: 3 }}>
+        <Alert severity="error" sx={{ mb: 3 }} data-testid="documents-error">
           {error}
         </Alert>
       )}
 
       {/* Loading State */}
       {loading && (
-        <Box display="flex" justifyContent="center" py={4}>
+        <Box display="flex" justifyContent="center" py={4} data-testid="documents-loading">
           <CircularProgress />
         </Box>
       )}
@@ -117,22 +122,25 @@ function MyDocuments() {
       {!loading && !error && (
         <>
           {documents.length === 0 ? (
-            <Card>
+            <Card data-testid="no-documents-card">
               <CardContent sx={{ textAlign: 'center', py: 6 }}>
                 <FlightTakeoffIcon sx={{ fontSize: 64, color: 'text.secondary', mb: 2 }} />
-                <Typography variant="h6" color="textSecondary" gutterBottom>
+                <Typography variant="h6" color="textSecondary" gutterBottom data-testid="no-documents-title">
                   No Travel Documents Yet
                 </Typography>
-                <Typography variant="body2" color="textSecondary">
+                <Typography variant="body2" color="textSecondary" data-testid="no-documents-message">
                   Once your application is approved, your travel documents will appear here.
                 </Typography>
               </CardContent>
             </Card>
           ) : (
-            <Grid container spacing={3}>
+            <Grid container spacing={3} data-testid="documents-grid">
               {documents.map((doc) => (
                 <Grid item xs={12} md={6} key={doc.id}>
                   <Card
+                    data-testid={`document-card-${doc.id}`}
+                    data-document-type={doc.document_type || 'Passport'}
+                    data-document-status={isExpired(doc.expiry_date) ? 'expired' : isExpiringSoon(doc.expiry_date) ? 'expiring' : 'valid'}
                     sx={{
                       height: '100%',
                       border: isExpired(doc.expiry_date) ? '2px solid' : 'none',
@@ -148,7 +156,7 @@ function MyDocuments() {
                           mb: 2,
                         }}
                       >
-                        <Typography variant="h6">{doc.document_type || 'Passport'}</Typography>
+                        <Typography variant="h6" data-testid="document-type">{doc.document_type || 'Passport'}</Typography>
                         {getStatusChip(doc)}
                       </Box>
 
@@ -157,7 +165,7 @@ function MyDocuments() {
                           <Typography variant="caption" color="textSecondary">
                             Document Number
                           </Typography>
-                          <Typography variant="body2" fontFamily="monospace">
+                          <Typography variant="body2" fontFamily="monospace" data-testid="document-number">
                             {doc.document_number || 'N/A'}
                           </Typography>
                         </Grid>
@@ -166,14 +174,14 @@ function MyDocuments() {
                           <Typography variant="caption" color="textSecondary">
                             Nationality
                           </Typography>
-                          <Typography variant="body2">{doc.nationality || user?.nationality || 'N/A'}</Typography>
+                          <Typography variant="body2" data-testid="document-nationality">{doc.nationality || user?.nationality || 'N/A'}</Typography>
                         </Grid>
 
                         <Grid item xs={6}>
                           <Typography variant="caption" color="textSecondary">
                             Issue Date
                           </Typography>
-                          <Typography variant="body2">{formatDate(doc.issue_date)}</Typography>
+                          <Typography variant="body2" data-testid="document-issue-date">{formatDate(doc.issue_date)}</Typography>
                         </Grid>
 
                         <Grid item xs={6}>
@@ -183,6 +191,7 @@ function MyDocuments() {
                           <Typography
                             variant="body2"
                             color={isExpired(doc.expiry_date) ? 'error' : 'inherit'}
+                            data-testid="document-expiry-date"
                           >
                             {formatDate(doc.expiry_date)}
                           </Typography>
@@ -190,11 +199,11 @@ function MyDocuments() {
                       </Grid>
 
                       <Box sx={{ mt: 2, pt: 2, borderTop: 1, borderColor: 'divider' }}>
-                        <Button size="small" variant="outlined">
+                        <Button size="small" variant="outlined" data-testid="view-details-btn">
                           View Details
                         </Button>
                         {isExpiringSoon(doc.expiry_date) && !isExpired(doc.expiry_date) && (
-                          <Button size="small" variant="contained" sx={{ ml: 1 }}>
+                          <Button size="small" variant="contained" sx={{ ml: 1 }} data-testid="renew-btn">
                             Renew
                           </Button>
                         )}

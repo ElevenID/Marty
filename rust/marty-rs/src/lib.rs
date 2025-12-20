@@ -1,16 +1,33 @@
 use base64::Engine;
-use pyo3::prelude::*;
 use serde::{Deserialize, Serialize};
-use ssi::crypto::{AlgorithmInstance, SecretKey};
-use ssi::jwk::{Params, JWK};
 use std::collections::HashMap;
 
+// Conditional imports based on features
+#[cfg(feature = "python")]
+use pyo3::prelude::*;
+
+#[cfg(feature = "python")]
+use ssi::crypto::{AlgorithmInstance, SecretKey};
+#[cfg(feature = "python")]
+use ssi::jwk::{Params, JWK};
+
+// Error module (only for python - has tracing dependencies)
+#[cfg(feature = "python")]
 mod error;
+
+// Status list module (only for python - has PyO3 dependencies)
+#[cfg(feature = "python")]
 mod status_list;
 
+// WASM module (only compiled with wasm feature)
+#[cfg(feature = "wasm")]
+pub mod wasm;
+
+#[cfg(feature = "python")]
 pub use error::{init_tracing, MartyError, MartyResult};
 
-// Re-export marty-verification types for Rust consumers
+// Re-export marty-verification types for Rust consumers (only when python feature enabled)
+#[cfg(feature = "python")]
 pub use marty_verification::{
     AuthStatus, ChainStatus, CscaRegistry, EmrtdVerificationResult, HashStatus, IacaRegistry,
     Jurisdiction, MdlVerificationResult, SignatureStatus, TrustAnchor, TrustPurpose, TrustRegistry,
@@ -48,28 +65,38 @@ pub struct CredentialOffer {
     pub grants: HashMap<String, serde_json::Value>,
 }
 
+// =============================================================================
+// Python bindings (only compiled with python feature)
+// =============================================================================
+
+#[cfg(feature = "python")]
+mod python_bindings {
+    use super::*;
+    use pyo3::prelude::*;
+    use ssi::crypto::{AlgorithmInstance, SecretKey};
+
 /// Formats the sum of two numbers as string.
 #[pyfunction]
-fn sum_as_string(a: usize, b: usize) -> PyResult<String> {
+pub fn sum_as_string(a: usize, b: usize) -> PyResult<String> {
     Ok((a + b).to_string())
 }
 
 /// Returns the version of the SSI library being used.
 #[pyfunction]
-fn get_ssi_version() -> PyResult<String> {
+pub fn get_ssi_version() -> PyResult<String> {
     Ok("0.12.0".to_string())
 }
 
 /// Checks if isomdl is linked.
 #[pyfunction]
-fn check_isomdl() -> PyResult<String> {
+pub fn check_isomdl() -> PyResult<String> {
     let _ = isomdl::definitions::x509::trust_anchor::TrustAnchorRegistry::default();
     Ok("isomdl is linked".to_string())
 }
 
 /// Generates a new Ed25519 key and returns (did, jwk_json)
 #[pyfunction]
-fn generate_did_key() -> PyResult<(String, String)> {
+pub fn generate_did_key() -> PyResult<(String, String)> {
     let jwk = JWK::generate_ed25519()
         .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))?;
 
@@ -92,7 +119,7 @@ fn generate_did_key() -> PyResult<(String, String)> {
 
 /// Generates a new P-256 key and returns (did, jwk_json) - preferred for OID4VCI
 #[pyfunction]
-fn generate_p256_key() -> PyResult<(String, String)> {
+pub fn generate_p256_key() -> PyResult<(String, String)> {
     let jwk = JWK::generate_p256();
     let jwk_str = serde_json::to_string(&jwk)
         .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))?;
@@ -162,7 +189,7 @@ fn sign_message(jwk: &JWK, message: &[u8]) -> Result<String, String> {
 
 /// Creates a verifiable credential and signs it as a JWT
 #[pyfunction]
-fn create_verifiable_credential(
+pub fn create_verifiable_credential(
     issuer_did: String,
     issuer_jwk_json: String,
     subject_id: Option<String>,
@@ -249,7 +276,7 @@ fn create_verifiable_credential(
 
 /// Creates an OID4VCI credential offer
 #[pyfunction]
-fn create_credential_offer(
+pub fn create_credential_offer(
     issuer_url: String,
     credential_types: Vec<String>,
     pre_authorized_code: Option<String>,
@@ -289,7 +316,7 @@ fn create_credential_offer(
 
 /// Generates a credential offer URI for QR code display
 #[pyfunction]
-fn generate_offer_uri(issuer_url: String, offer_id: String, format: String) -> PyResult<String> {
+pub fn generate_offer_uri(issuer_url: String, offer_id: String, format: String) -> PyResult<String> {
     match format.as_str() {
         "microsoft" => Ok(format!(
             "openid-vc://?request_uri={}/issuance-requests/{}",
@@ -304,7 +331,7 @@ fn generate_offer_uri(issuer_url: String, offer_id: String, format: String) -> P
 
 /// Creates a verifiable presentation from credentials
 #[pyfunction]
-fn create_presentation(
+pub fn create_presentation(
     holder_did: String,
     holder_jwk_json: String,
     credential_jwts: Vec<String>,
@@ -368,7 +395,7 @@ fn create_presentation(
 
 /// Verifies a JWT structure and claims
 #[pyfunction]
-fn verify_jwt(
+pub fn verify_jwt(
     jwt: String,
     expected_issuer: Option<String>,
     expected_audience: Option<String>,
@@ -435,7 +462,7 @@ fn verify_jwt(
 
 /// Generates issuer metadata for OID4VCI discovery
 #[pyfunction]
-fn generate_issuer_metadata(
+pub fn generate_issuer_metadata(
     issuer_url: String,
     issuer_name: String,
     credential_types_json: String,
@@ -486,9 +513,9 @@ fn generate_issuer_metadata(
 }
 
 #[pymodule]
-fn _marty_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
+pub fn _marty_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
     // Initialize tracing for structured logging
-    init_tracing();
+    crate::init_tracing();
 
     m.add_function(wrap_pyfunction!(sum_as_string, m)?)?;
     m.add_function(wrap_pyfunction!(get_ssi_version, m)?)?;
@@ -503,11 +530,11 @@ fn _marty_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(generate_issuer_metadata, m)?)?;
 
     // Status list classes and functions for credential revocation
-    m.add_class::<status_list::TokenStatusList>()?;
-    m.add_class::<status_list::BitstringStatusList>()?;
-    m.add_function(wrap_pyfunction!(status_list::create_status_list_claim, m)?)?;
+    m.add_class::<crate::status_list::TokenStatusList>()?;
+    m.add_class::<crate::status_list::BitstringStatusList>()?;
+    m.add_function(wrap_pyfunction!(crate::status_list::create_status_list_claim, m)?)?;
     m.add_function(wrap_pyfunction!(
-        status_list::create_bitstring_credential_subject,
+        crate::status_list::create_bitstring_credential_subject,
         m
     )?)?;
 
@@ -516,3 +543,9 @@ fn _marty_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
 
     Ok(())
 }
+
+} // End of python_bindings module
+
+// Re-export Python module when python feature is enabled
+#[cfg(feature = "python")]
+pub use python_bindings::_marty_rs;
