@@ -4,7 +4,7 @@
 #
 # For local development with just Chromium, use Dockerfile.playwright.local
 
-FROM mcr.microsoft.com/playwright:v1.40.0-jammy
+FROM mcr.microsoft.com/playwright:v1.56.0-jammy
 
 WORKDIR /tests
 
@@ -14,6 +14,9 @@ COPY package*.json ./
 # Install dependencies with BuildKit cache
 RUN --mount=type=cache,target=/root/.npm \
     npm ci
+
+# Install all browsers AFTER npm ci to ensure version match
+RUN npx playwright install --with-deps
 
 # Copy test files
 COPY . .

@@ -298,6 +298,7 @@ async def register_device(
 @router.delete(
     "/{device_id}",
     status_code=status.HTTP_204_NO_CONTENT,
+    response_model=None,
     summary="Unregister a device",
     description="Remove a device registration and stop receiving push notifications.",
 )
@@ -305,7 +306,7 @@ async def unregister_device(
     device_id: Annotated[str, Path(description="Device ID to unregister")],
     user_id: Annotated[str, Header(alias="X-User-ID")] = None,
     registry: DeviceRegistry = Depends(get_device_registry),
-) -> None:
+):
     """Unregister a device."""
     if not user_id:
         raise HTTPException(
@@ -790,12 +791,13 @@ async def get_all_notifications(
 @test_router.delete(
     "",
     status_code=status.HTTP_204_NO_CONTENT,
+    response_model=None,
     summary="[TEST] Clear all stored notifications",
     description="Clear all notifications from mock storage. For test cleanup.",
 )
 async def clear_all_notifications(
     mock_adapter: Optional[MockNotificationAdapter] = Depends(get_mock_adapter),
-) -> None:
+):
     """Clear all stored notifications."""
     if not mock_adapter:
         raise HTTPException(
@@ -809,13 +811,14 @@ async def clear_all_notifications(
 @test_router.delete(
     "/challenges",
     status_code=status.HTTP_204_NO_CONTENT,
+    response_model=None,
     summary="[TEST] Clear all push challenges",
     description="Clear all push challenges from mock storage.",
 )
 async def clear_all_challenges(
     device_id: Annotated[Optional[str], Query(description="Device ID to clear, or all if not specified")] = None,
     mock_adapter: Optional[MockNotificationAdapter] = Depends(get_mock_adapter),
-) -> None:
+):
     """Clear push challenges."""
     if not mock_adapter:
         raise HTTPException(

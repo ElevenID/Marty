@@ -184,25 +184,48 @@ async def get_org_settings(org_id: str, db: AsyncSession) -> dict:
 
 
 async def set_org_settings(org_id: str, settings: dict, db: AsyncSession) -> None:
-    """Update organization settings in database."""
+    """Update or create organization settings in database.
+    
+    If the organization doesn't exist (e.g., was just created in Keycloak),
+    this will create a new Organization record in the local database.
+    """
+    import re
+    
     result = await db.execute(
         select(Organization).where(Organization.id == org_id)
     )
     org = result.scalar_one_or_none()
     
     if not org:
-        logger.warning(f"Organization not found: {org_id}")
-        return
-    
-    if "is_discoverable" in settings:
-        org.is_discoverable = settings["is_discoverable"]
-    
-    if "membership_mode" in settings:
-        mode_value = settings["membership_mode"]
-        if isinstance(mode_value, str):
-            org.membership_mode = MembershipMode(mode_value)
-        else:
-            org.membership_mode = mode_value
+        # Create new organization record in local database
+        # This happens when org was just created in Keycloak
+        org_name = settings.get("name", f"org-{org_id[:8]}")
+        # Generate a slug from the name
+        slug = re.sub(r'[^a-z0-9]+', '-', org_name.lower()).strip('-')
+        # Ensure uniqueness by adding a suffix if needed
+        slug = f"{slug}-{org_id[:8]}"
+        
+        org = Organization(
+            id=org_id,
+            name=org_name,
+            slug=slug,
+            is_active=True,
+            is_discoverable=settings.get("is_discoverable", False),
+            membership_mode=MembershipMode(settings.get("membership_mode", "invite_only")),
+        )
+        db.add(org)
+        logger.info(f"Created local organization record: {org_id} ({org_name})")
+    else:
+        # Update existing organization
+        if "is_discoverable" in settings:
+            org.is_discoverable = settings["is_discoverable"]
+        
+        if "membership_mode" in settings:
+            mode_value = settings["membership_mode"]
+            if isinstance(mode_value, str):
+                org.membership_mode = MembershipMode(mode_value)
+            else:
+                org.membership_mode = mode_value
     
     await db.commit()
 
@@ -705,6 +728,7 @@ async def complete_onboarding(
             
             # Store organization settings (also create Organization record in local DB)
             await set_org_settings(org_id, {
+                "name": org_name,  # Needed for creating local DB record
                 "is_discoverable": request_data.is_discoverable,
                 "membership_mode": request_data.membership_mode,
                 "created_by": user_id,

@@ -119,6 +119,8 @@ class KeycloakAdminClient:
         path: str, 
         json: Any | None = None,
         params: dict | None = None,
+        content: str | None = None,
+        content_type: str | None = None,
     ) -> httpx.Response:
         """Make authenticated request to Keycloak admin API."""
         token = await self._get_admin_token()
@@ -126,20 +128,17 @@ class KeycloakAdminClient:
         url = f"{self._base_url}{path}"
         headers = {"Authorization": f"Bearer {token}"}
         
-        response = await self._http_client.request(
-            method, 
-            url, 
-            headers=headers, 
-            json=json,
-            params=params,
-        )
-        
-        # If 401, token may have expired - clear and retry once
-        if response.status_code == 401:
-            logger.warning("Got 401 from Keycloak admin API, refreshing token...")
-            self._clear_token()
-            token = await self._get_admin_token()
-            headers = {"Authorization": f"Bearer {token}"}
+        # Handle raw content vs JSON
+        if content is not None:
+            headers["Content-Type"] = content_type or "application/json"
+            response = await self._http_client.request(
+                method, 
+                url, 
+                headers=headers, 
+                content=content,
+                params=params,
+            )
+        else:
             response = await self._http_client.request(
                 method, 
                 url, 
@@ -147,6 +146,30 @@ class KeycloakAdminClient:
                 json=json,
                 params=params,
             )
+        
+        # If 401, token may have expired - clear and retry once
+        if response.status_code == 401:
+            logger.warning("Got 401 from Keycloak admin API, refreshing token...")
+            self._clear_token()
+            token = await self._get_admin_token()
+            headers = {"Authorization": f"Bearer {token}"}
+            if content is not None:
+                headers["Content-Type"] = content_type or "application/json"
+                response = await self._http_client.request(
+                    method, 
+                    url, 
+                    headers=headers, 
+                    content=content,
+                    params=params,
+                )
+            else:
+                response = await self._http_client.request(
+                    method, 
+                    url, 
+                    headers=headers, 
+                    json=json,
+                    params=params,
+                )
         
         return response
     
@@ -202,7 +225,12 @@ class KeycloakAdminClient:
         user_id: str, 
         attributes: dict[str, list[str]],
     ) -> None:
-        """Update user attributes."""
+        """Update user attributes.
+        
+        Keycloak requires the full user representation when updating via PUT,
+        so we fetch the current user, merge the new attributes, and send back
+        the complete user data.
+        """
         # Get current user to preserve other fields
         user = await self.get_user(user_id)
         if not user:
@@ -211,11 +239,13 @@ class KeycloakAdminClient:
         # Merge new attributes with existing
         current_attrs = user.get("attributes", {})
         current_attrs.update(attributes)
+        user["attributes"] = current_attrs
         
+        # Send full user representation back (Keycloak requires this)
         response = await self._request(
             "PUT",
             f"/users/{user_id}",
-            json={"attributes": current_attrs},
+            json=user,
         )
         response.raise_for_status()
         logger.info(f"Updated attributes for user {user_id}")
@@ -255,15 +285,27 @@ class KeycloakAdminClient:
         description: str | None = None,
         domains: list[str] | None = None,
     ) -> dict[str, Any]:
-        """Create a new organization."""
+        """Create a new organization.
+        
+        Note: Keycloak 25+ requires at least one domain for organizations.
+        If no domains are provided, a default domain is auto-generated from the org name.
+        """
+        import re
+        
+        # Keycloak 25+ requires at least one domain
+        # Auto-generate from org name if not provided
+        if not domains:
+            # Convert name to valid domain format: lowercase, replace spaces/special chars
+            slug = re.sub(r'[^a-z0-9]+', '-', name.lower()).strip('-')
+            domains = [f"{slug}.marty.local"]
+        
         org_data = {
             "name": name,
             "enabled": True,
+            "domains": [{"name": d, "verified": False} for d in domains],
         }
         if description:
             org_data["description"] = description
-        if domains:
-            org_data["domains"] = [{"name": d, "verified": False} for d in domains]
         
         response = await self._request("POST", "/organizations", json=org_data)
         
@@ -283,11 +325,16 @@ class KeycloakAdminClient:
         org_id: str,
         user_id: str,
     ) -> None:
-        """Add a user to an organization."""
+        """Add a user to an organization.
+        
+        Note: Keycloak 25 Organizations API expects the user ID as a raw string body
+        (not JSON-encoded). This is an unusual API design but documented in Keycloak source.
+        """
+        # Keycloak expects raw string, not JSON-encoded string
         response = await self._request(
             "POST",
             f"/organizations/{org_id}/members",
-            json=user_id,  # Just the user ID string
+            content=user_id,  # Raw string, not JSON
         )
         
         if response.status_code == 409:

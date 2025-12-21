@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import json
 import logging
+import os
 import uuid
 from io import BytesIO
 from typing import Any
@@ -36,15 +37,47 @@ app = FastAPI(
     redoc_url="/redoc",
 )
 
-# gRPC client setup
-GRPC_DOCUMENT_SIGNER_ADDRESS = "localhost:50051"  # This should come from config
+# gRPC client setup - configured via environment variables
+DOCUMENT_SIGNER_HOST = os.getenv("DOCUMENT_SIGNER_HOST", "localhost")
+DOCUMENT_SIGNER_PORT = os.getenv("DOCUMENT_SIGNER_PORT", "8082")
+GRPC_DOCUMENT_SIGNER_ADDRESS = f"{DOCUMENT_SIGNER_HOST}:{DOCUMENT_SIGNER_PORT}"
 channel: grpc.Channel | None = None
 document_signer_stub: document_signer_pb2_grpc.DocumentSignerStub | None = None
 
 # Microsoft Authenticator / Entra Verified ID Configuration
-ISSUER_BASE_URL = "https://issuer.marty.local"  # Should come from config
-VERIFIER_BASE_URL = "https://verifier.marty.local"  # Should come from config
-CREDENTIAL_ISSUER_DID = "did:web:issuer.marty.local"  # Should come from config
+ISSUER_BASE_URL = os.getenv("ISSUER_BASE_URL", "https://issuer.marty.local")
+VERIFIER_BASE_URL = os.getenv("VERIFIER_BASE_URL", "https://verifier.marty.local")
+CREDENTIAL_ISSUER_DID = os.getenv("CREDENTIAL_ISSUER_DID", "did:web:issuer.marty.local")
+
+# SSE notification configuration for push delivery
+SSE_NOTIFICATION_URL = os.getenv("SSE_NOTIFICATION_URL", "")
+
+
+async def notify_credential_issued(device_id: str, credential_id: str, credential_type: str) -> None:
+    """Send SSE notification when a credential is issued (for wallet push delivery)."""
+    if not SSE_NOTIFICATION_URL:
+        logger.debug("SSE notification URL not configured, skipping push notification")
+        return
+    
+    try:
+        import httpx
+        async with httpx.AsyncClient() as client:
+            await client.post(
+                f"{SSE_NOTIFICATION_URL}/api/events/push/send",
+                params={"device_id": device_id},
+                json={
+                    "title": "Credential Issued",
+                    "question": f"Your {credential_type} credential is ready",
+                    "nonce": str(uuid.uuid4()),
+                    "credential_id": credential_id,
+                    "data": {"event": "credential_issued", "credential_type": credential_type},
+                    "ttl_seconds": 300,
+                },
+                timeout=5.0,
+            )
+            logger.info(f"SSE notification sent for credential {credential_id} to device {device_id}")
+    except Exception as e:
+        logger.warning(f"Failed to send SSE notification: {e}")
 
 
 def get_grpc_client() -> document_signer_pb2_grpc.DocumentSignerStub:

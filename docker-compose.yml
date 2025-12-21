@@ -28,10 +28,11 @@ x-test-env: &test-env
   CI: "true"
   TEST_PROVIDER: mailhog
   MAILHOG_URL: http://mailhog:8025
-  BASE_URL: http://ui:80
-  API_URL: http://oid4vc-api:8000
-  KEYCLOAK_URL: http://keycloak:8080
-  OIDC_ISSUER_URL: http://localhost:8180/realms/marty
+  # Browser-accessible URLs via host.docker.internal
+  BASE_URL: http://host.docker.internal:9080
+  API_URL: http://host.docker.internal:8000
+  KEYCLOAK_URL: http://host.docker.internal:8180
+  OIDC_ISSUER_URL: http://host.docker.internal:8180/realms/marty
 
 x-keycloak-env: &keycloak-env
   KEYCLOAK_ADMIN: admin
@@ -42,6 +43,13 @@ x-keycloak-env: &keycloak-env
   KC_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD:-keycloak}
   KC_HEALTH_ENABLED: "true"
   KC_METRICS_ENABLED: "true"
+  # Hostname configuration - ensures tokens have consistent issuer
+  # Use host.docker.internal for browser access, allow backchannel (keycloak:8080) access
+  KC_HOSTNAME: host.docker.internal
+  KC_HOSTNAME_PORT: "8180"
+  KC_HOSTNAME_STRICT: "false"
+  KC_HOSTNAME_STRICT_BACKCHANNEL: "false"
+  KC_HTTP_ENABLED: "true"
   # SMTP (MailHog)
   KC_SPI_EMAIL_SENDER: default
   KC_SPI_EMAIL_SENDER_DEFAULT_HOST: mailhog
@@ -79,7 +87,45 @@ x-keycloak-env: &keycloak-env
 # =============================================================================
 services:
   # ---------------------------------------------------------------------------
-  # Core API Service
+  # Document Signer gRPC Service
+  # Provides OID4VCI credential issuance (SD-JWT, mDoc)
+  # NOTE: Temporarily disabled - Dockerfile needs path fixes
+  # ---------------------------------------------------------------------------
+  # document-signer:
+  #   build:
+  #     context: .
+  #     dockerfile: src/document_signer/Dockerfile
+  #   ports:
+  #     - "8082:8082"
+  #   environment:
+  #     SERVICE_NAME: document-signer
+  #     GRPC_PORT: "8082"
+  #     PYTHONPATH: /app/src
+  #     # Key management
+  #     KEY_VAULT_URL: ${KEY_VAULT_URL:-}
+  #     # Database
+  #     DATABASE_URL: postgresql+asyncpg://marty:marty@postgres:5432/marty_applicants
+  #     # Storage
+  #     S3_ENDPOINT: ${S3_ENDPOINT:-}
+  #     S3_BUCKET: ${S3_BUCKET:-marty-credentials}
+  #   depends_on:
+  #     postgres:
+  #       condition: service_healthy
+  #     redis:
+  #       condition: service_healthy
+  #   healthcheck:
+  #     test: ["CMD-SHELL", "python -c \"import grpc; ch = grpc.insecure_channel('localhost:8082'); grpc.channel_ready_future(ch).result(timeout=5)\""]
+  #     interval: 10s
+  #     timeout: 5s
+  #     retries: 5
+  #     start_period: 30s
+  #   profiles:
+  #     - dev
+  #     - test
+  #     - test-local
+
+  # ---------------------------------------------------------------------------
+  # Core API Service (Development - uses localhost URLs for browser access)
   # ---------------------------------------------------------------------------
   oid4vc-api:
     build:
@@ -92,10 +138,14 @@ services:
       STORAGE_MODE: ${STORAGE_MODE:-memory}
       TEST_MODE: ${TEST_MODE:-false}
       ENABLE_TEST_ENDPOINTS: ${ENABLE_TEST_ENDPOINTS:-false}
-      NOTIFICATION_ADAPTER: ${NOTIFICATION_ADAPTER:-default}
-      # Authentication
+      NOTIFICATION_ADAPTER: ${NOTIFICATION_ADAPTER:-sse}
+      # Document Signer gRPC connection
+      DOCUMENT_SIGNER_HOST: document-signer
+      DOCUMENT_SIGNER_PORT: "8082"
+      # Authentication - uses localhost for dev (browser on host machine)
       OIDC_ISSUER_URL: http://localhost:8180/realms/marty
-      OIDC_BACKEND_ISSUER_URL: http://keycloak:8080/realms/marty
+      # Backend uses host.docker.internal to match Keycloak's configured issuer
+      OIDC_BACKEND_ISSUER_URL: http://host.docker.internal:8180/realms/marty
       OIDC_CLIENT_ID: marty-ui
       OIDC_REDIRECT_URI: http://localhost:9080/auth/callback
       OIDC_POST_LOGOUT_REDIRECT_URI: http://localhost:9080
@@ -110,6 +160,65 @@ services:
     volumes:
       - ./marty-ui/src:/app/src
       - ./marty-microservices-framework:/app/marty-microservices-framework
+      - ./src/notifications:/app/notifications
+    depends_on:
+      keycloak:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      # document-signer:
+      #   condition: service_healthy
+    # Healthcheck defined in api.Dockerfile
+    profiles:
+      - dev
+
+  # ---------------------------------------------------------------------------
+  # Core API Service (Testing - uses Docker-internal URLs for Playwright browser)
+  # ---------------------------------------------------------------------------
+  oid4vc-api-test:
+    build:
+      context: .
+      dockerfile: marty-ui/docker/api.Dockerfile
+    ports:
+      - "8000:8000"
+    networks:
+      default:
+        aliases:
+          - oid4vc-api  # Allows other services to reach this as "oid4vc-api"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"  # Enable host.docker.internal on Linux
+    environment:
+      ADAPTER_MODE: ${ADAPTER_MODE:-spruceid}
+      STORAGE_MODE: ${STORAGE_MODE:-memory}
+      TEST_MODE: "true"
+      ENABLE_TEST_ENDPOINTS: "true"
+      NOTIFICATION_ADAPTER: ${NOTIFICATION_ADAPTER:-sse}
+      # Document Signer gRPC connection
+      DOCUMENT_SIGNER_HOST: document-signer
+      DOCUMENT_SIGNER_PORT: "8082"
+      # Authentication - browser uses host.docker.internal for redirects
+      # OIDC_ISSUER_URL is what gets returned to the browser for OIDC redirects
+      OIDC_ISSUER_URL: http://host.docker.internal:8180/realms/marty
+      # OIDC_BACKEND_ISSUER_URL must match the issuer in tokens (Keycloak's KC_HOSTNAME)
+      OIDC_BACKEND_ISSUER_URL: http://host.docker.internal:8180/realms/marty
+      OIDC_CLIENT_ID: marty-ui
+      # Callback URLs also need to be accessible from browser - use host.docker.internal
+      OIDC_REDIRECT_URI: http://host.docker.internal:9080/auth/callback
+      OIDC_POST_LOGOUT_REDIRECT_URI: http://host.docker.internal:9080
+      # Redis & Session
+      REDIS_URL: redis://redis:6379/0
+      SESSION_SECRET: ${SESSION_SECRET:-dev-session-secret-change-in-production}
+      # Cookies
+      COOKIE_SECURE: "false"
+      COOKIE_SAMESITE: lax
+      # Database
+      APPLICANT_DB_URL: postgresql+asyncpg://marty:marty@postgres:5432/marty_applicants
+    volumes:
+      - ./marty-ui/src:/app/src
+      - ./marty-microservices-framework:/app/marty-microservices-framework
+      - ./src/notifications:/app/notifications
     depends_on:
       keycloak:
         condition: service_healthy
@@ -119,12 +228,11 @@ services:
         condition: service_healthy
     # Healthcheck defined in api.Dockerfile
     profiles:
-      - dev
       - test
       - test-local
 
   # ---------------------------------------------------------------------------
-  # React UI
+  # React UI (Development - depends on oid4vc-api)
   # ---------------------------------------------------------------------------
   ui:
     build:
@@ -145,6 +253,34 @@ services:
     # Healthcheck defined in ui.Dockerfile
     profiles:
       - dev
+
+  # ---------------------------------------------------------------------------
+  # React UI (Testing - depends on oid4vc-api-test, no port exposure)
+  # ---------------------------------------------------------------------------
+  ui-test:
+    build:
+      context: ./marty-ui
+      dockerfile: docker/ui.Dockerfile
+      args:
+        NGINX_CONFIG: nginx.dev.conf
+    ports:
+      - "9080:80"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"  # Enable host.docker.internal on Linux
+    networks:
+      default:
+        aliases:
+          - ui  # Allows Playwright and wallet-simulator to reach this as "ui"
+    environment:
+      REACT_APP_API_URL: http://oid4vc-api:8000
+      REACT_APP_KEYCLOAK_URL: http://host.docker.internal:8180
+      REACT_APP_KEYCLOAK_REALM: marty
+      REACT_APP_KEYCLOAK_CLIENT_ID: marty-ui
+    depends_on:
+      oid4vc-api-test:
+        condition: service_healthy
+    # Healthcheck defined in ui.Dockerfile
+    profiles:
       - test
       - test-local
 
@@ -280,10 +416,19 @@ services:
     environment:
       TEST_MODE: "true"
       MARTY_API_URL: http://oid4vc-api:8000
+      # SSE push notification configuration
+      USE_SSE_PUSH: "true"
+      SSE_PUSH_URL: http://oid4vc-api:8000/api/events/push
     depends_on:
-      oid4vc-api:
+      oid4vc-api-test:
         condition: service_healthy
-    # Healthcheck defined in Dockerfile.flutter.web.test
+    # Override healthcheck with IPv4 address for compatibility
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://127.0.0.1:80/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      start_period: 15s
+      retries: 3
     profiles:
       - test
       - test-local
@@ -295,13 +440,15 @@ services:
     build:
       context: ./marty-ui/tests
       dockerfile: Dockerfile.playwright
+    extra_hosts:
+      - "host.docker.internal:host-gateway"  # Enable host.docker.internal on Linux
     environment:
       <<: *test-env
     volumes:
       - ./marty-ui/tests/test-results:/tests/test-results
       - ./marty-ui/tests/playwright-report:/tests/playwright-report
     depends_on:
-      ui:
+      ui-test:
         condition: service_healthy
       mailhog:
         condition: service_healthy
@@ -319,13 +466,17 @@ services:
     build:
       context: ./marty-ui/tests
       dockerfile: Dockerfile.playwright.local
+    extra_hosts:
+      - "host.docker.internal:host-gateway"  # Enable host.docker.internal on Linux
     environment:
       <<: *test-env
     volumes:
       - ./marty-ui/tests/test-results:/tests/test-results
       - ./marty-ui/tests/playwright-report:/tests/playwright-report
+      - ./marty-ui/tests/e2e:/tests/e2e:ro  # Mount test files for live updates
+      - ./marty-ui/tests/utils:/tests/utils:ro  # Mount test helpers
     depends_on:
-      ui:
+      ui-test:
         condition: service_healthy
       mailhog:
         condition: service_healthy

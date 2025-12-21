@@ -190,11 +190,13 @@
       "redirectUris": [
         "http://localhost:9080/*",
         "http://localhost:3000/*",
+        "http://host.docker.internal:9080/*",
         "https://*.marty.demo/*"
       ],
       "webOrigins": [
         "http://localhost:9080",
         "http://localhost:3000",
+        "http://host.docker.internal:9080",
         "https://*.marty.demo"
       ],
       "protocol": "openid-connect",
@@ -207,7 +209,7 @@
       "fullScopeAllowed": true,
       "attributes": {
         "pkce.code.challenge.method": "S256",
-        "post.logout.redirect.uris": "http://localhost:9080/*##http://localhost:3000/*##https://*.marty.demo/*"
+        "post.logout.redirect.uris": "http://localhost:9080/*##http://localhost:3000/*##http://host.docker.internal:9080/*##https://*.marty.demo/*"
       },
       "defaultClientScopes": [
         "openid",

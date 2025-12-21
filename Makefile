@@ -86,7 +86,7 @@ test: _ensure-wallet ## Run E2E tests (full browser matrix)
 	$(COMPOSE) --profile test up -d postgres redis mailhog keycloak
 	@echo "$(BLUE)⏳ Waiting for infrastructure...$(NC)"
 	@sleep 5
-	$(COMPOSE) --profile test up -d oid4vc-api ui wallet-simulator
+	$(COMPOSE) --profile test up -d oid4vc-api-test ui-test wallet-simulator
 	@echo "$(BLUE)⏳ Waiting for services to be healthy...$(NC)"
 	@sleep 10
 	$(COMPOSE) --profile test up playwright --exit-code-from playwright
@@ -97,7 +97,7 @@ test-local: _ensure-wallet ## Run fast Chromium-only E2E tests
 	$(COMPOSE) --profile test-local up -d postgres redis mailhog keycloak
 	@echo "$(BLUE)⏳ Waiting for infrastructure...$(NC)"
 	@sleep 5
-	$(COMPOSE) --profile test-local up -d oid4vc-api ui wallet-simulator
+	$(COMPOSE) --profile test-local up -d oid4vc-api-test ui-test wallet-simulator
 	@echo "$(BLUE)⏳ Waiting for services to be healthy...$(NC)"
 	@sleep 10
 	$(COMPOSE) --profile test-local up playwright-local --exit-code-from playwright-local

@@ -96,34 +96,57 @@ test.describe('mDL Issuance Flow - Complete Workflow', () => {
         jurisdiction: 'US-TX',
         adminEmail: `admin-${timestamp}@test.marty.demo`
       };
+      const testPassword = 'TestPassword123!';
 
       await page.goto('/');
       
-      // Start onboarding
+      // Start onboarding - this redirects to Keycloak registration
       await page.click('[data-testid="get-started-btn"], button:has-text("Get Started")');
       
-      // Step 1: Select organization type
+      // Complete Keycloak registration form
+      await page.waitForSelector('#firstName, input[name="firstName"]', { timeout: 15000 });
+      await page.fill('#firstName, input[name="firstName"]', 'Test');
+      await page.fill('#lastName, input[name="lastName"]', 'Admin');
+      await page.fill('#email, input[name="email"]', newOrg.adminEmail);
+      await page.fill('#password, input[name="password"]', testPassword);
+      await page.fill('#password-confirm, input[name="password-confirm"]', testPassword);
+      await page.click('input[type="submit"], button[type="submit"]');
+      
+      // Wait for redirect back to app's onboarding page
+      await page.waitForURL(url => !url.toString().includes('realms'), { timeout: 15000 });
+      
+      // Step 1: Select organization type (now on onboarding page)
       await expect(page.locator('[data-testid="role-selection"]')).toBeVisible({ timeout: 10000 });
       await page.click('[data-testid="role-issuer"], [data-testid="role-vendor"]');
-      await page.click('[data-testid="continue-btn"]');
+      await page.click('[data-testid="continue-btn"], button:has-text("Continue")');
       
-      // Step 2: Organization details
-      await expect(page.locator('[data-testid="org-details-form"]')).toBeVisible({ timeout: 10000 });
-      await page.fill('[data-testid="org-name-input"]', newOrg.name);
-      await page.selectOption('[data-testid="org-type-select"]', newOrg.type);
-      await page.fill('[data-testid="jurisdiction-input"]', newOrg.jurisdiction);
-      await page.click('[data-testid="continue-btn"]');
+      // Step 2: Organization details - fill form and create org
+      await expect(page.locator('text=Create Your Organization')).toBeVisible({ timeout: 10000 });
       
-      // Step 3: Admin account setup
-      await expect(page.locator('[data-testid="admin-setup-form"]')).toBeVisible({ timeout: 10000 });
-      // Keycloak handles this via redirect or inline form
+      // Fill organization name
+      const orgNameInput = page.locator('input[placeholder*="Acme"]');
+      await orgNameInput.fill(newOrg.name);
       
-      // Step 4: Complete setup
-      await expect(page.locator('[data-testid="setup-complete"]')).toBeVisible({ timeout: 30000 });
-      await expect(page.locator('[data-testid="org-name-display"]')).toContainText(newOrg.name);
+      // Select organization type - click dropdown then option
+      await page.click('[role="combobox"]');
+      await page.click('[role="option"]:has-text("Government")');
+      await page.waitForTimeout(500); // Wait for dropdown to close
+      
+      // Fill jurisdiction
+      const jurisdictionInput = page.locator('input[placeholder*="US-TX"]');
+      await jurisdictionInput.fill(newOrg.jurisdiction);
+      
+      // Click create organization button
+      await page.click('button:has-text("Create Organization")');
+      
+      // Step 3: Verify we reached dashboard or next step
+      await page.waitForURL(/dashboard|vendor|admin|complete/i, { timeout: 30000 });
     });
 
-    test('seeded vendor admin can login and access dashboard', async ({ page }) => {
+    test('seeded vendor admin can login and access dashboard', async ({ page, baseURL }) => {
+      // Navigate to app first
+      await page.goto(baseURL || 'http://host.docker.internal:9080/');
+      
       // Vendor admin login and dashboard access
       await auth.loginAsSeededUser('vendor');
       

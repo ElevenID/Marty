@@ -92,6 +92,17 @@ except ImportError as e:
     TEST_HELPERS_AVAILABLE = False
     logging.warning(f"Test helpers not available: {e}")
 
+# SSE (Server-Sent Events) service imports for real-time push notifications
+try:
+    import sys
+    sys.path.insert(0, '/app')  # For Docker context
+    from notifications.api import sse_router, push_router, configure_sse_adapter
+    from notifications.adapters.sse import SSEAdapter
+    SSE_SERVICE_AVAILABLE = True
+except ImportError as e:
+    SSE_SERVICE_AVAILABLE = False
+    logging.warning(f"SSE service not available: {e}")
+
 # Error handling imports
 try:
     import sys
@@ -178,6 +189,12 @@ if TEST_HELPERS_AVAILABLE:
     app.include_router(test_helpers_router, tags=["Test Helpers"])
     logger.info("Test helpers router registered")
 
+# SSE (Server-Sent Events) endpoints for real-time push challenge delivery
+if SSE_SERVICE_AVAILABLE:
+    app.include_router(sse_router, tags=["SSE Events"])
+    app.include_router(push_router, tags=["Push Notifications"])
+    logger.info("SSE and Push notification routers registered")
+
 
 # =============================================================================
 # Startup Events - Database Initialization
@@ -193,6 +210,32 @@ async def startup_event():
         logger.info("Subscription database initialized")
     except Exception as e:
         logger.error(f"Failed to initialize subscription database: {e}")
+    
+    # Initialize applicant database (for applicant management)
+    if APPLICANT_SERVICE_AVAILABLE:
+        try:
+            from applicant_service.database import init_database as init_applicant_db
+            await init_applicant_db()
+            logger.info("Applicant database initialized")
+        except Exception as e:
+            logger.error(f"Failed to initialize applicant database: {e}")
+    
+    # Initialize SSE adapter for real-time push notifications
+    if SSE_SERVICE_AVAILABLE:
+        try:
+            notification_adapter = os.getenv("NOTIFICATION_ADAPTER", "default")
+            if notification_adapter == "sse":
+                sse_adapter = SSEAdapter(
+                    heartbeat_interval=30,
+                    max_connections_per_user=5,
+                )
+                await sse_adapter.start()
+                configure_sse_adapter(sse_adapter)
+                logger.info("SSE adapter initialized for real-time push notifications")
+            else:
+                logger.info(f"SSE adapter not started (NOTIFICATION_ADAPTER={notification_adapter})")
+        except Exception as e:
+            logger.error(f"Failed to initialize SSE adapter: {e}")
 
 def _get_adapters():
     """Lazy initialization of adapters."""

@@ -309,13 +309,31 @@ class AuthHelpers {
       await this.page.click('button:has-text("Sign In to Continue"), button:has-text("Login"), button:has-text("Sign In"), a:has-text("Login")');
     }
 
-    // Wait for Keycloak login form (handle both auth/login redirect and direct Keycloak)
-    await this.page.waitForSelector('#username, #kc-form-login, input[name="username"]', { timeout: 15000 });
+    // Wait for Keycloak login form
+    // Support both classic (username/password together) and two-step (email first, then password) flows
+    await this.page.waitForSelector('#username, [data-testid="username"], input[name="username"], input[type="email"]', { timeout: 15000 });
 
-    // Fill and submit
-    await this.page.fill('#username', email);
-    await this.page.fill('#password', password);
-    await this.page.click('#kc-login, button[type="submit"]');
+    // Check if we have a two-step flow (only email field visible)
+    const passwordFieldVisible = await this.page.locator('#password').isVisible().catch(() => false);
+    
+    if (passwordFieldVisible) {
+      // Classic login form - username and password together
+      await this.page.fill('#username', email);
+      await this.page.fill('#password', password);
+      await this.page.click('#kc-login, button[type="submit"]');
+    } else {
+      // Two-step login flow - email first, then password
+      const emailInput = this.page.locator('#username, input[type="email"], input[name="username"]').first();
+      await emailInput.fill(email);
+      
+      // Click Sign In / Next to proceed to password step
+      await this.page.click('button:has-text("Sign In"), button:has-text("Next"), button[type="submit"], #kc-login');
+      
+      // Wait for password field to appear
+      await this.page.waitForSelector('#password, input[type="password"]', { timeout: 15000 });
+      await this.page.fill('#password, input[type="password"]', password);
+      await this.page.click('button:has-text("Sign In"), button[type="submit"], #kc-login');
+    }
 
     // Wait for redirect back to app
     await this.page.waitForURL(url => !url.toString().includes('realms'), { timeout: 15000 });

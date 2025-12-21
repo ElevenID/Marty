@@ -4,10 +4,7 @@
 #
 # Usage: docker build -f Dockerfile.playwright.local -t playwright-local .
 
-FROM mcr.microsoft.com/playwright:v1.40.0-focal
-
-# Install only Chromium browser (skip Firefox and WebKit)
-RUN npx playwright install chromium
+FROM mcr.microsoft.com/playwright:v1.56.0-jammy
 
 WORKDIR /tests
 
@@ -17,6 +14,10 @@ COPY package*.json ./
 # Install dependencies with BuildKit cache
 RUN --mount=type=cache,target=/root/.npm \
     npm ci
+
+# Install Chromium browser AFTER npm ci to ensure version match
+# The base image has browsers, but npm ci may update @playwright/test
+RUN npx playwright install chromium --with-deps
 
 # Copy test files
 COPY . .
