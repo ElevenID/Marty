@@ -9,6 +9,13 @@ import {
   Alert,
   Chip,
   Stack,
+  FormControl,
+  InputLabel,
+  MenuItem,
+  Select,
+  Checkbox,
+  FormControlLabel,
+  TextField,
 } from '@mui/material';
 import {
   QrCodeScanner as ScanIcon,
@@ -26,10 +33,13 @@ export default function VerifierPanel({
   credentialType = 'mdl',
   onVerificationComplete,
 }: VerifierPanelProps) {
+  const [selectedType, setSelectedType] = useState(credentialType);
+  const [useNfc, setUseNfc] = useState(false);
   const [scanning, setScanning] = useState(false);
   const [verifying, setVerifying] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<VerificationResult | null>(null);
+  const [credentialData, setCredentialData] = useState('');
   const { setLastVerification, setVerificationInProgress, license } = useAppStore();
 
   const handleScan = useCallback(async () => {
@@ -42,16 +52,17 @@ export default function VerifierPanel({
       // For now, simulate with mock data
       await new Promise((resolve) => setTimeout(resolve, 1000));
 
-      // Mock credential data
-      const mockCredentialData = 'mock_credential_qr_data';
+      // Use provided data or mock placeholder
+      const payload = credentialData || 'mock_credential_qr_data';
 
       setScanning(false);
       setVerifying(true);
       setVerificationInProgress(true);
 
       const request: VerifyRequest = {
-        credential_type: credentialType,
-        credential_data: mockCredentialData,
+        credential_type: selectedType,
+        credential_data: payload,
+        use_nfc: selectedType === 'emrtd' ? useNfc : undefined,
         policy: {
           required_claims: ['given_name', 'family_name'],
           allow_expired_grace: false,
@@ -69,7 +80,7 @@ export default function VerifierPanel({
       setVerifying(false);
       setVerificationInProgress(false);
     }
-  }, [credentialType, onVerificationComplete, setLastVerification, setVerificationInProgress]);
+  }, [selectedType, useNfc, onVerificationComplete, setLastVerification, setVerificationInProgress]);
 
   const handleReset = () => {
     setResult(null);
@@ -78,7 +89,7 @@ export default function VerifierPanel({
 
   // Check if credential type is licensed
   const isLicensed = license?.features.some(
-    (f) => f === '*' || f === credentialType || credentialType.startsWith(f)
+    (f) => f === '*' || f === selectedType || selectedType.startsWith(f)
   );
 
   if (!isLicensed) {
@@ -86,7 +97,7 @@ export default function VerifierPanel({
       <Card>
         <CardContent>
           <Alert severity="error">
-            {credentialType.toUpperCase()} verification is not licensed.
+            {selectedType.toUpperCase()} verification is not licensed.
           </Alert>
         </CardContent>
       </Card>
@@ -114,8 +125,52 @@ export default function VerifierPanel({
       <CardContent>
         <Stack spacing={3} alignItems="center">
           <Typography variant="h5">
-            {credentialType.toUpperCase()} Verification
+            {selectedType.toUpperCase()} Verification
           </Typography>
+
+          <FormControl fullWidth>
+            <InputLabel id="credential-type-label">Credential Type</InputLabel>
+            <Select
+              labelId="credential-type-label"
+              value={selectedType}
+              label="Credential Type"
+              onChange={(e) => setSelectedType(e.target.value)}
+              data-testid="credential-type-select"
+            >
+              <MenuItem value="mdl">mDL</MenuItem>
+              <MenuItem value="emrtd">eMRTD (Passport)</MenuItem>
+              <MenuItem value="oid4vp">OID4VP</MenuItem>
+              <MenuItem value="sd-jwt">SD-JWT</MenuItem>
+            </Select>
+          </FormControl>
+
+          {selectedType === 'emrtd' && (
+            <FormControlLabel
+              control={
+                <Checkbox
+                  checked={useNfc}
+                  onChange={(e) => setUseNfc(e.target.checked)}
+                  data-testid="use-nfc-checkbox"
+                />
+              }
+              label="Use NFC reader (if available)"
+            />
+          )}
+
+          <TextField
+            label="Credential Data (JSON, base64, or QR contents)"
+            placeholder={
+              selectedType === 'emrtd'
+                ? '{"sod_base64":"...","data_groups":{"DG1":"..."},"country":"USA"}'
+                : 'Paste credential payload'
+            }
+            value={credentialData}
+            onChange={(e) => setCredentialData(e.target.value)}
+            fullWidth
+            multiline
+            minRows={3}
+            data-testid="credential-data-input"
+          />
 
           <Chip
             label={credentialType}

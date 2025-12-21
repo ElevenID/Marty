@@ -29,6 +29,7 @@
 //! ```
 
 pub mod asn1;
+pub mod chip_io;
 pub mod crypto;
 pub mod error;
 pub mod jwk;

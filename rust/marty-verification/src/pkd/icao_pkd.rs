@@ -4,6 +4,7 @@
 //! from the ICAO Public Key Directory for eMRTD verification.
 
 use std::collections::HashMap;
+use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 use x509_cert::Certificate;
@@ -20,6 +21,8 @@ pub struct IcaoPkdConfig {
     pub username: Option<String>,
     /// Password for PKD access.
     pub password: Option<String>,
+    /// Optional local PKD cache directory (existing pattern for offline/secure storage).
+    pub offline_dir: Option<PathBuf>,
 }
 
 impl Default for IcaoPkdConfig {
@@ -28,6 +31,7 @@ impl Default for IcaoPkdConfig {
             base_url: "https://pkddownloadsg.icao.int".to_string(),
             username: None,
             password: None,
+            offline_dir: None,
         }
     }
 }
@@ -40,6 +44,7 @@ impl IcaoPkdConfig {
                 .unwrap_or_else(|_| "https://pkddownloadsg.icao.int".to_string()),
             username: std::env::var("ICAO_PKD_USERNAME").ok(),
             password: std::env::var("ICAO_PKD_PASSWORD").ok(),
+            offline_dir: std::env::var("ICAO_PKD_DIR").ok().map(PathBuf::from),
         }
     }
 }
@@ -175,6 +180,25 @@ impl IcaoPkdClient {
     /// Returns the number of certificates added/updated.
     pub async fn sync_registry(&self, registry: &mut CscaRegistry) -> VerificationResult<usize> {
         use der::Decode;
+
+        // First, prefer local/offline PKD cache when configured (existing pattern).
+        if let Some(dir) = &self.config.offline_dir {
+            if dir.exists() {
+                let added = registry.merge_from_directory(dir)?;
+                registry.set_master_list_version("offline-cache".to_string());
+                tracing::info!(
+                    "Loaded {} CSCA certificates from offline PKD cache at {}",
+                    added,
+                    dir.display()
+                );
+                return Ok(added);
+            } else {
+                tracing::warn!(
+                    "Configured ICAO_PKD_DIR {} does not exist; falling back to remote fetch",
+                    dir.display()
+                );
+            }
+        }
 
         let master_list = self.fetch_master_list().await?;
         let mut count = 0;

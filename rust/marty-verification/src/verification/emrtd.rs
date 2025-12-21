@@ -3,6 +3,8 @@
 //! This module provides trust chain verification for electronic travel documents
 //! (ePassports, electronic ID cards), implementing the CSCA → DSC → SOD chain.
 
+use std::collections::HashMap;
+
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use signature::hazmat::PrehashVerifier;
@@ -101,6 +103,54 @@ pub struct SecurityObject {
     pub signature: Vec<u8>,
     /// Signed attributes (for signature verification).
     pub signed_attrs: Vec<u8>,
+    /// Raw SOD bytes, when available (preferred for signature validation).
+    pub raw_sod: Option<Vec<u8>>,
+}
+
+impl SecurityObject {
+    /// Build a `SecurityObject` from raw SOD bytes.
+    ///
+    /// This parses the CMS SignedData, extracts the LDS hashes, and loads the DSC.
+    /// Signature validation can then be performed using `raw_sod`.
+    pub fn from_sod_der(
+        sod_der: &[u8],
+        country_hint: Option<String>,
+    ) -> VerificationResult<Self> {
+        use der::Decode;
+
+        let parsed = crate::asn1::sod::parse_sod(sod_der)?;
+
+        let pem = parsed.document_signer_cert.ok_or_else(|| {
+            VerificationError::der_error("SOD contained no Document Signer Certificate".to_string())
+        })?;
+
+        let (_, dsc_der) = pem_rfc7468::decode_vec(pem.as_bytes()).map_err(|e| {
+            VerificationError::der_error(format!("Failed to decode DSC PEM: {}", e))
+        })?;
+
+        let certificate =
+            Certificate::from_der(&dsc_der).map_err(|e| VerificationError::der_error(e.to_string()))?;
+
+        let serial_number = certificate.tbs_certificate.serial_number.to_string();
+
+        let mut data_group_hashes = HashMap::new();
+        for dg in parsed.data_group_hashes {
+            data_group_hashes.insert(dg.data_group_number, dg.hash_bytes);
+        }
+
+        Ok(SecurityObject {
+            signer_certificate: DocumentSignerCertificate {
+                certificate,
+                country: country_hint,
+                serial_number,
+            },
+            hash_algorithm: parsed.hash_algorithm,
+            data_group_hashes,
+            signature: Vec::new(),
+            signed_attrs: Vec::new(),
+            raw_sod: Some(sod_der.to_vec()),
+        })
+    }
 }
 
 /// Verify a DSC certificate against the CSCA registry.
@@ -202,17 +252,44 @@ fn verify_certificate_signature(
         "1.2.840.10045.4.3.2" => verify_ecdsa_p256(&tbs_bytes, signature_bytes, spki),
         // ecdsa-with-SHA384 (1.2.840.10045.4.3.3)
         "1.2.840.10045.4.3.3" => verify_ecdsa_p384(&tbs_bytes, signature_bytes, spki),
-        // RSA with SHA-256 (1.2.840.113549.1.1.11)
-        "1.2.840.113549.1.1.11" => {
-            // RSA verification would go here
-            Err(VerificationError::internal(
-                "RSA signature verification not yet implemented",
-            ))
-        }
+        // RSA with SHA-256/384/512 and RSA-PSS variants are handled via the unified verifier
+        "1.2.840.113549.1.1.11"
+        | "1.2.840.113549.1.1.12"
+        | "1.2.840.113549.1.1.13"
+        | "1.2.840.113549.1.1.10"
+        | "1.2.840.113549.1.1.5" => verify_certificate_signature_unified(tbs_bytes, signature_bytes, spki, sig_alg),
         oid => Err(VerificationError::internal(format!(
             "Unsupported signature algorithm OID: {}",
             oid
         ))),
+    }
+}
+
+/// Verify any supported algorithm using the unified crypto module.
+fn verify_certificate_signature_unified(
+    tbs_bytes: Vec<u8>,
+    signature_bytes: &[u8],
+    spki: &x509_cert::spki::SubjectPublicKeyInfoOwned,
+    sig_alg: &spki::AlgorithmIdentifierOwned,
+) -> VerificationResult<()> {
+    use der::Encode;
+
+    let public_key_der = spki.to_der().map_err(|e| {
+        VerificationError::internal(format!("Failed to encode public key: {}", e))
+    })?;
+
+    let algorithm = crate::crypto::SignatureAlgorithm::from_oid(&sig_alg.oid.to_string())?;
+
+    let valid =
+        crate::crypto::verify_signature(algorithm, &public_key_der, &tbs_bytes, signature_bytes)?;
+
+    if valid {
+        Ok(())
+    } else {
+        Err(VerificationError::invalid_signature(
+            "Certificate",
+            "Signature verification failed".to_string(),
+        ))
     }
 }
 
@@ -353,10 +430,19 @@ pub fn verify_emrtd(
         }
     }
 
-    // Step 2: Verify SOD signature
-    // (This would verify the CMS signature on the SOD using the DSC)
-    // For now, we'll mark as unknown since full CMS parsing is complex
-    result.sod_signature_status = SignatureStatus::Unknown;
+    // Step 2: Verify SOD signature (prefer raw SOD when supplied)
+    if let Some(raw_sod) = sod.raw_sod.as_deref() {
+        match crate::asn1::sod::verify_sod_signature(raw_sod) {
+            Ok(true) => result.sod_signature_status = SignatureStatus::Valid,
+            Ok(false) => result.sod_signature_status = SignatureStatus::Invalid,
+            Err(err) => {
+                result.sod_signature_status = SignatureStatus::Invalid;
+                result.errors.push(err.to_string());
+            }
+        }
+    } else {
+        result.sod_signature_status = SignatureStatus::Unknown;
+    }
 
     // Step 3: Verify data group hashes
     match verify_data_group_hashes(sod, data_groups) {
@@ -498,6 +584,7 @@ mod tests {
             data_group_hashes: sod_hashes,
             signature: vec![0u8; 64],
             signed_attrs: vec![],
+            raw_sod: None,
         };
 
         let mut data_groups = HashMap::new();
@@ -536,6 +623,7 @@ mod tests {
             data_group_hashes: sod_hashes,
             signature: vec![0u8; 64],
             signed_attrs: vec![],
+            raw_sod: None,
         };
 
         let mut data_groups = HashMap::new();

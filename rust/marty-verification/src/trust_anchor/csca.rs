@@ -93,6 +93,17 @@ impl CscaRegistry {
         self.country_index.keys().map(|s| s.as_str()).collect()
     }
 
+    /// Merge CSCA certificates from a local PEM directory (existing pattern for PKD caches).
+    pub fn merge_from_directory(&mut self, path: &Path) -> VerificationResult<usize> {
+        let from_dir = BasicTrustRegistry::from_pem_directory(path, TrustPurpose::Csca)?;
+        let mut added = 0;
+        for anchor in from_dir.get_anchors() {
+            self.add_anchor(anchor.clone())?;
+            added += 1;
+        }
+        Ok(added)
+    }
+
     /// Cache a DSC certificate for faster verification.
     pub fn cache_dsc(&mut self, issuer: &str, dsc: Certificate) {
         self.dsc_cache

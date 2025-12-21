@@ -27,6 +27,7 @@ export interface LicenseStatus {
 export interface VerifyRequest {
   credential_type: string;
   credential_data: string;
+  use_nfc?: boolean;
   policy?: VerificationPolicy;
 }
 
@@ -46,12 +47,20 @@ export interface VerificationResult {
   revocation_status: 'valid' | 'revoked' | 'unknown' | 'cached_valid';
   verified_at: string;
   warnings: string[];
+  emrtd_details?: EmrtdDetails;
 }
 
 export interface IssuerInfo {
   name: string | null;
   jurisdiction: string | null;
   subject: string | null;
+}
+
+export interface EmrtdDetails {
+  dsc_chain_status: string;
+  sod_signature_status: string;
+  dg_hash_status: string;
+  errors: string[];
 }
 
 export interface TrustChainStatus {

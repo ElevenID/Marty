@@ -120,6 +120,53 @@ export default function VerificationResultCard({ result }: VerificationResultCar
             </Box>
           )}
 
+          {/* eMRTD Details */}
+          {result.emrtd_details && (
+            <Box>
+              <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+                Passport Verification Details
+              </Typography>
+              <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+                <Chip
+                  label={`DSC Chain: ${result.emrtd_details.dsc_chain_status}`}
+                  color={
+                    result.emrtd_details.dsc_chain_status.toLowerCase() === 'valid'
+                      ? 'success'
+                      : 'warning'
+                  }
+                  variant="outlined"
+                />
+                <Chip
+                  label={`SOD Signature: ${result.emrtd_details.sod_signature_status}`}
+                  color={
+                    result.emrtd_details.sod_signature_status.toLowerCase() === 'valid'
+                      ? 'success'
+                      : 'warning'
+                  }
+                  variant="outlined"
+                />
+                <Chip
+                  label={`DG Hashes: ${result.emrtd_details.dg_hash_status}`}
+                  color={
+                    result.emrtd_details.dg_hash_status.toLowerCase() === 'valid'
+                      ? 'success'
+                      : 'warning'
+                  }
+                  variant="outlined"
+                />
+              </Stack>
+              {result.emrtd_details.errors.length > 0 && (
+                <Box sx={{ mt: 1 }}>
+                  {result.emrtd_details.errors.map((err, idx) => (
+                    <Alert key={idx} severity="error" sx={{ mb: 1 }}>
+                      {err}
+                    </Alert>
+                  ))}
+                </Box>
+              )}
+            </Box>
+          )}
+
           {/* Warnings */}
           {result.warnings.length > 0 && (
             <Box>
