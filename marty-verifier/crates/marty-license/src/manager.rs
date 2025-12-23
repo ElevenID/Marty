@@ -69,7 +69,10 @@ impl LicenseManager {
     }
 
     /// Validate and install a new license
-    pub async fn validate_license(&self, license_jwt: &str) -> Result<LicenseValidationResult, LicenseError> {
+    pub async fn validate_license(
+        &self,
+        license_jwt: &str,
+    ) -> Result<LicenseValidationResult, LicenseError> {
         // Skip JWT validation if no public key configured (development mode)
         let claims = if self.public_key_pem.is_empty() {
             tracing::warn!("No license public key configured - accepting all licenses (dev mode)");
@@ -180,21 +183,26 @@ impl LicenseManager {
         if !status.valid {
             return Ok(false);
         }
-        Ok(status.features.iter().any(|f| {
-            f == "*" || f == feature || feature.starts_with(f)
-        }))
+        Ok(status
+            .features
+            .iter()
+            .any(|f| f == "*" || f == feature || feature.starts_with(f)))
     }
 
     /// Increment daily verification count
     pub async fn increment_verification_count(&self) -> Result<u32, LicenseError> {
-        let mut state = self.storage.get_license_state().await?.unwrap_or(LicenseState {
-            license_jwt: None,
-            validated_at: None,
-            hardware_fingerprint: None,
-            verifications_today: 0,
-            verifications_date: None,
-            grace_period_started: None,
-        });
+        let mut state = self
+            .storage
+            .get_license_state()
+            .await?
+            .unwrap_or(LicenseState {
+                license_jwt: None,
+                validated_at: None,
+                hardware_fingerprint: None,
+                verifications_today: 0,
+                verifications_date: None,
+                grace_period_started: None,
+            });
 
         let today = Utc::now().format("%Y-%m-%d").to_string();
 
@@ -235,7 +243,9 @@ impl LicenseManager {
     async fn get_todays_verifications(&self, state: &Option<LicenseState>) -> u32 {
         let today = Utc::now().format("%Y-%m-%d").to_string();
         match state {
-            Some(s) if s.verifications_date.as_ref() == Some(&today) => s.verifications_today as u32,
+            Some(s) if s.verifications_date.as_ref() == Some(&today) => {
+                s.verifications_today as u32
+            }
             _ => 0,
         }
     }
@@ -249,7 +259,8 @@ impl LicenseManager {
             // Check if within grace period
             if let Some(state) = &state {
                 if let Some(grace_started) = state.grace_period_started {
-                    let grace_end = grace_started + chrono::Duration::days(claims.grace_period_days);
+                    let grace_end =
+                        grace_started + chrono::Duration::days(claims.grace_period_days);
                     Utc::now() < grace_end
                 } else {
                     // Start grace period

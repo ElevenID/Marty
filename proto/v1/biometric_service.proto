@@ -175,17 +175,82 @@ message MatchingOptions {
     int32 max_comparisons = 4;
 }
 
+// Liveness challenge and results
+enum LivenessMode {
+    LIVENESS_MODE_UNKNOWN = 0;
+    LIVENESS_MODE_ON_DEVICE = 1;
+    LIVENESS_MODE_NETWORK = 2;
+}
+
+enum LivenessStepType {
+    LIVENESS_STEP_TYPE_UNKNOWN = 0;
+    LIVENESS_STEP_TYPE_HEAD_POSE = 1;
+    LIVENESS_STEP_TYPE_BLINK = 2;
+    LIVENESS_STEP_TYPE_PHRASE = 3;
+}
+
+message LivenessStep {
+    string step_id = 1;
+    LivenessStepType type = 2;
+    string prompt = 3;
+    string pose_direction = 4;
+    int32 time_limit_ms = 5;
+}
+
+message LivenessChallenge {
+    string challenge_id = 1;
+    string nonce = 2;
+    string session_id = 3;
+    repeated LivenessStep steps = 4;
+    string issued_at = 5;
+    string expires_at = 6;
+    string signature = 7;
+    LivenessMode preferred_mode = 8;
+    bool allow_network_fallback = 9;
+    bool accessibility_mode = 10;
+}
+
+message LivenessScores {
+    float pad_score = 1;
+    float pose_score = 2;
+    float speech_score = 3;
+    float voice_spoof_score = 4;
+    float av_sync_score = 5;
+}
+
+message LivenessThresholds {
+    float min_pad_score = 1;
+    float min_pose_score = 2;
+    float min_speech_score = 3;
+    float min_voice_spoof_score = 4;
+    float min_av_sync_score = 5;
+    float fused_threshold = 6;
+}
+
+message LivenessResult {
+    bool passed = 1;
+    float fused_score = 2;
+    LivenessScores scores = 3;
+    LivenessThresholds thresholds = 4;
+    LivenessMode mode_used = 5;
+    repeated string errors = 6;
+    string decision = 7;
+    int32 audit_clip_ttl_seconds = 8;
+}
+
 // Identity verification messages
 message VerifyIdentityRequest {
     bytes live_sample = 1;
     BiometricTemplate stored_template = 2;
     BiometricType type = 3;
     VerificationOptions options = 4;
+    LivenessChallenge challenge = 5;
 }
 
 message VerifyIdentityResponse {
     VerificationResult result = 1;
     marty.common.v1.Status status = 2;
+    LivenessResult liveness = 3;
 }
 
 message VerificationResult {
@@ -194,6 +259,7 @@ message VerificationResult {
     MatchResult match_result = 3;
     QualityAssessment live_quality = 4;
     repeated string verification_steps = 5;
+    LivenessResult liveness = 6;
 }
 
 message VerificationOptions {
@@ -201,6 +267,11 @@ message VerificationOptions {
     float verification_threshold = 2;
     bool anti_spoofing = 3;
     int32 max_attempts = 4;
+    LivenessMode preferred_liveness_mode = 5;
+    bool allow_network_fallback = 6;
+    bool accessibility_mode = 7;
+    bool retain_audit_clip = 8;
+    int32 audit_clip_ttl_seconds = 9;
 }
 
 // Batch processing messages

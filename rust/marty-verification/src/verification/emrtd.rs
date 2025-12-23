@@ -112,10 +112,7 @@ impl SecurityObject {
     ///
     /// This parses the CMS SignedData, extracts the LDS hashes, and loads the DSC.
     /// Signature validation can then be performed using `raw_sod`.
-    pub fn from_sod_der(
-        sod_der: &[u8],
-        country_hint: Option<String>,
-    ) -> VerificationResult<Self> {
+    pub fn from_sod_der(sod_der: &[u8], country_hint: Option<String>) -> VerificationResult<Self> {
         use der::Decode;
 
         let parsed = crate::asn1::sod::parse_sod(sod_der)?;
@@ -128,8 +125,8 @@ impl SecurityObject {
             VerificationError::der_error(format!("Failed to decode DSC PEM: {}", e))
         })?;
 
-        let certificate =
-            Certificate::from_der(&dsc_der).map_err(|e| VerificationError::der_error(e.to_string()))?;
+        let certificate = Certificate::from_der(&dsc_der)
+            .map_err(|e| VerificationError::der_error(e.to_string()))?;
 
         let serial_number = certificate.tbs_certificate.serial_number.to_string();
 
@@ -257,7 +254,9 @@ fn verify_certificate_signature(
         | "1.2.840.113549.1.1.12"
         | "1.2.840.113549.1.1.13"
         | "1.2.840.113549.1.1.10"
-        | "1.2.840.113549.1.1.5" => verify_certificate_signature_unified(tbs_bytes, signature_bytes, spki, sig_alg),
+        | "1.2.840.113549.1.1.5" => {
+            verify_certificate_signature_unified(tbs_bytes, signature_bytes, spki, sig_alg)
+        }
         oid => Err(VerificationError::internal(format!(
             "Unsupported signature algorithm OID: {}",
             oid
@@ -274,9 +273,9 @@ fn verify_certificate_signature_unified(
 ) -> VerificationResult<()> {
     use der::Encode;
 
-    let public_key_der = spki.to_der().map_err(|e| {
-        VerificationError::internal(format!("Failed to encode public key: {}", e))
-    })?;
+    let public_key_der = spki
+        .to_der()
+        .map_err(|e| VerificationError::internal(format!("Failed to encode public key: {}", e)))?;
 
     let algorithm = crate::crypto::SignatureAlgorithm::from_oid(&sig_alg.oid.to_string())?;
 

@@ -17,8 +17,8 @@
 //! - [`conversions`] - From implementations for error conversion
 
 mod builders;
-mod conversions;
 pub mod codes;
+mod conversions;
 mod types;
 mod verification_error;
 

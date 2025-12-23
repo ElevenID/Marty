@@ -8,8 +8,8 @@ use serde::{Deserialize, Serialize};
 use crate::error::{AppError, AppResult};
 
 // Re-export crate types for convenience
-pub use marty_sync::SyncConfig;
 pub use marty_reporting::ReportingConfig;
+pub use marty_sync::SyncConfig;
 
 /// Main application configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -19,6 +19,14 @@ pub struct AppConfig {
 
     /// Ed25519 public key for license validation (base64 encoded)
     pub license_public_key: String,
+
+    /// Liveness retention and media handling
+    #[serde(default)]
+    pub liveness_retention: LivenessRetentionConfig,
+
+    /// PAD provider configuration (hexagonal adapter selection)
+    #[serde(default)]
+    pub pad_config: PadProviderConfig,
 
     /// Sync configuration
     #[serde(default)]
@@ -72,11 +80,46 @@ pub struct RetentionConfig {
     pub redacted_fields: Vec<String>,
 }
 
+/// Liveness-specific retention and media controls
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LivenessRetentionConfig {
+    /// Default TTL for audit clips in seconds
+    pub default_audit_clip_ttl_seconds: u32,
+    /// Maximum TTL allowed for audit clips in seconds
+    pub max_audit_clip_ttl_seconds: u32,
+    /// Whether to encrypt temporary media at rest
+    pub encrypt_temp_media: bool,
+}
+
+/// PAD provider selection
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PadProviderType {
+    SelfHosted,
+    Commercial,
+    Mock,
+}
+
+/// PAD provider configuration (ports/adapters)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PadProviderConfig {
+    /// Provider type (self-hosted HTTP, commercial API, or mock)
+    pub provider: PadProviderType,
+    /// Endpoint for self-hosted or commercial PAD API
+    pub endpoint: Option<String>,
+    /// API key or token for commercial provider
+    pub api_key: Option<String>,
+    /// Request timeout in milliseconds
+    pub timeout_ms: u64,
+}
+
 impl Default for AppConfig {
     fn default() -> Self {
         Self {
             data_dir: default_data_dir(),
             license_public_key: String::new(),
+            liveness_retention: LivenessRetentionConfig::default(),
+            pad_config: PadProviderConfig::default(),
             sync_config: SyncConfig::default(),
             reporting_config: ReportingConfig::default(),
             ui_config: UiConfig::default(),
@@ -108,6 +151,33 @@ impl Default for RetentionConfig {
                 "signature".to_string(),
                 "biometric_template".to_string(),
             ],
+        }
+    }
+}
+
+impl Default for LivenessRetentionConfig {
+    fn default() -> Self {
+        Self {
+            default_audit_clip_ttl_seconds: 30,
+            max_audit_clip_ttl_seconds: 120,
+            encrypt_temp_media: true,
+        }
+    }
+}
+
+impl Default for PadProviderType {
+    fn default() -> Self {
+        PadProviderType::Mock
+    }
+}
+
+impl Default for PadProviderConfig {
+    fn default() -> Self {
+        Self {
+            provider: PadProviderType::Mock,
+            endpoint: None,
+            api_key: None,
+            timeout_ms: 5000,
         }
     }
 }

@@ -147,7 +147,7 @@ mod tests {
     #[test]
     fn test_reporting_config_default() {
         let config = ReportingConfig::default();
-        
+
         assert!(config.enabled);
         assert!(!config.local_only);
         assert!(config.api_endpoint.is_none());
@@ -168,7 +168,7 @@ mod tests {
             redacted_fields: vec!["name".to_string(), "dob".to_string()],
             include_hardware_info: true,
         };
-        
+
         assert!(config.local_only);
         assert_eq!(config.max_queue_size, 1000);
     }
@@ -184,7 +184,7 @@ mod tests {
             api_configured: true,
             batch_configured: true,
         };
-        
+
         let json = serde_json::to_string(&status).unwrap();
         assert!(json.contains("\"enabled\":true"));
         assert!(json.contains("\"pending_events\":10"));
@@ -201,7 +201,7 @@ mod tests {
             api_configured: false,
             batch_configured: false,
         };
-        
+
         assert_eq!(status.pending_events, 0);
         assert!(status.oldest_event.is_none());
     }

@@ -157,10 +157,7 @@ impl TrustRegistry for CscaRegistry {
         self.csca_anchors.add_anchor(anchor)?;
 
         if let Some(j) = jurisdiction {
-            self.country_index
-                .entry(j)
-                .or_default()
-                .push(index);
+            self.country_index.entry(j).or_default().push(index);
         }
 
         Ok(())

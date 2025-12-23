@@ -17,13 +17,11 @@ impl PiiEncryptor {
     /// Create new encryptor with the given key
     pub fn new(key: &[u8]) -> Result<Self, StorageError> {
         if key.len() != 32 {
-            return Err(StorageError::Encryption(
-                "Key must be 32 bytes".to_string(),
-            ));
+            return Err(StorageError::Encryption("Key must be 32 bytes".to_string()));
         }
 
-        let cipher = Aes256Gcm::new_from_slice(key)
-            .map_err(|e| StorageError::Encryption(e.to_string()))?;
+        let cipher =
+            Aes256Gcm::new_from_slice(key).map_err(|e| StorageError::Encryption(e.to_string()))?;
 
         Ok(Self { cipher })
     }

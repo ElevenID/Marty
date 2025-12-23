@@ -28,7 +28,7 @@ fn main() {
 
     // Initialize app state
     let app_state = AppState::new().expect("Failed to initialize application state");
-    
+
     // Clone license manager for async setup
     let license_for_setup = app_state.license.clone();
     let config_public_key = app_state.config.blocking_read().license_public_key.clone();
@@ -51,7 +51,7 @@ fn main() {
                     // Generate and install dev license
                     let dev_license = generate_dev_license_jwt();
                     tracing::info!("Installing development license");
-                    
+
                     match license_for_setup.validate_license(&dev_license).await {
                         Ok(result) => {
                             tracing::info!(
@@ -74,8 +74,10 @@ fn main() {
             commands::license::get_license_status,
             commands::license::get_licensed_features,
             // Verification commands
+            commands::verification::issue_liveness_challenge,
             commands::verification::verify_credential,
             commands::verification::get_verification_history,
+            commands::biometrics::verify_face_match,
             // Storage commands
             commands::storage::get_offline_queue_status,
             commands::storage::clear_verification_history,
@@ -97,7 +99,7 @@ fn main() {
 /// Generate a development JWT license
 fn generate_dev_license_jwt() -> String {
     use base64::Engine;
-    
+
     let now = chrono::Utc::now().timestamp();
     let exp = now + 365 * 24 * 60 * 60; // 1 year
 

@@ -10,14 +10,22 @@ from datetime import datetime, timezone
 
 from app.api.deps import get_coordinator_service, verify_api_key
 from app.core.config import settings
-from app.models.doc_models_clean import HealthResponse, ProcessRequest, ProcessResponse
+from app.models.doc_models_clean import (
+    HealthResponse,
+    PreTravelVerificationRequest,
+    PreTravelVerificationResult,
+    ProcessRequest,
+    ProcessResponse,
+)
 from app.services.coordinator_service import DocumentProcessingCoordinator
+from app.services.pretravel_service import PreTravelVerificationService
 from fastapi import APIRouter, Depends, Header, HTTPException, status
 from fastapi.responses import PlainTextResponse
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+pretravel_service = PreTravelVerificationService()
 
 # Store server start time for uptime calculation
 START_TIME = time.time()
@@ -126,3 +134,21 @@ async def process_documents(
 async def ping_legacy() -> str:
     """Legacy ping endpoint for backward compatibility"""
     return "OK"
+
+
+@router.post(
+    "/api/pre-travel/verify",
+    response_model=PreTravelVerificationResult,
+    tags=["PreTravel"],
+)
+async def pre_travel_verify(
+    request: PreTravelVerificationRequest,
+    _: bool = Depends(verify_api_key),
+) -> PreTravelVerificationResult:
+    """
+    Pre-travel verification flow:
+    - Accept MRZ/barcode/NFC placeholders
+    - Perform minimal verification
+    - Issue tokenized credential (sd-jwt or mdoc placeholder)
+    """
+    return await pretravel_service.verify_and_issue(request)

@@ -56,7 +56,9 @@ pub struct CertificateEntry {
 }
 
 /// Import trust anchors from USB package
-pub async fn import_from_usb(path: &Path) -> Result<(Vec<TrustAnchor>, UsbImportResult), SyncError> {
+pub async fn import_from_usb(
+    path: &Path,
+) -> Result<(Vec<TrustAnchor>, UsbImportResult), SyncError> {
     tracing::info!(path = ?path, "Importing trust anchors from USB");
 
     // Check path exists
@@ -85,7 +87,9 @@ pub async fn import_from_usb(path: &Path) -> Result<(Vec<TrustAnchor>, UsbImport
 
     // Process IACA certificates
     for cert in &package.iaca_certificates {
-        if let Ok(anchor) = parse_certificate_entry(cert, marty_secure_storage::TrustAnchorType::Iaca) {
+        if let Ok(anchor) =
+            parse_certificate_entry(cert, marty_secure_storage::TrustAnchorType::Iaca)
+        {
             anchors.push(anchor);
             count += 1;
         }
@@ -93,7 +97,9 @@ pub async fn import_from_usb(path: &Path) -> Result<(Vec<TrustAnchor>, UsbImport
 
     // Process CSCA certificates
     for cert in &package.csca_certificates {
-        if let Ok(anchor) = parse_certificate_entry(cert, marty_secure_storage::TrustAnchorType::Csca) {
+        if let Ok(anchor) =
+            parse_certificate_entry(cert, marty_secure_storage::TrustAnchorType::Csca)
+        {
             anchors.push(anchor);
             count += 1;
         }
@@ -101,7 +107,9 @@ pub async fn import_from_usb(path: &Path) -> Result<(Vec<TrustAnchor>, UsbImport
 
     // Process DSC certificates
     for cert in &package.dsc_certificates {
-        if let Ok(anchor) = parse_certificate_entry(cert, marty_secure_storage::TrustAnchorType::Dsc) {
+        if let Ok(anchor) =
+            parse_certificate_entry(cert, marty_secure_storage::TrustAnchorType::Dsc)
+        {
             anchors.push(anchor);
             count += 1;
         }

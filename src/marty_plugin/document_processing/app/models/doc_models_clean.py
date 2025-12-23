@@ -202,6 +202,40 @@ class ProcessResponse(BaseModel):
     metadata: dict[str, Any] | None = None
 
 
+# Pre-travel verification models
+class PreTravelVerificationRequest(BaseModel):
+    """Input for pre-travel verification."""
+
+    mrz_lines: list[str] | None = None
+    barcode_data: str | None = None  # VDS-NC or QR payload
+    nfc_payload: bytes | None = None  # Placeholder for chip data
+    issuance_type: str = Field("sd-jwt", description="sd-jwt or mdoc")
+    credential_type: str = Field("PreTravelCredential", description="VC type to issue")
+    audience: str | None = None
+    nonce: str | None = None
+
+
+class TokenizedCredential(BaseModel):
+    """Issued credential (sd-jwt or mdoc placeholder)."""
+
+    format: str
+    token: str
+    disclosures: list[str] | None = None
+    presentation_definition: dict[str, Any] | None = None
+
+
+class PreTravelVerificationResult(BaseModel):
+    """Response for pre-travel verification."""
+
+    is_valid: bool
+    reason: str | None = None
+    mrz: MRZResult | None = None
+    credential: TokenizedCredential | None = None
+    checks: list[str] | None = None
+    vds_valid: bool | None = None
+    trust_warnings: list[str] | None = None
+
+
 ImageQualityThresholds.model_rebuild()
 ImageQualityReport.model_rebuild()
 ProcessParam.model_rebuild()
@@ -214,6 +248,9 @@ Container.model_rebuild()
 ContainerList.model_rebuild()
 TransactionInfo.model_rebuild()
 ProcessResponse.model_rebuild()
+PreTravelVerificationRequest.model_rebuild()
+TokenizedCredential.model_rebuild()
+PreTravelVerificationResult.model_rebuild()
 
 __all__ = [
     "CheckResult",
@@ -232,6 +269,9 @@ __all__ = [
     "ProcessRequest",
     "ProcessRequestImage",
     "ProcessResponse",
+    "PreTravelVerificationRequest",
+    "PreTravelVerificationResult",
+    "TokenizedCredential",
     "ProcessingStatus",
     "RfidLocation",
     "Status",

@@ -147,7 +147,10 @@ impl SecureStorage {
     }
 
     /// Clear verification history older than N days
-    pub async fn clear_verification_history(&self, older_than_days: u32) -> Result<usize, StorageError> {
+    pub async fn clear_verification_history(
+        &self,
+        older_than_days: u32,
+    ) -> Result<usize, StorageError> {
         let conn = self.conn.lock().await;
 
         let deleted = if older_than_days == 0 {
@@ -169,18 +172,13 @@ impl SecureStorage {
     pub async fn get_queue_status(&self) -> Result<OfflineQueueStatus, StorageError> {
         let conn = self.conn.lock().await;
 
-        let pending_events: usize = conn.query_row(
-            "SELECT COUNT(*) FROM offline_queue",
-            [],
-            |row| row.get(0),
-        )?;
+        let pending_events: usize =
+            conn.query_row("SELECT COUNT(*) FROM offline_queue", [], |row| row.get(0))?;
 
         let oldest_event: Option<String> = conn
-            .query_row(
-                "SELECT MIN(created_at) FROM offline_queue",
-                [],
-                |row| row.get(0),
-            )
+            .query_row("SELECT MIN(created_at) FROM offline_queue", [], |row| {
+                row.get(0)
+            })
             .ok();
 
         // Estimate data size
@@ -265,7 +263,10 @@ impl SecureStorage {
         let mut stmt = conn.prepare(sql)?;
 
         let rows = if let Some(jur) = jurisdiction {
-            stmt.query_map([anchor_type.to_string(), jur.to_string()], Self::map_trust_anchor)?
+            stmt.query_map(
+                [anchor_type.to_string(), jur.to_string()],
+                Self::map_trust_anchor,
+            )?
         } else {
             stmt.query_map([anchor_type.to_string()], Self::map_trust_anchor)?
         };
@@ -312,16 +313,23 @@ impl SecureStorage {
                 "usb_import" => TrustAnchorSource::UsbImport,
                 _ => TrustAnchorSource::Manual,
             },
-            synced_at: row.get::<_, String>(11).ok().and_then(|s| {
-                chrono::DateTime::parse_from_rfc3339(&s)
-                    .ok()
-                    .map(|dt| dt.with_timezone(&Utc))
-            }).unwrap_or_else(Utc::now),
+            synced_at: row
+                .get::<_, String>(11)
+                .ok()
+                .and_then(|s| {
+                    chrono::DateTime::parse_from_rfc3339(&s)
+                        .ok()
+                        .map(|dt| dt.with_timezone(&Utc))
+                })
+                .unwrap_or_else(Utc::now),
         })
     }
 
     /// Count trust anchors by type
-    pub async fn count_trust_anchors(&self, anchor_type: TrustAnchorType) -> Result<usize, StorageError> {
+    pub async fn count_trust_anchors(
+        &self,
+        anchor_type: TrustAnchorType,
+    ) -> Result<usize, StorageError> {
         let conn = self.conn.lock().await;
         let count: usize = conn.query_row(
             "SELECT COUNT(*) FROM trust_anchors WHERE anchor_type = ?",
@@ -466,7 +474,11 @@ impl SecureStorage {
     }
 
     /// Queue an event for offline reporting
-    pub async fn queue_event(&self, event_type: &str, payload: &serde_json::Value) -> Result<String, StorageError> {
+    pub async fn queue_event(
+        &self,
+        event_type: &str,
+        payload: &serde_json::Value,
+    ) -> Result<String, StorageError> {
         let conn = self.conn.lock().await;
         let id = uuid::Uuid::new_v4().to_string();
         let now = Utc::now().to_rfc3339();
@@ -484,7 +496,10 @@ impl SecureStorage {
     }
 
     /// Get pending events from offline queue
-    pub async fn get_pending_events(&self, limit: usize) -> Result<Vec<OfflineQueueEntry>, StorageError> {
+    pub async fn get_pending_events(
+        &self,
+        limit: usize,
+    ) -> Result<Vec<OfflineQueueEntry>, StorageError> {
         let conn = self.conn.lock().await;
         let mut stmt = conn.prepare(
             r#"
@@ -501,11 +516,15 @@ impl SecureStorage {
                 id: row.get(0)?,
                 event_type: row.get(1)?,
                 payload: serde_json::from_str(&payload_str).unwrap_or(serde_json::Value::Null),
-                created_at: row.get::<_, String>(3).ok().and_then(|s| {
-                    chrono::DateTime::parse_from_rfc3339(&s)
-                        .ok()
-                        .map(|dt| dt.with_timezone(&Utc))
-                }).unwrap_or_else(Utc::now),
+                created_at: row
+                    .get::<_, String>(3)
+                    .ok()
+                    .and_then(|s| {
+                        chrono::DateTime::parse_from_rfc3339(&s)
+                            .ok()
+                            .map(|dt| dt.with_timezone(&Utc))
+                    })
+                    .unwrap_or_else(Utc::now),
                 retry_count: row.get(4)?,
                 last_retry_at: row.get::<_, Option<String>>(5)?.and_then(|s| {
                     chrono::DateTime::parse_from_rfc3339(&s)

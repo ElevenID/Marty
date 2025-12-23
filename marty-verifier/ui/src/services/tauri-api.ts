@@ -28,6 +28,18 @@ export interface VerifyRequest {
   credential_type: string;
   credential_data: string;
   use_nfc?: boolean;
+  liveness_challenge?: LivenessChallenge;
+  require_liveness?: boolean;
+  preferred_liveness_mode?: LivenessMode;
+  allow_network_fallback?: boolean;
+  accessibility_mode?: boolean;
+  retain_audit_clip?: boolean;
+  audit_clip_ttl_seconds?: number;
+  session_id?: string;
+  perform_face_match?: boolean;
+  reference_image?: string;
+  probe_image?: string;
+  face_threshold?: number;
   policy?: VerificationPolicy;
 }
 
@@ -48,6 +60,8 @@ export interface VerificationResult {
   verified_at: string;
   warnings: string[];
   emrtd_details?: EmrtdDetails;
+  liveness?: LivenessResult;
+  face_match?: FaceMatchResponse;
 }
 
 export interface IssuerInfo {
@@ -131,6 +145,7 @@ export interface OfflineQueueStatus {
 export interface AppConfig {
   data_dir: string;
   license_public_key: string;
+  liveness_retention: LivenessRetentionConfig;
   sync_config: SyncConfig;
   reporting_config: ReportingConfig;
   ui_config: UiConfig;
@@ -169,6 +184,86 @@ export interface RetentionConfig {
   redacted_fields: string[];
 }
 
+export interface LivenessRetentionConfig {
+  default_audit_clip_ttl_seconds: number;
+  max_audit_clip_ttl_seconds: number;
+  encrypt_temp_media: boolean;
+}
+
+export type LivenessMode = 'unknown' | 'on_device' | 'network';
+export type LivenessStepType = 'unknown' | 'head_pose' | 'blink' | 'phrase';
+
+export interface LivenessStep {
+  step_id: string;
+  step_type: LivenessStepType;
+  prompt?: string;
+  pose_direction?: string;
+  time_limit_ms?: number;
+}
+
+export interface LivenessChallenge {
+  challenge_id: string;
+  nonce: string;
+  session_id: string;
+  steps: LivenessStep[];
+  issued_at: string;
+  expires_at: string;
+  signature: string;
+  preferred_mode: LivenessMode;
+  allow_network_fallback: boolean;
+  accessibility_mode: boolean;
+}
+
+export interface FaceMatchRequest {
+  reference_image: string;
+  probe_image: string;
+  threshold?: number;
+  liveness_challenge?: LivenessChallenge;
+  require_liveness?: boolean;
+}
+
+export interface FaceMatchResponse {
+  verified: boolean;
+  similarity: number;
+  threshold: number;
+  provider: string;
+}
+
+export interface LivenessScores {
+  pad_score?: number;
+  pose_score?: number;
+  speech_score?: number;
+  voice_spoof_score?: number;
+  av_sync_score?: number;
+}
+
+export interface LivenessThresholds {
+  min_pad_score?: number;
+  min_pose_score?: number;
+  min_speech_score?: number;
+  min_voice_spoof_score?: number;
+  min_av_sync_score?: number;
+  fused_threshold?: number;
+}
+
+export interface LivenessResult {
+  passed: boolean;
+  fused_score: number;
+  scores?: LivenessScores;
+  thresholds?: LivenessThresholds;
+  mode_used?: LivenessMode;
+  errors?: string[];
+  decision?: string;
+}
+
+export interface IssueLivenessChallengeRequest {
+  session_id?: string;
+  preferred_mode?: LivenessMode;
+  allow_network_fallback?: boolean;
+  accessibility_mode?: boolean;
+  ttl_seconds?: number;
+}
+
 // =============================================================================
 // License Commands
 // =============================================================================
@@ -193,8 +288,23 @@ export async function verifyCredential(request: VerifyRequest): Promise<Verifica
   return invoke('verify_credential', { request });
 }
 
+type IssueLivenessChallengeResponse = { challenge: LivenessChallenge };
+
+export async function issueLivenessChallenge(
+  request: IssueLivenessChallengeRequest,
+): Promise<LivenessChallenge> {
+  const { challenge } = await invoke<IssueLivenessChallengeResponse>('issue_liveness_challenge', {
+    request,
+  });
+  return challenge;
+}
+
 export async function getVerificationHistory(limit?: number): Promise<VerificationHistoryEntry[]> {
   return invoke('get_verification_history', { limit });
+}
+
+export async function verifyFaceMatch(request: FaceMatchRequest): Promise<FaceMatchResponse> {
+  return invoke('verify_face_match', { request });
 }
 
 // =============================================================================

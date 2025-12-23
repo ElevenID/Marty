@@ -28,6 +28,7 @@ from app.models.doc_models_clean import (
     TransactionInfo,
 )
 from PIL import Image
+from pytesseract import pytesseract  # type: ignore
 
 # Attempt to use Marty common MRZ utilities; if unavailable (e.g. grpc dependency build fails
 # under the current Python version) fall back to a lightweight local parser sufficient for
@@ -144,6 +145,8 @@ except (ImportError, ModuleNotFoundError):  # Fallback only for import-related f
 class ImageProcessor:
     """Handles image processing and MRZ extraction from images"""
 
+    tess_lang: str | None = None  # Allows injection of language pack name
+
     @staticmethod
     def decode_base64_image(base64_data: str) -> Image.Image:
         """Decode base64 image data"""
@@ -164,18 +167,34 @@ class ImageProcessor:
     @staticmethod
     def extract_text_from_image(image: Image.Image) -> list[str]:
         """
-        Extract text from image using OCR (mock implementation)
-        In a real implementation, this would use OCR libraries like Tesseract
+        Extract text from image using OCR (Tesseract if available, else mock)
         """
-        # Mock MRZ extraction - in reality would use OCR
-        # For testing, we'll return some sample MRZ lines
-        logger.info("Extracting text from image (mock implementation)")
+        try:
+            # Restrict character set to MRZ allowed chars to improve accuracy
+            lang = ImageProcessor.tess_lang or "eng"
+            config = (
+                "--psm 6 "
+                "-c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789< "
+                "-c load_system_dawg=false -c load_freq_dawg=false"
+            )
+            text = pytesseract.image_to_string(image, config=config)
+            lines = [line.strip() for line in text.splitlines() if line.strip()]
+            if lines:
+                logger.info("Extracted text using Tesseract")
+                return lines
+        except Exception:
+            logger.exception("Tesseract OCR failed; falling back to mock lines")
 
-        # This is a mock - real implementation would use OCR
+        logger.info("Extracting text from image (mock implementation)")
         return [
             "P<USADOE<<JOHN<MICHAEL<<<<<<<<<<<<<<<<",
             "1234567890USA8504031M3504027<<<<<<<<<<<<6",
         ]
+
+    @staticmethod
+    def extract_text_from_region(region: Image.Image) -> list[str]:
+        """Wrapper to extract text from a specific region (mock)."""
+        return ImageProcessor.extract_text_from_image(region)
 
 
 class MRZProcessingService:

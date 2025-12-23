@@ -89,16 +89,23 @@ impl SyncEngine {
         let sync_in_progress = *self.sync_in_progress.read().await;
 
         // Count certificates
-        let iaca_count = self.storage.count_trust_anchors(TrustAnchorType::Iaca).await?;
-        let csca_count = self.storage.count_trust_anchors(TrustAnchorType::Csca).await?;
-        let dsc_count = self.storage.count_trust_anchors(TrustAnchorType::Dsc).await?;
+        let iaca_count = self
+            .storage
+            .count_trust_anchors(TrustAnchorType::Iaca)
+            .await?;
+        let csca_count = self
+            .storage
+            .count_trust_anchors(TrustAnchorType::Csca)
+            .await?;
+        let dsc_count = self
+            .storage
+            .count_trust_anchors(TrustAnchorType::Dsc)
+            .await?;
 
         // Calculate hours since last sync
         let (last_sync, hours_since_sync) = if let Some(ref state) = state {
             let last = state.last_iaca_sync.or(state.last_csca_sync);
-            let hours = last.map(|dt| {
-                (Utc::now() - dt).num_minutes() as f64 / 60.0
-            });
+            let hours = last.map(|dt| (Utc::now() - dt).num_minutes() as f64 / 60.0);
             (last.map(|dt| dt.to_rfc3339()), hours)
         } else {
             (None, None)
@@ -116,9 +123,8 @@ impl SyncEngine {
             csca_certificates: csca_count,
             dsc_certificates: dsc_count,
             crl_cache_age_hours: state.as_ref().and_then(|s| {
-                s.last_crl_sync.map(|dt| {
-                    (Utc::now() - dt).num_minutes() as f64 / 60.0
-                })
+                s.last_crl_sync
+                    .map(|dt| (Utc::now() - dt).num_minutes() as f64 / 60.0)
             }),
             sync_overdue,
             sync_in_progress,
@@ -277,7 +283,7 @@ mod tests {
     #[test]
     fn test_sync_config_default() {
         let config = SyncConfig::default();
-        
+
         assert!(config.aamva_dts_url.is_none());
         assert!(config.icao_pkd_url.is_none());
         assert_eq!(config.sync_interval_hours, 24);
@@ -294,7 +300,7 @@ mod tests {
             enable_usb_import: false,
             max_offline_hours: 48,
         };
-        
+
         assert_eq!(config.aamva_dts_url.unwrap(), "https://dts.aamva.org");
         assert_eq!(config.sync_interval_hours, 12);
         assert!(!config.enable_usb_import);
@@ -313,10 +319,10 @@ mod tests {
             sync_in_progress: false,
             last_error: None,
         };
-        
+
         let json = serde_json::to_string(&status).unwrap();
         let deserialized: SyncStatus = serde_json::from_str(&json).unwrap();
-        
+
         assert_eq!(deserialized.iaca_certificates, 50);
         assert_eq!(deserialized.csca_certificates, 100);
         assert!(!deserialized.sync_overdue);
@@ -333,7 +339,7 @@ mod tests {
             duration_seconds: 3.5,
             error: None,
         };
-        
+
         assert!(result.success);
         assert_eq!(result.iaca_updated, 10);
         assert!(result.error.is_none());
@@ -350,7 +356,7 @@ mod tests {
             duration_seconds: 0.1,
             error: Some("Network timeout".to_string()),
         };
-        
+
         assert!(!result.success);
         assert_eq!(result.error.unwrap(), "Network timeout");
     }

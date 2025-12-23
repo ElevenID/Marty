@@ -37,6 +37,9 @@ enum DTCType {
   VIRTUAL = 1;      // Virtual DTC (vDTC) - standalone credential not requiring physical passport
   PHYSICAL = 2;     // Physical DTC (pDTC) - used alongside physical passport
   TEMPORARY = 3;    // Temporary DTC (tDTC) - limited validity for specific purpose
+  TYPE1 = 4;        // ICAO DTC Type 1 profile (derived from eMRTD data)
+  TYPE2 = 5;        // ICAO DTC Type 2 profile (chip-bound with secure provisioning)
+  TYPE3 = 6;        // ICAO DTC Type 3 profile (wallet/device-bound with remote attestation)
 }
 
 // Access control options for DTC
@@ -62,6 +65,9 @@ message CreateDTCRequest {
   string access_key = 10;        // Password or access key if access control is enabled
   string dtc_valid_from = 11;    // ISO 8601 date (YYYY-MM-DD), if different from issue_date
   string dtc_valid_until = 12;   // ISO 8601 date (YYYY-MM-DD), if different from expiry_date
+  Type1Profile type1_profile = 13; // Optional Type 1 payload when dtc_type == TYPE1
+  Type2Profile type2_profile = 14; // Optional Type 2 payload when dtc_type == TYPE2
+  Type3Profile type3_profile = 15; // Optional Type 3 payload when dtc_type == TYPE3
 }
 
 // Response for DTC creation
@@ -123,6 +129,35 @@ message DTCResponse {
   string revocation_date = 14;
   string status = 15;
   string error_message = 16;
+  Type1Profile type1_profile = 17;
+  Type2Profile type2_profile = 18;
+  Type3Profile type3_profile = 19;
+}
+
+// ICAO DTC Type 1 profile payload
+message Type1Profile {
+  string mrz_line1 = 1;
+  string mrz_line2 = 2;
+  string sod_hash = 3;            // Hash of the SOD or data groups used to derive the DTC
+  string issuing_state = 4;       // From MRZ/issuing_authority
+  bool passive_auth_ok = 5;       // Result of passive authentication if performed
+}
+
+// ICAO DTC Type 2 profile payload (chip-bound)
+message Type2Profile {
+  string chip_auth_public_key = 1;   // Chip authentication public key reference
+  string device_public_key = 2;      // Device-bound public key (PEM or JWK)
+  string attestation_cert_hash = 3;  // Hash of attestation cert for device binding
+  bool passive_auth_ok = 4;          // Passive auth result when issuing
+}
+
+// ICAO DTC Type 3 profile payload (wallet/device attested)
+message Type3Profile {
+  string remote_attestation_report = 1; // Attestation statement from wallet/device
+  string device_binding_id = 2;         // Stable device binding identifier
+  string ephemeral_public_key = 3;      // Ephemeral key used during issuance
+  string session_id = 4;                // Issuance session identifier
+  string attestation_cert_hash = 5;     // Hash of attestation cert used in session
 }
 
 // Request to sign a DTC

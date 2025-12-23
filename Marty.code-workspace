@@ -5,6 +5,9 @@
 		},
 		{
 			"path": "../marty-authenticator"
+		},
+		{
+			"path": "../product-catalog"
 		}
 	],
 	"settings": {}

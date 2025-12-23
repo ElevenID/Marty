@@ -73,7 +73,7 @@ impl FaceVerifier for BiometricProvider {
 }
 
 /// Local face verification provider
-/// 
+///
 /// This is a placeholder that will be implemented with OpenCV/dlib
 /// for offline facial verification capability.
 pub struct LocalProvider {
@@ -125,6 +125,7 @@ impl FaceVerifier for LocalProvider {
             probe_quality: Some(0.85),
             processing_time_ms: start.elapsed().as_millis() as u64,
             provider: "marty-local".to_string(),
+            liveness: None,
         })
     }
 
@@ -215,6 +216,7 @@ impl FaceVerifier for MockProvider {
             probe_quality: Some(0.9),
             processing_time_ms: 50,
             provider: "mock".to_string(),
+            liveness: None,
         })
     }
 
@@ -276,7 +278,7 @@ mod tests {
     fn test_mock_provider_capabilities() {
         let provider = MockProvider::new();
         let caps = provider.capabilities();
-        
+
         assert_eq!(caps.name, "mock");
         assert_eq!(caps.version, "1.0.0");
         assert!(caps.supports_verification);
@@ -293,10 +295,11 @@ mod tests {
             reference_image: "base64_ref".to_string(),
             probe_image: "base64_probe".to_string(),
             threshold: Some(0.7),
+            ..Default::default()
         };
-        
+
         let result = provider.verify(request).await.unwrap();
-        
+
         assert!(result.verified);
         assert_eq!(result.similarity, 0.95);
         assert_eq!(result.threshold, 0.7);
@@ -310,10 +313,11 @@ mod tests {
             reference_image: "base64_ref".to_string(),
             probe_image: "base64_probe".to_string(),
             threshold: Some(0.99), // Above the 0.95 similarity
+            ..Default::default()
         };
-        
+
         let result = provider.verify(request).await.unwrap();
-        
+
         assert!(!result.verified);
     }
 
@@ -321,7 +325,7 @@ mod tests {
     async fn test_mock_provider_quality() {
         let provider = MockProvider::new();
         let result = provider.assess_quality("base64_image").await.unwrap();
-        
+
         assert_eq!(result.overall_score, 0.95);
         assert!(result.face_detected);
         assert_eq!(result.face_count, 1);
@@ -332,7 +336,7 @@ mod tests {
     async fn test_mock_provider_template_not_supported() {
         let provider = MockProvider::new();
         let result = provider.extract_template("base64_image").await;
-        
+
         assert!(result.is_err());
         match result {
             Err(BiometricError::ProviderError(msg)) => {
@@ -347,7 +351,7 @@ mod tests {
         let provider = BiometricProvider::mock();
         // BiometricProvider now implements FaceVerifier directly
         let caps = provider.capabilities();
-        
+
         assert_eq!(caps.name, "mock");
     }
 
@@ -361,7 +365,7 @@ mod tests {
     fn test_local_provider_capabilities() {
         let provider = LocalProvider::new().unwrap();
         let caps = provider.capabilities();
-        
+
         assert_eq!(caps.name, "marty-local");
         assert!(caps.supports_verification);
         assert!(caps.offline_capable);

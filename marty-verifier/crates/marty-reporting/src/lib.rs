@@ -11,5 +11,5 @@ mod reporter;
 
 pub use config::ReportingConfig;
 pub use error::ReportingError;
-pub use events::{VerificationEvent, EventPayload};
+pub use events::{EventPayload, VerificationEvent};
 pub use reporter::Reporter;

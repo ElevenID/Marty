@@ -125,7 +125,7 @@ def main() -> bool:
         ]
 
         subprocess.run(cmd, check=True, capture_output=True, text=True)
-    except (subprocess.CalledProcessError, FileNotFoundError, OSError) as e:
+    except (subprocess.CalledProcessError, FileNotFoundError, OSError, ModuleNotFoundError) as e:
         logger.warning("grpc_tools.protoc failed, trying system protoc: %s", e)
     else:
         logger.info("Successfully compiled proto files using grpc_tools.protoc")

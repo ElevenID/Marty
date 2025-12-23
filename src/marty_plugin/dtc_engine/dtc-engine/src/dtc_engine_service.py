@@ -11,6 +11,8 @@ according to ICAO standards.
 """
 
 import datetime
+import base64
+import hashlib
 import json
 import os
 import uuid
@@ -25,6 +27,7 @@ from marty_plugin.common.config import Config
 from marty_plugin.common.crypto import generate_hash
 from marty_plugin.common.grpc_client import GRPCClient as GrpcClient
 from marty_plugin.common.logging_config import get_logger
+from marty_plugin.proto import document_signer_pb2
 from marty_plugin.proto.document_signer_pb2_grpc import DocumentSignerStub
 
 # Import proto-generated modules
@@ -38,6 +41,7 @@ from marty_plugin.proto.dtc_engine_pb2 import (
     TransferDTCToDeviceResponse,
     VerificationResult,
     VerifyDTCResponse,
+    DTCType,
 )
 from marty_plugin.proto.dtc_engine_pb2_grpc import DTCEngineServicer
 from marty_plugin.proto.passport_engine_pb2_grpc import PassportEngineStub
@@ -82,6 +86,127 @@ class DTCEngineService(DTCEngineServicer):
         )
 
         logger.info(f"DTC Engine Service initialized with data directory: {self.data_dir}")
+
+    # ------------------------------------------------------------------
+    # Helpers
+    # ------------------------------------------------------------------
+    def _encode_data_group(self, data: bytes) -> str:
+        """Base64-encode data group content for JSON storage."""
+        return base64.b64encode(data).decode("ascii")
+
+    def _decode_data_group(self, data_b64: str) -> bytes:
+        """Decode base64-encoded data group content."""
+        return base64.b64decode(data_b64.encode("ascii"))
+
+    def _build_type1_profile(self, request) -> dict[str, Any]:
+        """Construct Type 1 profile payload, deriving MRZ lines and SOD hash."""
+        mrz_line1 = request.type1_profile.mrz_line1 if request.type1_profile else ""
+        mrz_line2 = request.type1_profile.mrz_line2 if request.type1_profile else ""
+        sod_hash = request.type1_profile.sod_hash if request.type1_profile else ""
+        passive_auth_ok = request.type1_profile.passive_auth_ok if request.type1_profile else False
+
+        # Derive MRZ lines from passport_mrz if not provided
+        if (not mrz_line1 or not mrz_line2) and request.passport_mrz:
+            try:
+                mrz_text = request.passport_mrz.decode("utf-8").strip().splitlines()
+                if len(mrz_text) >= 2:
+                    mrz_line1 = mrz_line1 or mrz_text[0][:44]
+                    mrz_line2 = mrz_line2 or mrz_text[1][:44]
+            except Exception:
+                logger.warning("Failed to decode passport MRZ for Type 1 profile")
+
+        if not mrz_line1 or not mrz_line2:
+            msg = "Type 1 requires MRZ line1 and line2"
+            raise ValueError(msg)
+
+        # Compute SOD hash if missing using concatenated data group bytes
+        if not sod_hash:
+            dg_bytes = b"".join(dg.data for dg in request.data_groups if dg.data)
+            if not dg_bytes and request.passport_mrz:
+                dg_bytes = request.passport_mrz
+            if not dg_bytes:
+                msg = "Type 1 requires data groups or MRZ to derive SOD hash"
+                raise ValueError(msg)
+            sod_hash = hashlib.sha256(dg_bytes).hexdigest()
+
+        return {
+            "mrz_line1": mrz_line1,
+            "mrz_line2": mrz_line2,
+            "sod_hash": sod_hash,
+            "issuing_state": request.issuing_authority,
+            "passive_auth_ok": passive_auth_ok,
+        }
+
+    def _build_type2_profile(self, request) -> dict[str, Any]:
+        """Construct Type 2 profile payload (chip/device bound)."""
+        if not request.type2_profile.chip_auth_public_key:
+            msg = "Type 2 requires chip_auth_public_key"
+            raise ValueError(msg)
+
+        return {
+            "chip_auth_public_key": request.type2_profile.chip_auth_public_key,
+            "device_public_key": request.type2_profile.device_public_key,
+            "attestation_cert_hash": request.type2_profile.attestation_cert_hash,
+            "passive_auth_ok": request.type2_profile.passive_auth_ok,
+        }
+
+    def _build_type3_profile(self, request) -> dict[str, Any]:
+        """Construct Type 3 profile payload (wallet/device attestation)."""
+        if not request.type3_profile.remote_attestation_report:
+            msg = "Type 3 requires remote_attestation_report"
+            raise ValueError(msg)
+
+        return {
+            "remote_attestation_report": request.type3_profile.remote_attestation_report,
+            "device_binding_id": request.type3_profile.device_binding_id,
+            "ephemeral_public_key": request.type3_profile.ephemeral_public_key,
+            "session_id": request.type3_profile.session_id,
+            "attestation_cert_hash": request.type3_profile.attestation_cert_hash,
+        }
+
+    def _canonical_type1_payload(self, dtc_data: dict[str, Any]) -> bytes:
+        """Deterministic Type 1 payload used for signing."""
+        type1 = dtc_data.get("type1_profile") or {}
+        payload = {
+            "dtc_id": dtc_data.get("dtc_id"),
+            "issuing_authority": dtc_data.get("issuing_authority"),
+            "issue_date": dtc_data.get("issue_date"),
+            "expiry_date": dtc_data.get("expiry_date"),
+            "mrz_line1": type1.get("mrz_line1"),
+            "mrz_line2": type1.get("mrz_line2"),
+            "sod_hash": type1.get("sod_hash"),
+            "passive_auth_ok": type1.get("passive_auth_ok", False),
+        }
+        return json.dumps(payload, sort_keys=True).encode("utf-8")
+
+    def _canonical_type2_payload(self, dtc_data: dict[str, Any]) -> bytes:
+        type2 = dtc_data.get("type2_profile") or {}
+        payload = {
+            "dtc_id": dtc_data.get("dtc_id"),
+            "issuing_authority": dtc_data.get("issuing_authority"),
+            "issue_date": dtc_data.get("issue_date"),
+            "expiry_date": dtc_data.get("expiry_date"),
+            "chip_auth_public_key": type2.get("chip_auth_public_key"),
+            "device_public_key": type2.get("device_public_key"),
+            "attestation_cert_hash": type2.get("attestation_cert_hash"),
+            "passive_auth_ok": type2.get("passive_auth_ok", False),
+        }
+        return json.dumps(payload, sort_keys=True).encode("utf-8")
+
+    def _canonical_type3_payload(self, dtc_data: dict[str, Any]) -> bytes:
+        type3 = dtc_data.get("type3_profile") or {}
+        payload = {
+            "dtc_id": dtc_data.get("dtc_id"),
+            "issuing_authority": dtc_data.get("issuing_authority"),
+            "issue_date": dtc_data.get("issue_date"),
+            "expiry_date": dtc_data.get("expiry_date"),
+            "remote_attestation_report": type3.get("remote_attestation_report"),
+            "device_binding_id": type3.get("device_binding_id"),
+            "ephemeral_public_key": type3.get("ephemeral_public_key"),
+            "session_id": type3.get("session_id"),
+            "attestation_cert_hash": type3.get("attestation_cert_hash"),
+        }
+        return json.dumps(payload, sort_keys=True).encode("utf-8")
 
     def _get_dtc_file_path(self, dtc_id: str) -> str:
         """
@@ -203,12 +328,20 @@ class DTCEngineService(DTCEngineServicer):
                     "gender": request.personal_details.gender,
                     "nationality": request.personal_details.nationality,
                     "place_of_birth": request.personal_details.place_of_birth,
-                    "portrait": request.personal_details.portrait,
-                    "signature": request.personal_details.signature,
+                    "portrait": self._encode_data_group(request.personal_details.portrait)
+                    if request.personal_details.portrait
+                    else "",
+                    "signature": self._encode_data_group(request.personal_details.signature)
+                    if request.personal_details.signature
+                    else "",
                     "other_names": list(request.personal_details.other_names),
                 },
                 "data_groups": [
-                    {"dg_number": dg.dg_number, "data": dg.data, "data_type": dg.data_type}
+                    {
+                        "dg_number": dg.dg_number,
+                        "data": self._encode_data_group(dg.data),
+                        "data_type": dg.data_type,
+                    }
                     for dg in request.data_groups
                 ],
                 "dtc_type": request.dtc_type,
@@ -216,11 +349,21 @@ class DTCEngineService(DTCEngineServicer):
                 "access_key": request.access_key if request.access_key else None,
                 "dtc_valid_from": dtc_valid_from,
                 "dtc_valid_until": dtc_valid_until,
+                "type1_profile": None,
+                "type2_profile": None,
+                "type3_profile": None,
                 "is_signed": False,
                 "is_revoked": False,
                 "linked_passport": None,
                 "creation_date": current_date,
             }
+
+            if request.dtc_type == DTCType.TYPE1:
+                dtc_data["type1_profile"] = self._build_type1_profile(request)
+            elif request.dtc_type == DTCType.TYPE2:
+                dtc_data["type2_profile"] = self._build_type2_profile(request)
+            elif request.dtc_type == DTCType.TYPE3:
+                dtc_data["type3_profile"] = self._build_type3_profile(request)
 
             # Store DTC data
             if self._store_dtc(dtc_id, dtc_data):
@@ -286,15 +429,37 @@ class DTCEngineService(DTCEngineServicer):
             response.personal_details.gender = pd.get("gender", "")
             response.personal_details.nationality = pd.get("nationality", "")
             response.personal_details.place_of_birth = pd.get("place_of_birth", "")
-            response.personal_details.portrait = pd.get("portrait", b"")
-            response.personal_details.signature = pd.get("signature", b"")
+            portrait_stored = pd.get("portrait", b"")
+            signature_stored = pd.get("signature", b"")
+            try:
+                response.personal_details.portrait = (
+                    self._decode_data_group(portrait_stored)
+                    if isinstance(portrait_stored, str)
+                    else portrait_stored
+                )
+            except Exception:
+                response.personal_details.portrait = b""
+            try:
+                response.personal_details.signature = (
+                    self._decode_data_group(signature_stored)
+                    if isinstance(signature_stored, str)
+                    else signature_stored
+                )
+            except Exception:
+                response.personal_details.signature = b""
             response.personal_details.other_names.extend(pd.get("other_names", []))
 
             # Add data groups
             for dg in dtc_data.get("data_groups", []):
                 data_group = response.data_groups.add()
                 data_group.dg_number = dg.get("dg_number", 0)
-                data_group.data = dg.get("data", b"")
+                stored_data = dg.get("data", b"")
+                try:
+                    data_group.data = (
+                        self._decode_data_group(stored_data) if isinstance(stored_data, str) else stored_data
+                    )
+                except Exception:
+                    data_group.data = b""
                 data_group.data_type = dg.get("data_type", "")
 
             # Add signature info if available
@@ -304,6 +469,32 @@ class DTCEngineService(DTCEngineServicer):
                 response.signature_info.signer_id = sig_info.get("signer_id", "")
                 response.signature_info.signature = sig_info.get("signature", b"")
                 response.signature_info.is_valid = sig_info.get("is_valid", False)
+
+            # Add Type 1 profile if present
+            type1 = dtc_data.get("type1_profile")
+            if type1:
+                response.type1_profile.mrz_line1 = type1.get("mrz_line1", "")
+                response.type1_profile.mrz_line2 = type1.get("mrz_line2", "")
+                response.type1_profile.sod_hash = type1.get("sod_hash", "")
+                response.type1_profile.issuing_state = type1.get("issuing_state", "")
+                response.type1_profile.passive_auth_ok = type1.get("passive_auth_ok", False)
+
+            type2 = dtc_data.get("type2_profile")
+            if type2:
+                response.type2_profile.chip_auth_public_key = type2.get("chip_auth_public_key", "")
+                response.type2_profile.device_public_key = type2.get("device_public_key", "")
+                response.type2_profile.attestation_cert_hash = type2.get("attestation_cert_hash", "")
+                response.type2_profile.passive_auth_ok = type2.get("passive_auth_ok", False)
+
+            type3 = dtc_data.get("type3_profile")
+            if type3:
+                response.type3_profile.remote_attestation_report = type3.get(
+                    "remote_attestation_report", ""
+                )
+                response.type3_profile.device_binding_id = type3.get("device_binding_id", "")
+                response.type3_profile.ephemeral_public_key = type3.get("ephemeral_public_key", "")
+                response.type3_profile.session_id = type3.get("session_id", "")
+                response.type3_profile.attestation_cert_hash = type3.get("attestation_cert_hash", "")
 
         except Exception:
             logger.exception(f"Error getting DTC {request.dtc_id}")
@@ -342,40 +533,62 @@ class DTCEngineService(DTCEngineServicer):
                 return SignDTCResponse(success=False, error_message="DTC is already signed")
 
             # Create the data to sign (in a real system, this would be more structured)
-            data_to_sign = json.dumps(
-                {
-                    "dtc_id": dtc_id,
-                    "passport_number": dtc_data.get("passport_number", ""),
-                    "issuing_authority": dtc_data.get("issuing_authority", ""),
-                    "issue_date": dtc_data.get("issue_date", ""),
-                    "expiry_date": dtc_data.get("expiry_date", ""),
-                    "dtc_valid_from": dtc_data.get("dtc_valid_from", ""),
-                    "dtc_valid_until": dtc_data.get("dtc_valid_until", ""),
-                }
-            ).encode("utf-8")
+            if dtc_data.get("dtc_type") == DTCType.TYPE1 and not dtc_data.get("type1_profile"):
+                return SignDTCResponse(
+                    success=False, error_message="Type 1 DTC missing type1_profile"
+                )
 
-            # NOTE: Production implementation should include complete DTC data serialization
-            # with proper ASN.1 encoding and digital signature verification workflows
+            # Canonical payload for signing
+            if dtc_data.get("dtc_type") == DTCType.TYPE1:
+                data_to_sign = self._canonical_type1_payload(dtc_data)
+            elif dtc_data.get("dtc_type") == DTCType.TYPE2:
+                data_to_sign = self._canonical_type2_payload(dtc_data)
+            elif dtc_data.get("dtc_type") == DTCType.TYPE3:
+                data_to_sign = self._canonical_type3_payload(dtc_data)
+            else:
+                data_to_sign = json.dumps(
+                    {
+                        "dtc_id": dtc_id,
+                        "passport_number": dtc_data.get("passport_number", ""),
+                        "issuing_authority": dtc_data.get("issuing_authority", ""),
+                        "issue_date": dtc_data.get("issue_date", ""),
+                        "expiry_date": dtc_data.get("expiry_date", ""),
+                        "dtc_valid_from": dtc_data.get("dtc_valid_from", ""),
+                        "dtc_valid_until": dtc_data.get("dtc_valid_until", ""),
+                    },
+                    sort_keys=True,
+                ).encode("utf-8")
 
-            # Call Document Signer service to sign the data
-            # This is a simplified placeholder for the actual gRPC call
+            # Call Document Signer service to sign the data; fallback to local hash if unavailable
             try:
-                current_time = datetime.datetime.now().isoformat()
+                signature_bytes: bytes
+                signer_id = "DS_001"
+                signature_date = datetime.datetime.now().isoformat()
 
-                # Mock signing for now - would actually call document signer service
-                # In a real implementation, we'd make a gRPC call to the document signer
-                signature = generate_hash(data_to_sign)
-                signer_id = "DS_001"  # Document Signer ID
-
-                # Create signature info
-                signature_info = {
-                    "signature_date": current_time,
-                    "signer_id": signer_id,
-                    "signature": signature,
-                    "is_valid": True,
-                }
+                if self.document_signer_client:
+                    # pylint: disable=no-member
+                    signer_stub = self.document_signer_client.stub
+                    sign_request = document_signer_pb2.SignRequest(
+                        document_id=dtc_id, document_content=data_to_sign
+                    )
+                    sign_response = signer_stub.SignDocument(sign_request, timeout=5)
+                    if not sign_response.success:
+                        return SignDTCResponse(
+                            success=False, error_message=sign_response.error_message
+                        )
+                    signature_bytes = sign_response.signature_info.signature
+                    signer_id = sign_response.signature_info.signer_id or signer_id
+                    signature_date = sign_response.signature_info.signature_date or signature_date
+                else:
+                    signature_bytes = generate_hash(data_to_sign)
 
                 # Update DTC data with signature
+                signature_info = {
+                    "signature_date": signature_date,
+                    "signer_id": signer_id,
+                    "signature": signature_bytes,
+                    "is_valid": True,
+                }
                 dtc_data["signature_info"] = signature_info
                 dtc_data["is_signed"] = True
 
@@ -383,15 +596,11 @@ class DTCEngineService(DTCEngineServicer):
                 if self._store_dtc(dtc_id, dtc_data):
                     logger.info(f"Signed DTC {dtc_id} successfully")
 
-                    # Create response
                     response = SignDTCResponse(success=True, error_message="")
-
-                    # Set signature info
                     response.signature_info.signature_date = signature_info["signature_date"]
                     response.signature_info.signer_id = signature_info["signer_id"]
                     response.signature_info.signature = signature_info["signature"]
                     response.signature_info.is_valid = signature_info["is_valid"]
-
                     return response
                 return SignDTCResponse(
                     success=False, error_message="Failed to update DTC after signing"
@@ -530,6 +739,9 @@ class DTCEngineService(DTCEngineServicer):
                 # In a real system, you'd selectively include biometric data groups
                 # This is just a placeholder
                 qr_data["biometrics"] = True
+
+            if dtc_data.get("type1_profile"):
+                qr_data["type1_profile"] = dtc_data.get("type1_profile")
 
             # Generate QR code from the data
             qr = qrcode.QRCode(
@@ -756,6 +968,74 @@ class DTCEngineService(DTCEngineServicer):
                     VerificationResult(
                         check_name="Signature", passed=False, details="DTC is not signed"
                     )
+                )
+
+            # 4. If Type 1, ensure MRZ hash presence
+            if dtc_data.get("dtc_type") == DTCType.TYPE1:
+                type1 = dtc_data.get("type1_profile") or {}
+                has_type1 = bool(type1.get("mrz_line1") and type1.get("mrz_line2"))
+
+                # Recompute SOD hash from stored data groups for consistency
+                recomputed_hash = None
+                try:
+                    dg_bytes = b"".join(
+                        self._decode_data_group(dg["data"])
+                        for dg in dtc_data.get("data_groups", [])
+                        if dg.get("data")
+                    )
+                    if dg_bytes:
+                        recomputed_hash = hashlib.sha256(dg_bytes).hexdigest()
+                except Exception:
+                    recomputed_hash = None
+
+                hash_matches = (
+                    recomputed_hash == type1.get("sod_hash") if recomputed_hash else bool(type1.get("sod_hash"))
+                )
+
+                verification_results.append(
+                    VerificationResult(
+                        check_name="Type1Profile",
+                        passed=has_type1 and hash_matches,
+                        details=(
+                            "Type 1 profile present and hashes consistent"
+                            if has_type1 and hash_matches
+                            else "Missing or inconsistent Type 1 profile"
+                        ),
+                    )
+
+            # 5. If Type 2, ensure chip/device binding fields are present
+            if dtc_data.get("dtc_type") == DTCType.TYPE2:
+                type2 = dtc_data.get("type2_profile") or {}
+                has_type2 = bool(type2.get("chip_auth_public_key") and type2.get("device_public_key"))
+                verification_results.append(
+                    VerificationResult(
+                        check_name="Type2Profile",
+                        passed=has_type2,
+                        details=(
+                            "Type 2 profile present"
+                            if has_type2
+                            else "Missing chip/device binding for Type 2"
+                        ),
+                    )
+                )
+
+            # 6. If Type 3, ensure attestation fields are present
+            if dtc_data.get("dtc_type") == DTCType.TYPE3:
+                type3 = dtc_data.get("type3_profile") or {}
+                has_type3 = bool(
+                    type3.get("remote_attestation_report") and type3.get("device_binding_id")
+                )
+                verification_results.append(
+                    VerificationResult(
+                        check_name="Type3Profile",
+                        passed=has_type3,
+                        details=(
+                            "Type 3 profile present"
+                            if has_type3
+                            else "Missing attestation/binding for Type 3"
+                        ),
+                    )
+                )
                 )
 
             # 4. Check passport link if requested

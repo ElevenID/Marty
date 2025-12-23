@@ -28,6 +28,8 @@ from app.models.doc_models_clean import (
     TransactionInfo,
 )
 from app.services.service_clients import service_factory
+from app.services.document_pipeline import DocumentPipeline
+from PIL import Image
 
 logger = logging.getLogger(__name__)
 
@@ -98,7 +100,15 @@ class DocumentProcessingCoordinator:
 
             # For now, use fallback MRZ extraction
             # Future enhancement: route to different engines based on document type
-            mrz_result = await self._extract_mrz_generic(image_request.ImageData)
+            pipeline = DocumentPipeline()
+            decoded = pipeline.decode_image(image_request.ImageData)
+            rectified = pipeline.deskew(decoded)
+            regions = pipeline.estimate_regions(rectified)
+            watermark_flag = pipeline.check_watermark(rectified)
+
+            mrz_result = await self._extract_mrz_generic(
+                image_request.ImageData, regions.mrz
+            )
 
             # Validate MRZ if extracted
             if mrz_result:
@@ -125,6 +135,10 @@ class DocumentProcessingCoordinator:
                 result_type=1,  # MRZ result type
                 Status=status,
                 mrzResult=mrz_result,
+                metadata={
+                    "watermark_detected": watermark_flag,
+                    "layout_size": list(regions.layout_size),
+                },
             )
 
         except (ValueError, NotImplementedError):
@@ -150,7 +164,7 @@ class DocumentProcessingCoordinator:
                 mrzResult=None,
             )
 
-    async def _extract_mrz_generic(self, image_data: str) -> MRZResult | None:
+    async def _extract_mrz_generic(self, image_data: str, mrz_region: Image.Image | None) -> MRZResult | None:
         """Extract MRZ using generic/fallback methods"""
         try:
             # Delegate to the original MRZ processing logic
@@ -159,7 +173,11 @@ class DocumentProcessingCoordinator:
 
             processor = ImageProcessor()
             image = processor.decode_base64_image(image_data)
-            text_lines = processor.extract_text_from_image(image)
+            text_lines = []
+            if mrz_region:
+                text_lines = processor.extract_text_from_region(mrz_region)
+            if not text_lines:
+                text_lines = processor.extract_text_from_image(image)
 
             if text_lines:
                 service = MRZProcessingService()

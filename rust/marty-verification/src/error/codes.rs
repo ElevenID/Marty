@@ -170,7 +170,9 @@ pub fn error_codes_markdown() -> String {
     md.push_str(
         "| E201 | `TRUST_NO_ANCHOR` | No valid trust anchor found for the certificate chain |\n",
     );
-    md.push_str("| E202 | `TRUST_LOAD_ERROR` | Failed to load trust anchor from file or registry |\n");
+    md.push_str(
+        "| E202 | `TRUST_LOAD_ERROR` | Failed to load trust anchor from file or registry |\n",
+    );
     md.push_str("| E203 | `TRUST_EMPTY_REGISTRY` | Trust anchor registry is empty |\n");
     md.push_str(
         "| E204 | `TRUST_AMBIGUOUS` | Multiple trust anchors match the certificate chain |\n",
@@ -183,8 +185,12 @@ pub fn error_codes_markdown() -> String {
     md.push_str("|------|----------|-------------|\n");
     md.push_str("| E301 | `CERT_EXPIRED` | Certificate has expired |\n");
     md.push_str("| E302 | `CERT_NOT_YET_VALID` | Certificate is not yet valid |\n");
-    md.push_str("| E303 | `CERT_INVALID_SIGNATURE` | Certificate signature verification failed |\n");
-    md.push_str("| E304 | `CERT_MISSING_EXTENSION` | Required certificate extension is missing |\n");
+    md.push_str(
+        "| E303 | `CERT_INVALID_SIGNATURE` | Certificate signature verification failed |\n",
+    );
+    md.push_str(
+        "| E304 | `CERT_MISSING_EXTENSION` | Required certificate extension is missing |\n",
+    );
     md.push_str(
         "| E305 | `CERT_INVALID_EXTENSION` | Certificate extension has an invalid value |\n",
     );

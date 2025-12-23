@@ -13,7 +13,10 @@ pub trait TrustAnchorSource {
     async fn fetch_all(&self) -> Result<Vec<TrustAnchor>, SyncError>;
 
     /// Fetch delta updates since version
-    async fn fetch_delta(&self, since_version: Option<&str>) -> Result<(Vec<TrustAnchor>, String), SyncError>;
+    async fn fetch_delta(
+        &self,
+        since_version: Option<&str>,
+    ) -> Result<(Vec<TrustAnchor>, String), SyncError>;
 
     /// Check if source is available
     async fn is_available(&self) -> bool;
@@ -46,7 +49,10 @@ impl TrustAnchorSource for AamvaDtsSource {
         Ok(vec![])
     }
 
-    async fn fetch_delta(&self, since_version: Option<&str>) -> Result<(Vec<TrustAnchor>, String), SyncError> {
+    async fn fetch_delta(
+        &self,
+        since_version: Option<&str>,
+    ) -> Result<(Vec<TrustAnchor>, String), SyncError> {
         tracing::info!(
             endpoint = %self.endpoint,
             since = ?since_version,
@@ -71,7 +77,10 @@ pub struct IcaoPkdSource {
 #[cfg(feature = "icao")]
 impl IcaoPkdSource {
     pub fn new(endpoint: String, credentials: Option<(String, String)>) -> Self {
-        Self { endpoint, credentials }
+        Self {
+            endpoint,
+            credentials,
+        }
     }
 }
 
@@ -87,7 +96,10 @@ impl TrustAnchorSource for IcaoPkdSource {
         Ok(vec![])
     }
 
-    async fn fetch_delta(&self, since_version: Option<&str>) -> Result<(Vec<TrustAnchor>, String), SyncError> {
+    async fn fetch_delta(
+        &self,
+        since_version: Option<&str>,
+    ) -> Result<(Vec<TrustAnchor>, String), SyncError> {
         tracing::info!(
             endpoint = %self.endpoint,
             since = ?since_version,

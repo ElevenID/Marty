@@ -262,33 +262,43 @@ class VDSNCProcessor:
 
         header_str, message_str, signature = parts
 
-        # Parse header (simplified)
+        # Parse header (basic parsing of canonical header: DC{version}{doc_type}{issuing}{signer})
         if not header_str.startswith("DC"):
             msg = "Invalid VDS-NC header"
             raise VerificationError(msg)
 
-        # Extract header components (this is simplified - real implementation would be more robust)
-        # version = header_str[2:5]
-        # doc_type_str = header_str[5:8] if len(header_str) > 8 else header_str[5:]
+        version = header_str[2:5]
+        # Doc type is either EVISA (5 chars) or 3-char types
+        doc_type_str = header_str[5:10]
+        if doc_type_str.startswith(DocumentType.E_VISA.value):
+            doc_type = DocumentType.E_VISA
+            remainder = header_str[5 + len(DocumentType.E_VISA.value) :]
+        else:
+            try:
+                doc_type = DocumentType(doc_type_str[:3])
+                remainder = header_str[8:]
+            except ValueError as exc:
+                raise VerificationError(f"Unknown document type in header: {doc_type_str}") from exc
 
-        # Create document structure (simplified for demonstration)
-        # Real implementation would fully parse and validate the header
+        issuing_country = remainder[:3] if len(remainder) >= 3 else "XXX"
+        signer_id = remainder[3:] or "UNKNOWN"
 
         return VDSNCDocument(
             payload=VDSNCPayload(
                 header=VDSNCHeader(
-                    doc_type=DocumentType.E_VISA,  # Would be parsed from header
-                    issuing_country="USA",  # Would be parsed from header
-                    signer_id="TESTSGN",  # Would be parsed from header
-                    certificate_reference="TESTCERT001",
+                    doc_type=doc_type,
+                    issuing_country=issuing_country,
+                    signer_id=signer_id,
+                    certificate_reference="",
                 ),
                 message=json.loads(message_str),
-                signature_info=VDSNCSignatureInfo(algorithm=SignatureAlgorithm.ES256),
+                signature_info=VDSNCSignatureInfo(
+                    algorithm=SignatureAlgorithm.ES256,
+                    key_id=signer_id,
+                ),
             ),
             signature=signature,
             barcode_format=BarcodeFormat.QR_CODE,  # Would be determined from context
-            error_correction=VDSNCBarcodeSelector.get_recommended_error_correction(
-                DocumentType.E_VISA
-            ),
+            error_correction=VDSNCBarcodeSelector.get_recommended_error_correction(doc_type),
             barcode_data=barcode_data,
         )

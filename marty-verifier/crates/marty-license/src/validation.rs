@@ -18,8 +18,8 @@ pub fn validate_jwt(token: &str, public_key_pem: &str) -> Result<LicenseClaims, 
     validation.validate_nbf = true;
 
     // Decode and validate
-    let token_data = decode::<LicenseClaims>(token, &decoding_key, &validation)
-        .map_err(|e| match e.kind() {
+    let token_data =
+        decode::<LicenseClaims>(token, &decoding_key, &validation).map_err(|e| match e.kind() {
             jsonwebtoken::errors::ErrorKind::ExpiredSignature => {
                 LicenseError::Expired("License has expired".to_string())
             }

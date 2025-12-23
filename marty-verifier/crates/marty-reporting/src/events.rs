@@ -104,11 +104,7 @@ pub struct ErrorPayload {
 
 impl VerificationEvent {
     /// Create a new verification event
-    pub fn verification(
-        verification_id: String,
-        credential_type: String,
-        result: String,
-    ) -> Self {
+    pub fn verification(verification_id: String, credential_type: String, result: String) -> Self {
         Self {
             event_id: uuid::Uuid::new_v4().to_string(),
             event_type: "verification".to_string(),

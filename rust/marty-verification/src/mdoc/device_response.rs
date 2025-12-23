@@ -138,7 +138,7 @@ impl Document {
                     .map(|item| {
                         let inner = item.into_inner();
                         // DigestId doesn't expose inner, use serde to extract
-                            let digest_id = serde_json::to_value(inner.digest_id)
+                        let digest_id = serde_json::to_value(inner.digest_id)
                             .ok()
                             .and_then(|v| v.as_u64())
                             .unwrap_or(0);

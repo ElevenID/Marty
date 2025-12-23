@@ -14,6 +14,8 @@ import {
   Warning as WarningIcon,
   Schedule as PendingIcon,
   VerifiedUser as TrustIcon,
+  RemoveRedEye as EyeIcon,
+  Face6 as FaceIcon,
 } from '@mui/icons-material';
 import { VerificationResult } from '@/services/tauri-api';
 
@@ -175,6 +177,56 @@ export default function VerificationResultCard({ result }: VerificationResultCar
                   {warning}
                 </Alert>
               ))}
+            </Box>
+          )}
+
+          {/* Liveness */}
+          {result.liveness && (
+            <Box>
+              <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+                Liveness
+              </Typography>
+              <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap alignItems="center">
+                <EyeIcon color={result.liveness.passed ? 'success' : 'error'} />
+                <Typography variant="body2">
+                  {result.liveness.passed ? 'Passed' : 'Failed'} (score:{' '}
+                  {result.liveness.fused_score.toFixed(2)})
+                </Typography>
+                {result.liveness.mode_used && (
+                  <Chip
+                    label={`Mode: ${result.liveness.mode_used}`}
+                    size="small"
+                    variant="outlined"
+                    color="info"
+                  />
+                )}
+              </Stack>
+              {result.liveness.errors && result.liveness.errors.length > 0 && (
+                <Box sx={{ mt: 1 }}>
+                  {result.liveness.errors.map((err, idx) => (
+                    <Alert key={idx} severity="error" sx={{ mb: 0.5 }}>
+                      {err}
+                    </Alert>
+                  ))}
+                </Box>
+              )}
+            </Box>
+          )}
+
+          {/* Face match */}
+          {result.face_match && (
+            <Box>
+              <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+                Face Match
+              </Typography>
+              <Stack direction="row" spacing={1} alignItems="center">
+                <FaceIcon color={result.face_match.verified ? 'success' : 'error'} />
+                <Typography variant="body2">
+                  {result.face_match.verified ? 'Matched' : 'No Match'} (score:{' '}
+                  {result.face_match.similarity.toFixed(2)} /{' '}
+                  {result.face_match.threshold.toFixed(2)}) via {result.face_match.provider}
+                </Typography>
+              </Stack>
             </Box>
           )}
 

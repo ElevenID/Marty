@@ -1,5 +1,6 @@
 //! Application state management
 
+use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
@@ -10,6 +11,17 @@ use marty_sync::SyncEngine;
 use crate::config::AppConfig;
 use crate::error::AppResult;
 use crate::hardware::{HardwareDetector, HardwareTier};
+
+/// Stored liveness challenge metadata for replay protection
+#[derive(Debug, Clone)]
+pub struct StoredLivenessChallenge {
+    pub challenge_id: String,
+    pub nonce: String,
+    pub session_id: String,
+    pub issued_at: chrono::DateTime<chrono::Utc>,
+    pub expires_at: chrono::DateTime<chrono::Utc>,
+    pub used: bool,
+}
 
 /// Shared application state managed by Tauri
 pub struct AppState {
@@ -33,6 +45,12 @@ pub struct AppState {
 
     /// Network connectivity status
     pub is_online: RwLock<bool>,
+
+    /// Ephemeral secret for liveness challenge signing
+    pub liveness_secret: Arc<Vec<u8>>,
+
+    /// Issued liveness challenges for replay protection
+    pub liveness_challenges: RwLock<HashMap<String, StoredLivenessChallenge>>,
 }
 
 impl AppState {
@@ -61,6 +79,13 @@ impl AppState {
 
         tracing::info!(?hardware_tier, "Detected hardware tier");
 
+        // Generate ephemeral liveness secret (not persisted)
+        let mut secret = vec![0u8; 32];
+        let rng = ring::rand::SystemRandom::new();
+        ring::rand::SecureRandom::fill(&rng, &mut secret).map_err(|e| {
+            crate::error::AppError::Config(format!("Failed to generate liveness secret: {}", e))
+        })?;
+
         let state = Self {
             config: RwLock::new(config),
             storage,
@@ -69,6 +94,8 @@ impl AppState {
             hardware,
             hardware_tier: RwLock::new(hardware_tier),
             is_online: RwLock::new(false), // Assume offline until proven otherwise
+            liveness_secret: Arc::new(secret),
+            liveness_challenges: RwLock::new(HashMap::new()),
         };
 
         Ok(state)
@@ -102,5 +129,27 @@ impl AppState {
             tracing::info!(online, "Network status changed");
             *is_online = online;
         }
+    }
+
+    /// Record a newly issued liveness challenge for replay protection
+    pub async fn record_liveness_challenge(&self, challenge: StoredLivenessChallenge) {
+        let mut guard = self.liveness_challenges.write().await;
+        guard.insert(challenge.challenge_id.clone(), challenge);
+    }
+
+    /// Mark a challenge as used if it exists and not yet expired/used
+    pub async fn consume_liveness_challenge(
+        &self,
+        challenge_id: &str,
+    ) -> Option<StoredLivenessChallenge> {
+        let mut guard = self.liveness_challenges.write().await;
+        if let Some(entry) = guard.get_mut(challenge_id) {
+            if entry.used {
+                return None;
+            }
+            entry.used = true;
+            return Some(entry.clone());
+        }
+        None
     }
 }
