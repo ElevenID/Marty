@@ -488,6 +488,15 @@ pub fn register_status_list_module(parent: &Bound<'_, PyModule>) -> PyResult<()>
 
     parent.add_submodule(&status_list_module)?;
 
+    // Re-export on the parent module for backwards compatibility.
+    parent.add_class::<TokenStatusList>()?;
+    parent.add_class::<BitstringStatusList>()?;
+    parent.add_function(wrap_pyfunction!(create_status_list_claim, parent)?)?;
+    parent.add_function(wrap_pyfunction!(
+        create_bitstring_credential_subject,
+        parent
+    )?)?;
+
     Ok(())
 }
 

@@ -83,6 +83,10 @@ try:
         jws_verify as _jws_verify,
         jwe_encrypt as _jwe_encrypt,
         jwe_decrypt as _jwe_decrypt,
+        open_badge_ob2_issue as _open_badge_ob2_issue,
+        open_badge_ob2_verify as _open_badge_ob2_verify,
+        open_badge_ob3_issue as _open_badge_ob3_issue,
+        open_badge_ob3_verify as _open_badge_ob3_verify,
         # Certificate operations
         load_certificate_pem as _load_certificate_pem,
         load_certificate_der as _load_certificate_der,
@@ -182,6 +186,10 @@ except ImportError:
         jws_verify as _jws_verify,
         jwe_encrypt as _jwe_encrypt,
         jwe_decrypt as _jwe_decrypt,
+        open_badge_ob2_issue as _open_badge_ob2_issue,
+        open_badge_ob2_verify as _open_badge_ob2_verify,
+        open_badge_ob3_issue as _open_badge_ob3_issue,
+        open_badge_ob3_verify as _open_badge_ob3_verify,
         load_certificate_pem as _load_certificate_pem,
         load_certificate_der as _load_certificate_der,
         get_certificate_info as _get_certificate_info,
@@ -1296,6 +1304,58 @@ def jwe_decrypt(jwe: str, key: Jwk) -> bytes:
         DecryptionError: If decryption fails
     """
     return bytes(_jwe_decrypt(jwe, key._inner))
+
+
+def open_badge_ob2_issue(request_json: str) -> str:
+    """
+    Issue an Open Badges v2 assertion (optionally signed).
+
+    Args:
+        request_json: JSON payload with assertion + signing options
+
+    Returns:
+        JSON result with issued credential
+    """
+    return _open_badge_ob2_issue(request_json)
+
+
+def open_badge_ob2_verify(request_json: str) -> str:
+    """
+    Verify an Open Badges v2 assertion.
+
+    Args:
+        request_json: JSON payload with assertion + document_store
+
+    Returns:
+        JSON verification result
+    """
+    return _open_badge_ob2_verify(request_json)
+
+
+def open_badge_ob3_issue(request_json: str) -> str:
+    """
+    Issue an Open Badges v3 credential (Data Integrity proof).
+
+    Args:
+        request_json: JSON payload with credential + signing options
+
+    Returns:
+        JSON result with issued credential
+    """
+    return _open_badge_ob3_issue(request_json)
+
+
+def open_badge_ob3_verify(request_json: str) -> str:
+    """
+    Verify an Open Badges v3 credential (Data Integrity proof).
+
+    Args:
+        request_json: JSON payload with credential + document_store
+
+    Returns:
+        JSON verification result
+    """
+    return _open_badge_ob3_verify(request_json)
 
 
 # =============================================================================
@@ -2518,4 +2578,3 @@ def build_self_signed_certificate_with_key(
         country=country,
         organization=organization,
     )
-

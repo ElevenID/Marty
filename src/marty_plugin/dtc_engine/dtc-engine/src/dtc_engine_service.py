@@ -30,6 +30,11 @@ from marty_plugin.common.logging_config import get_logger
 from marty_plugin.proto import document_signer_pb2
 from marty_plugin.proto.document_signer_pb2_grpc import DocumentSignerStub
 
+try:  # Prefer Rust bindings when available
+    import marty_verification  # type: ignore
+except ImportError:  # pragma: no cover - optional dependency
+    marty_verification = None
+
 # Import proto-generated modules
 from marty_plugin.proto.dtc_engine_pb2 import (
     CreateDTCResponse,
@@ -86,6 +91,24 @@ class DTCEngineService(DTCEngineServicer):
         )
 
         logger.info(f"DTC Engine Service initialized with data directory: {self.data_dir}")
+        self.signing_key_pem = os.environ.get("DTC_SIGNING_KEY_PEM")
+        self.signer_public_key_pem = os.environ.get("DTC_SIGNER_PUBLIC_KEY_PEM")
+        self.trust_anchors_pem = []
+        self.certificate_chain_pem = []
+        ta_path = os.environ.get("DTC_TRUST_ANCHORS_PATH")
+        if ta_path and Path(ta_path).exists():
+            try:
+                self.trust_anchors_pem = Path(ta_path).read_text(encoding="utf-8").split("\n\n")
+            except Exception:  # pragma: no cover - defensive
+                logger.warning("Failed to load trust anchors from %s", ta_path)
+        chain_path = os.environ.get("DTC_CERT_CHAIN_PATH")
+        if chain_path and Path(chain_path).exists():
+            try:
+                self.certificate_chain_pem = Path(chain_path).read_text(encoding="utf-8").split(
+                    "\n\n"
+                )
+            except Exception:  # pragma: no cover - defensive
+                logger.warning("Failed to load certificate chain from %s", chain_path)
 
     # ------------------------------------------------------------------
     # Helpers
@@ -208,6 +231,22 @@ class DTCEngineService(DTCEngineServicer):
         }
         return json.dumps(payload, sort_keys=True).encode("utf-8")
 
+    def _use_rust_dtc(self) -> bool:
+        """Check if Rust DTC bindings are available."""
+        return marty_verification is not None
+
+    def _rust_create(self, request_json: str) -> dict[str, Any]:
+        created = marty_verification.dtc_create(request_json)  # type: ignore[attr-defined]
+        return json.loads(created)
+
+    def _rust_sign(self, dtc_json: str) -> dict[str, Any]:
+        signed = marty_verification.dtc_sign(dtc_json)  # type: ignore[attr-defined]
+        return json.loads(signed)
+
+    def _rust_verify(self, dtc_json: str) -> dict[str, Any]:
+        verified = marty_verification.dtc_verify(dtc_json)  # type: ignore[attr-defined]
+        return json.loads(verified)
+
     def _get_dtc_file_path(self, dtc_id: str) -> str:
         """
         Get the file path for a DTC storage file.
@@ -304,6 +343,64 @@ class DTCEngineService(DTCEngineServicer):
             CreateDTCResponse with DTC ID and status
         """
         try:
+            if self._use_rust_dtc():
+                payload = {
+                    "passport_number": request.passport_number,
+                    "issuing_authority": request.issuing_authority,
+                    "issue_date": request.issue_date,
+                    "expiry_date": request.expiry_date,
+                    "personal_details": {
+                        "first_name": request.personal_details.first_name,
+                        "last_name": request.personal_details.last_name,
+                        "date_of_birth": request.personal_details.date_of_birth,
+                        "gender": request.personal_details.gender,
+                        "nationality": request.personal_details.nationality,
+                        "place_of_birth": request.personal_details.place_of_birth,
+                        "portrait": self._encode_data_group(request.personal_details.portrait)
+                        if request.personal_details.portrait
+                        else "",
+                        "signature": self._encode_data_group(request.personal_details.signature)
+                        if request.personal_details.signature
+                        else "",
+                        "other_names": list(request.personal_details.other_names),
+                    },
+                    "data_groups": [
+                        {
+                            "dg_number": dg.dg_number,
+                            "data": self._encode_data_group(dg.data),
+                            "data_type": dg.data_type,
+                        }
+                        for dg in request.data_groups
+                    ],
+                    "dtc_type": request.dtc_type,
+                    "access_control": request.access_control,
+                    "access_key": request.access_key if request.access_key else None,
+                    "dtc_valid_from": request.dtc_valid_from,
+                    "dtc_valid_until": request.dtc_valid_until or request.expiry_date,
+                    "type1_profile": request.type1_profile
+                    if request.dtc_type == DTCType.TYPE1
+                    else None,
+                    "type2_profile": request.type2_profile
+                    if request.dtc_type == DTCType.TYPE2
+                    else None,
+                    "type3_profile": request.type3_profile
+                    if request.dtc_type == DTCType.TYPE3
+                    else None,
+                }
+                created = self._rust_create(json.dumps(payload))
+                dtc_id = created.get("dtc_id", "")
+                if not dtc_id:
+                    return CreateDTCResponse(
+                        dtc_id="", status="ERROR", error_message="Rust DTC create failed"
+                    )
+                if self._store_dtc(dtc_id, created):
+                    logger.info(f"[rust] Created DTC {dtc_id}")
+                    return CreateDTCResponse(dtc_id=dtc_id, status="SUCCESS", error_message="")
+                return CreateDTCResponse(
+                    dtc_id="", status="FAILURE", error_message="Failed to store DTC data"
+                )
+
+            # Fallback: python path
             # Generate unique DTC ID
             dtc_id = str(uuid.uuid4())
 
@@ -538,7 +635,36 @@ class DTCEngineService(DTCEngineServicer):
                     success=False, error_message="Type 1 DTC missing type1_profile"
                 )
 
-            # Canonical payload for signing
+            # Prefer Rust signing path if available
+            if self._use_rust_dtc() and self.signing_key_pem:
+                try:
+                    dtc_payload = dtc_data.copy()
+                    dtc_payload["signing_key_pem"] = self.signing_key_pem
+                    dtc_payload["signer_id"] = "rust-dtc"
+                    signed = self._rust_sign(json.dumps(dtc_payload))
+                    dtc_data.update(signed)
+                    if self._store_dtc(dtc_id, dtc_data):
+                        response = SignDTCResponse(success=True, error_message="")
+                        response.signature_info.signature_date = (
+                            dtc_data.get("signature_info", {}).get("signature_date", "")
+                        )
+                        response.signature_info.signer_id = (
+                            dtc_data.get("signature_info", {}).get("signer_id", "")
+                        )
+                        response.signature_info.signature = dtc_data.get("signature_info", {}).get(
+                            "signature", b""
+                        )
+                        response.signature_info.is_valid = dtc_data.get("signature_info", {}).get(
+                            "is_valid", False
+                        )
+                        return response
+                    return SignDTCResponse(
+                        success=False, error_message="Failed to update DTC after signing"
+                    )
+                except Exception:
+                    logger.exception("Rust DTC signing failed, falling back to Python")
+
+            # Canonical payload for signing (Python fallback)
             if dtc_data.get("dtc_type") == DTCType.TYPE1:
                 data_to_sign = self._canonical_type1_payload(dtc_data)
             elif dtc_data.get("dtc_type") == DTCType.TYPE2:
@@ -945,24 +1071,46 @@ class DTCEngineService(DTCEngineServicer):
             has_valid_signature = False
 
             if is_signed:
-                # In a real system, we would verify the signature with the document signer's public key
-                # For this implementation, we'll just check that a signature exists
                 sig_info = dtc_data.get("signature_info", {})
                 has_signature = bool(sig_info.get("signature"))
 
-                verification_results.append(
-                    VerificationResult(
-                        check_name="Signature",
-                        passed=has_signature,
-                        details=(
-                            "DTC has valid signature"
-                            if has_signature
-                            else "DTC signature is missing"
-                        ),
-                    )
-                )
+                if self._use_rust_dtc() and self.signer_public_key_pem:
+                    try:
+                        payload = dtc_data.copy()
+                        payload["signer_public_key_pem"] = self.signer_public_key_pem
+                        if self.trust_anchors_pem:
+                            payload["trust_anchors_pem"] = self.trust_anchors_pem
+                        if self.certificate_chain_pem:
+                            payload["certificate_chain_pem"] = self.certificate_chain_pem
+                        verify_result = self._rust_verify(json.dumps(payload))
+                        has_valid_signature = bool(
+                            verify_result.get("is_valid", False)
+                        )
+                        verification_results.append(
+                            VerificationResult(
+                                check_name="Signature",
+                                passed=has_valid_signature,
+                                details="Rust binding verification"
+                                if has_valid_signature
+                                else "Rust binding signature check failed",
+                            )
+                        )
+                    except Exception:
+                        logger.exception("Rust DTC verification failed, falling back")
 
-                has_valid_signature = has_signature
+                if not has_valid_signature:
+                    verification_results.append(
+                        VerificationResult(
+                            check_name="Signature",
+                            passed=has_signature,
+                            details=(
+                                "DTC has signature"
+                                if has_signature
+                                else "DTC signature is missing"
+                            ),
+                        )
+                    )
+                    has_valid_signature = has_signature
             else:
                 verification_results.append(
                     VerificationResult(

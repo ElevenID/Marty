@@ -119,8 +119,16 @@ impl From<VerificationError> for pyo3::PyErr {
             ErrorCategory::Authentication => PyPermissionError::new_err(message),
             ErrorCategory::ExternalService => PyConnectionError::new_err(message),
             ErrorCategory::Encoding => PyValueError::new_err(message),
+            ErrorCategory::OpenBadges => PyValueError::new_err(message),
             ErrorCategory::Io => PyIOError::new_err(message),
             ErrorCategory::Internal => PyRuntimeError::new_err(message),
         }
+    }
+}
+
+#[cfg(feature = "python")]
+impl From<Box<VerificationError>> for pyo3::PyErr {
+    fn from(err: Box<VerificationError>) -> Self {
+        (*err).into()
     }
 }

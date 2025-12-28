@@ -70,6 +70,8 @@ pub enum ErrorCategory {
     ExternalService,
     /// Encoding/decoding related
     Encoding,
+    /// Open Badges related
+    OpenBadges,
     /// I/O related
     Io,
     /// Internal/unexpected errors
@@ -85,6 +87,7 @@ impl fmt::Display for ErrorCategory {
             ErrorCategory::Authentication => write!(f, "AUTH"),
             ErrorCategory::ExternalService => write!(f, "SERVICE"),
             ErrorCategory::Encoding => write!(f, "ENCODING"),
+            ErrorCategory::OpenBadges => write!(f, "OPENBADGES"),
             ErrorCategory::Io => write!(f, "IO"),
             ErrorCategory::Internal => write!(f, "INTERNAL"),
         }

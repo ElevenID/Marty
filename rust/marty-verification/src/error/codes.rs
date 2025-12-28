@@ -16,6 +16,7 @@
 //! | E4xx | Authentication | Issuer/device authentication errors |
 //! | E5xx | PKD | Public Key Directory and external service errors |
 //! | E6xx | Encoding | DER, PEM, CBOR encoding/decoding errors |
+//! | E7xx | Open Badges | Open Badges verification/issuance errors |
 //! | E9xx | General | I/O, configuration, and internal errors |
 
 //=========================================================================
@@ -124,6 +125,28 @@ pub const PEM_ERROR: &str = "E602";
 pub const CBOR_ERROR: &str = "E603";
 
 //=========================================================================
+// Open Badges errors (7xx) - Open Badges verification/issuance
+//=========================================================================
+
+/// E701: Open Badges payload is invalid or malformed.
+pub const OPEN_BADGES_INVALID: &str = "E701";
+
+/// E702: Required Open Badges context is missing or unsupported.
+pub const OPEN_BADGES_CONTEXT_MISSING: &str = "E702";
+
+/// E703: Open Badges signature verification failed.
+pub const OPEN_BADGES_SIGNATURE_INVALID: &str = "E703";
+
+/// E704: Open Badges proof verification failed.
+pub const OPEN_BADGES_PROOF_INVALID: &str = "E704";
+
+/// E705: Open Badges referenced document not found in offline store.
+pub const OPEN_BADGES_DOCUMENT_MISSING: &str = "E705";
+
+/// E706: Open Badges unsupported feature or algorithm.
+pub const OPEN_BADGES_UNSUPPORTED: &str = "E706";
+
+//=========================================================================
 // I/O and general errors (9xx) - General errors
 //=========================================================================
 
@@ -224,6 +247,19 @@ pub fn error_codes_markdown() -> String {
     md.push_str("| E601 | `DER_ERROR` | DER encoding/decoding error |\n");
     md.push_str("| E602 | `PEM_ERROR` | PEM encoding/decoding error |\n");
     md.push_str("| E603 | `CBOR_ERROR` | CBOR encoding/decoding error |\n");
+    md.push('\n');
+
+    md.push_str("## Open Badges Errors (E7xx)\n\n");
+    md.push_str("| Code | Constant | Description |\n");
+    md.push_str("|------|----------|-------------|\n");
+    md.push_str("| E701 | `OPEN_BADGES_INVALID` | Open Badges payload is invalid or malformed |\n");
+    md.push_str(
+        "| E702 | `OPEN_BADGES_CONTEXT_MISSING` | Required Open Badges context is missing or unsupported |\n",
+    );
+    md.push_str("| E703 | `OPEN_BADGES_SIGNATURE_INVALID` | Open Badges signature verification failed |\n");
+    md.push_str("| E704 | `OPEN_BADGES_PROOF_INVALID` | Open Badges proof verification failed |\n");
+    md.push_str("| E705 | `OPEN_BADGES_DOCUMENT_MISSING` | Open Badges referenced document not found in offline store |\n");
+    md.push_str("| E706 | `OPEN_BADGES_UNSUPPORTED` | Open Badges unsupported feature or algorithm |\n");
     md.push('\n');
 
     md.push_str("## General Errors (E9xx)\n\n");

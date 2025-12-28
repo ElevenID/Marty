@@ -33,6 +33,7 @@
 use pyo3::prelude::*;
 use pyo3::types::{PyBytes, PyDict, PyList};
 
+use crate::dtc;
 use crate::error::VerificationError;
 use crate::trust_anchor::{
     BasicTrustRegistry, IacaRegistry, PemTrustAnchor, TrustPurpose, TrustRegistry,
@@ -1873,6 +1874,30 @@ fn jws_verify<'py>(py: Python<'py>, jws: &str, key: &PyJwk) -> PyResult<Bound<'p
     Ok(PyBytes::new(py, &payload))
 }
 
+#[pyfunction]
+fn open_badge_ob2_issue(request_json: &str) -> PyResult<String> {
+    crate::open_badges::issue_ob2_json(request_json)
+        .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))
+}
+
+#[pyfunction]
+fn open_badge_ob2_verify(request_json: &str) -> PyResult<String> {
+    crate::open_badges::verify_ob2_json(request_json)
+        .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))
+}
+
+#[pyfunction]
+fn open_badge_ob3_issue(request_json: &str) -> PyResult<String> {
+    crate::open_badges::issue_ob3_json(request_json)
+        .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))
+}
+
+#[pyfunction]
+fn open_badge_ob3_verify(request_json: &str) -> PyResult<String> {
+    crate::open_badges::verify_ob3_json(request_json)
+        .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))
+}
+
 /// Encrypt data and create a JWE.
 #[pyfunction]
 fn jwe_encrypt(plaintext: &[u8], recipient_key: &PyJwk, encryption: &str) -> PyResult<String> {
@@ -2715,6 +2740,24 @@ fn build_self_signed_certificate_with_key<'py>(
     Ok(PyBytes::new(py, &cert_der))
 }
 
+#[pyfunction]
+fn dtc_create(request_json: &str) -> PyResult<String> {
+    dtc::create_dtc_json(request_json)
+        .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))
+}
+
+#[pyfunction]
+fn dtc_sign(dtc_json: &str) -> PyResult<String> {
+    dtc::sign_dtc_json(dtc_json)
+        .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))
+}
+
+#[pyfunction]
+fn dtc_verify(dtc_json: &str) -> PyResult<String> {
+    dtc::verify_dtc_json(dtc_json)
+        .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))
+}
+
 /// Create the Python module for marty_verification.
 #[pymodule]
 pub fn marty_verification(m: &Bound<'_, PyModule>) -> PyResult<()> {
@@ -2863,6 +2906,18 @@ pub fn marty_verification(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(build_ocsp_request, m)?)?;
     m.add_function(wrap_pyfunction!(get_ocsp_responder_url, m)?)?;
     m.add_function(wrap_pyfunction!(parse_ocsp_response, m)?)?;
+
+    // Open Badges
+    m.add_function(wrap_pyfunction!(open_badge_ob2_issue, m)?)?;
+    m.add_function(wrap_pyfunction!(open_badge_ob2_verify, m)?)?;
+    m.add_function(wrap_pyfunction!(open_badge_ob3_issue, m)?)?;
+    m.add_function(wrap_pyfunction!(open_badge_ob3_verify, m)?)?;
+
+    // DTC helpers (JSON in/out)
+    m.add_function(wrap_pyfunction!(dtc_create, m)?)?;
+    m.add_function(wrap_pyfunction!(dtc_sign, m)?)?;
+    m.add_function(wrap_pyfunction!(dtc_verify, m)?)?;
+
 
     // Certificate Builder Operations (feature-gated)
     #[cfg(feature = "cert-builder")]
@@ -3030,6 +3085,17 @@ pub fn register_marty_verification(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(build_ocsp_request, m)?)?;
     m.add_function(wrap_pyfunction!(get_ocsp_responder_url, m)?)?;
     m.add_function(wrap_pyfunction!(parse_ocsp_response, m)?)?;
+
+    // Open Badges
+    m.add_function(wrap_pyfunction!(open_badge_ob2_issue, m)?)?;
+    m.add_function(wrap_pyfunction!(open_badge_ob2_verify, m)?)?;
+    m.add_function(wrap_pyfunction!(open_badge_ob3_issue, m)?)?;
+    m.add_function(wrap_pyfunction!(open_badge_ob3_verify, m)?)?;
+
+    // DTC helpers (JSON in/out)
+    m.add_function(wrap_pyfunction!(dtc_create, m)?)?;
+    m.add_function(wrap_pyfunction!(dtc_sign, m)?)?;
+    m.add_function(wrap_pyfunction!(dtc_verify, m)?)?;
 
     // Certificate Builder Operations (feature-gated)
     #[cfg(feature = "cert-builder")]

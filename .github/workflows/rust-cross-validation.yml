@@ -31,6 +31,9 @@ jobs:
     name: Quick Tests
     runs-on: ubuntu-latest
     if: github.event_name == 'pull_request'
+    env:
+      OPEN_BADGES_OB2_VERIFY_REQUEST: ${{ github.workspace }}/rust/marty-verification/tests/fixtures/open_badges/ob2_verify_request.json
+      OPEN_BADGES_OB3_VERIFY_REQUEST: ${{ github.workspace }}/rust/marty-verification/tests/fixtures/open_badges/ob3_verify_request.json
     
     steps:
       - name: Checkout repository
@@ -70,6 +73,9 @@ jobs:
     name: Cross-Validation Tests
     runs-on: ${{ matrix.os }}
     if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    env:
+      OPEN_BADGES_OB2_VERIFY_REQUEST: ${{ github.workspace }}/rust/marty-verification/tests/fixtures/open_badges/ob2_verify_request.json
+      OPEN_BADGES_OB3_VERIFY_REQUEST: ${{ github.workspace }}/rust/marty-verification/tests/fixtures/open_badges/ob3_verify_request.json
     strategy:
       fail-fast: false
       matrix:
@@ -137,6 +143,9 @@ jobs:
   property-tests:
     name: Extended Property Tests
     runs-on: ubuntu-latest
+    env:
+      OPEN_BADGES_OB2_VERIFY_REQUEST: ${{ github.workspace }}/rust/marty-verification/tests/fixtures/open_badges/ob2_verify_request.json
+      OPEN_BADGES_OB3_VERIFY_REQUEST: ${{ github.workspace }}/rust/marty-verification/tests/fixtures/open_badges/ob3_verify_request.json
     
     steps:
       - name: Checkout repository

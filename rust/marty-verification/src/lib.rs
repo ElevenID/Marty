@@ -31,10 +31,12 @@
 pub mod asn1;
 pub mod chip_io;
 pub mod crypto;
+pub mod dtc;
 pub mod error;
 pub mod jwk;
 pub mod mdoc;
 pub mod mrz;
+pub mod open_badges;
 pub mod trust_anchor;
 pub mod verification;
 

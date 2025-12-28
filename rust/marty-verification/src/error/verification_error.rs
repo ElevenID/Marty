@@ -314,6 +314,18 @@ pub enum VerificationError {
         span_trace: SpanTrace,
     },
 
+    /// Open Badges error.
+    #[error("[{code}] Open Badges error: {reason}")]
+    OpenBadgesError {
+        reason: String,
+        code: &'static str,
+        context: ErrorContext,
+        #[source]
+        source: Option<Box<dyn std::error::Error + Send + Sync>>,
+        bt: CapturedBacktrace,
+        span_trace: SpanTrace,
+    },
+
     /// I/O error.
     #[error("[{code}] I/O error: {reason}")]
     IoError {
@@ -378,6 +390,7 @@ impl VerificationError {
             Self::DerError { code, .. } => code,
             Self::PemError { code, .. } => code,
             Self::CborError { code, .. } => code,
+            Self::OpenBadgesError { code, .. } => code,
             Self::IoError { code, .. } => code,
             Self::ConfigError { code, .. } => code,
             Self::Internal { code, .. } => code,
@@ -419,6 +432,8 @@ impl VerificationError {
             Self::DerError { .. } | Self::PemError { .. } | Self::CborError { .. } => {
                 ErrorCategory::Encoding
             }
+
+            Self::OpenBadgesError { .. } => ErrorCategory::OpenBadges,
 
             Self::IoError { .. } => ErrorCategory::Io,
 
@@ -479,6 +494,7 @@ impl VerificationError {
             Self::DerError { bt, .. } => bt,
             Self::PemError { bt, .. } => bt,
             Self::CborError { bt, .. } => bt,
+            Self::OpenBadgesError { bt, .. } => bt,
             Self::IoError { bt, .. } => bt,
             Self::ConfigError { bt, .. } => bt,
             Self::Internal { bt, .. } => bt,
@@ -515,6 +531,7 @@ impl VerificationError {
             Self::DerError { span_trace, .. } => span_trace,
             Self::PemError { span_trace, .. } => span_trace,
             Self::CborError { span_trace, .. } => span_trace,
+            Self::OpenBadgesError { span_trace, .. } => span_trace,
             Self::IoError { span_trace, .. } => span_trace,
             Self::ConfigError { span_trace, .. } => span_trace,
             Self::Internal { span_trace, .. } => span_trace,

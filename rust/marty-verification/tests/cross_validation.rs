@@ -11,8 +11,8 @@
 
 #![cfg(all(feature = "cross-validation", unix))]
 
-// Import testdata directly since it's pub(crate) during testing
-use marty_verification::BasicTrustRegistry;
+use chrono::{DateTime, Utc};
+use marty_verification::verification::{ChainValidator, ChainValidatorConfig};
 use openssl::stack::Stack;
 use openssl::x509::store::{X509Store, X509StoreBuilder};
 use openssl::x509::{X509StoreContext, X509VerifyResult, X509};
@@ -89,6 +89,47 @@ fn verify_with_openssl(
     }
 }
 
+fn verify_with_marty(
+    ee_der: &[u8],
+    intermediate_ders: &[&[u8]],
+    trust_anchor_der: &[u8],
+    validation_moment: Option<DateTime<Utc>>,
+) -> (bool, String) {
+    let config = ChainValidatorConfig {
+        validation_moment,
+        required_key_usage: Vec::new(),
+        ..Default::default()
+    };
+    let mut validator = ChainValidator::with_config(config);
+    if let Err(err) = validator.add_trust_anchor_der(trust_anchor_der) {
+        return (false, format!("Marty error: {}", err));
+    }
+
+    let mut chain = Vec::with_capacity(1 + intermediate_ders.len());
+    chain.push(ee_der.to_vec());
+    for der in intermediate_ders {
+        chain.push((*der).to_vec());
+    }
+
+    match validator.validate_chain_der(&chain) {
+        Ok(result) => {
+            if result.valid {
+                (true, "OK".to_string())
+            } else {
+                let mut reason = result.errors.join("; ");
+                if reason.is_empty() && !result.warnings.is_empty() {
+                    reason = result.warnings.join("; ");
+                }
+                if reason.is_empty() {
+                    reason = "Unknown verification failure".to_string();
+                }
+                (false, reason)
+            }
+        }
+        Err(err) => (false, format!("Marty error: {}", err)),
+    }
+}
+
 // ============================================================================
 // NIST PKITS Cross-Validation Tests
 // ============================================================================
@@ -96,23 +137,7 @@ fn verify_with_openssl(
 mod nist_pkits {
     use super::*;
     use der::Decode;
-    use marty_verification::{TrustAnchor, TrustPurpose, TrustRegistry};
     use x509_cert::Certificate;
-
-    /// Helper to create a trust registry from DER certificates
-    fn registry_from_der(certs: &[&[u8]]) -> BasicTrustRegistry {
-        let mut registry = BasicTrustRegistry::new();
-        for der in certs {
-            let cert = Certificate::from_der(der).expect("Failed to parse DER certificate");
-            let anchor = TrustAnchor {
-                certificate: cert,
-                purpose: TrustPurpose::Iaca,
-                jurisdiction: None,
-            };
-            registry.add_anchor(anchor).expect("Failed to add anchor");
-        }
-        registry
-    }
 
     /// Cross-validate: Valid certificate path should pass both implementations
     #[test]
@@ -125,18 +150,25 @@ mod nist_pkits {
         );
 
         // Test with our implementation
-        let registry = registry_from_der(&[NIST_TRUST_ANCHOR_DER]);
-        let our_valid = !registry.is_empty();
+        let (marty_valid, marty_reason) = verify_with_marty(
+            NIST_VALID_EE_DER,
+            &[NIST_GOOD_CA_DER],
+            NIST_TRUST_ANCHOR_DER,
+            None,
+        );
 
         println!(
             "OpenSSL: valid={}, reason={}",
             openssl_valid, openssl_reason
         );
-        println!("Our impl: registry_has_anchors={}", our_valid);
+        println!("Marty: valid={}, reason={}", marty_valid, marty_reason);
 
-        // Both should agree the chain is structurally valid
-        // Note: OpenSSL may reject due to expired certs (NIST PKITS from 2011)
-        assert!(our_valid, "Our registry should contain trust anchors");
+        // Both should agree on validity (OpenSSL may reject due to expiry)
+        assert_eq!(
+            marty_valid, openssl_valid,
+            "Marty/OpenSSL mismatch: openssl_valid={}, marty_valid={}, openssl_reason={}, marty_reason={}",
+            openssl_valid, marty_valid, openssl_reason, marty_reason
+        );
     }
 
     /// Cross-validate: Bad signature CA should fail both implementations
@@ -147,14 +179,26 @@ mod nist_pkits {
             &[NIST_BAD_SIGNED_CA_DER],
             NIST_TRUST_ANCHOR_DER,
         );
+        let (marty_valid, marty_reason) = verify_with_marty(
+            NIST_INVALID_SIG_EE_DER,
+            &[NIST_BAD_SIGNED_CA_DER],
+            NIST_TRUST_ANCHOR_DER,
+            None,
+        );
 
         println!(
             "OpenSSL: valid={}, reason={}",
             openssl_valid, openssl_reason
         );
+        println!("Marty: valid={}, reason={}", marty_valid, marty_reason);
 
         // OpenSSL should reject this
         assert!(!openssl_valid, "OpenSSL should reject bad signature CA");
+        assert!(
+            !marty_valid,
+            "Marty should reject bad signature CA: {}",
+            marty_reason
+        );
         assert!(
             openssl_reason.contains("signature")
                 || openssl_reason.contains("verify")
@@ -171,20 +215,45 @@ mod nist_pkits {
             &[NIST_GOOD_CA_DER],
             NIST_TRUST_ANCHOR_DER,
         );
+        let (marty_valid, marty_reason) = verify_with_marty(
+            NIST_VALID_EE_DER,
+            &[NIST_GOOD_CA_DER],
+            NIST_TRUST_ANCHOR_DER,
+            None,
+        );
 
         println!(
             "OpenSSL: valid={}, reason={}",
             openssl_valid, openssl_reason
         );
+        println!("Marty: valid={}, reason={}", marty_valid, marty_reason);
 
         // NIST PKITS certs from 2011 are expired, OpenSSL should detect this
-        if !openssl_valid {
+        let cert =
+            Certificate::from_der(NIST_VALID_EE_DER).expect("Failed to parse NIST EE cert");
+        let not_after = cert.tbs_certificate.validity.not_after.to_system_time();
+        let not_after_dt = DateTime::<Utc>::from(not_after);
+        if Utc::now() > not_after_dt {
+            assert!(
+                !openssl_valid,
+                "OpenSSL should reject expired certs"
+            );
+            assert!(
+                !marty_valid,
+                "Marty should reject expired certs: {}",
+                marty_reason
+            );
             assert!(
                 openssl_reason.contains("expired")
                     || openssl_reason.contains("not yet valid")
                     || openssl_reason.contains("certificate has expired"),
                 "OpenSSL should cite expiry reason: {}",
                 openssl_reason
+            );
+            assert!(
+                marty_reason.to_lowercase().contains("expired"),
+                "Marty should cite expiry reason: {}",
+                marty_reason
             );
         }
     }
@@ -323,7 +392,11 @@ mod signatures {
 
         // Note: This may fail if the certificate was intentionally tampered
         // The important thing is that we can perform the verification
-        assert!(result.is_ok(), "OpenSSL should be able to verify signature");
+        assert!(
+            matches!(result, Ok(true)),
+            "OpenSSL should verify signature: {:?}",
+            result
+        );
     }
 
     /// Verify that bad signature CA is actually detected
@@ -437,6 +510,12 @@ mod cert_generation {
         println!("OpenSSL not_after: {}", openssl_not_after);
 
         // Both should show the cert is expired (not_after is in the past)
+        let now = std::time::SystemTime::now();
+        let not_after_system = x509_cert.tbs_certificate.validity.not_after.to_system_time();
+        assert!(
+            now > not_after_system,
+            "Expected generated cert to be expired"
+        );
     }
 
     /// Generate a certificate chain and validate with OpenSSL

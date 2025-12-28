@@ -13,8 +13,9 @@ crate-type = ["cdylib", "rlib"]
 [features]
 default = ["python"]
 python = [
-    "pyo3", 
+    "pyo3",
     "dep:marty-verification",
+    "marty-verification/python",
     "tokio",
     "isomdl",
     "ssi-status",
@@ -24,7 +25,15 @@ python = [
     "tracing-error",
     "ciborium"
 ]
-wasm = ["wasm-bindgen", "wasm-bindgen-futures", "js-sys", "web-sys", "console_error_panic_hook", "getrandom/js"]
+wasm = [
+    "dep:marty-verification",
+    "wasm-bindgen",
+    "wasm-bindgen-futures",
+    "js-sys",
+    "web-sys",
+    "console_error_panic_hook",
+    "getrandom/js"
+]
 
 [dependencies]
 # Python bindings (optional)
@@ -59,4 +68,4 @@ tracing-error = { workspace = true, optional = true }
 ciborium = { workspace = true, optional = true }
 
 # Internal crate (only for python feature - heavy verification not needed for WASM)
-marty-verification = { path = "../marty-verification", version = "0.1.0", features = ["python"], optional = true }
+marty-verification = { path = "../marty-verification", version = "0.1.0", optional = true }

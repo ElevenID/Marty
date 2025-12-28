@@ -2,15 +2,6 @@ use base64::Engine;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-// Conditional imports based on features
-#[cfg(feature = "python")]
-use pyo3::prelude::*;
-
-#[cfg(feature = "python")]
-use ssi::crypto::{AlgorithmInstance, SecretKey};
-#[cfg(feature = "python")]
-use ssi::jwk::{Params, JWK};
-
 // Error module (only for python - has tracing dependencies)
 #[cfg(feature = "python")]
 mod error;
@@ -74,6 +65,7 @@ mod python_bindings {
     use super::*;
     use pyo3::prelude::*;
     use ssi::crypto::{AlgorithmInstance, SecretKey};
+    use ssi::jwk::{Params, JWK};
 
     /// Formats the sum of two numbers as string.
     #[pyfunction]
@@ -540,16 +532,7 @@ mod python_bindings {
         m.add_function(wrap_pyfunction!(generate_issuer_metadata, m)?)?;
 
         // Status list classes and functions for credential revocation
-        m.add_class::<crate::status_list::TokenStatusList>()?;
-        m.add_class::<crate::status_list::BitstringStatusList>()?;
-        m.add_function(wrap_pyfunction!(
-            crate::status_list::create_status_list_claim,
-            m
-        )?)?;
-        m.add_function(wrap_pyfunction!(
-            crate::status_list::create_bitstring_credential_subject,
-            m
-        )?)?;
+        crate::status_list::register_status_list_module(m)?;
 
         // Add marty-verification module for trust chain verification
         marty_verification::bindings::register_marty_verification(m)?;

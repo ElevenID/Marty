@@ -219,6 +219,64 @@ pub fn create_credential_offer(
         .map_err(|e| JsValue::from_str(&format!("Failed to serialize offer: {}", e)))
 }
 
+// =============================================================================
+// Open Badges (OB2/OB3)
+// =============================================================================
+
+/// Issue an Open Badges v2 assertion (optionally signed).
+///
+/// # Arguments
+/// * `request_json` - JSON payload with assertion + signing options
+///
+/// # Returns
+/// JSON: { "issued": true, "version": "2.0", "credential": {...}, "warnings": [...] }
+#[wasm_bindgen]
+pub fn open_badge_ob2_issue(request_json: &str) -> Result<String, JsValue> {
+    marty_verification::open_badges::issue_ob2_json(request_json)
+        .map_err(|e| JsValue::from_str(&e.to_string()))
+}
+
+/// Verify an Open Badges v2 assertion.
+///
+/// # Arguments
+/// * `request_json` - JSON payload with assertion + document_store
+///
+/// # Returns
+/// JSON: { "valid": true|false, "version": "2.0", "errors": [...], "warnings": [...] }
+#[wasm_bindgen]
+pub fn open_badge_ob2_verify(request_json: &str) -> Result<String, JsValue> {
+    marty_verification::open_badges::verify_ob2_json(request_json)
+        .map_err(|e| JsValue::from_str(&e.to_string()))
+}
+
+/// Issue an Open Badges v3 credential with Data Integrity proof.
+///
+/// # Arguments
+/// * `request_json` - JSON payload with credential + signing options
+///
+/// # Returns
+/// JSON: { "issued": true, "version": "3.0", "credential": {...}, "warnings": [...] }
+#[wasm_bindgen]
+pub async fn open_badge_ob3_issue(request_json: &str) -> Result<String, JsValue> {
+    marty_verification::open_badges::issue_ob3_json_async(request_json)
+        .await
+        .map_err(|e| JsValue::from_str(&e.to_string()))
+}
+
+/// Verify an Open Badges v3 credential with Data Integrity proof.
+///
+/// # Arguments
+/// * `request_json` - JSON payload with credential + document_store
+///
+/// # Returns
+/// JSON: { "valid": true|false, "version": "3.0", "errors": [...], "warnings": [...] }
+#[wasm_bindgen]
+pub async fn open_badge_ob3_verify(request_json: &str) -> Result<String, JsValue> {
+    marty_verification::open_badges::verify_ob3_json_async(request_json)
+        .await
+        .map_err(|e| JsValue::from_str(&e.to_string()))
+}
+
 /// Generate a credential offer URI for QR code display
 ///
 /// # Arguments

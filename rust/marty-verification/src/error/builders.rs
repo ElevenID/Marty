@@ -226,6 +226,18 @@ impl VerificationError {
         })
     }
 
+    /// Create an Open Badges error.
+    pub fn open_badges(reason: impl Into<String>) -> Box<Self> {
+        Box::new(Self::OpenBadgesError {
+            reason: reason.into(),
+            code: codes::OPEN_BADGES_INVALID,
+            context: ErrorContext::default(),
+            source: None,
+            bt: CapturedBacktrace::capture(),
+            span_trace: SpanTrace::capture(),
+        })
+    }
+
     /// Create a not-implemented error.
     pub fn not_implemented(feature: impl Into<String>) -> Box<Self> {
         Box::new(Self::Internal {
