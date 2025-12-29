@@ -65,12 +65,34 @@ NATIONAL_ID_FIELDS = {
     "optional": ["portrait", "sex", "birth_place", "address", "expiry_date"],
 }
 
+DTC_FIELDS = {
+    "required": ["passport_number", "issuing_authority", "issue_date", "expiry_date", "dtc_type"],
+    "optional": [
+        "personal_details",
+        "data_groups",
+        "access_control",
+        "access_key",
+        "dtc_valid_from",
+        "dtc_valid_until",
+        "type1_profile",
+        "type2_profile",
+        "type3_profile",
+    ],
+}
+
+OPEN_BADGE_FIELDS = {
+    "required": ["version", "payload_json"],
+    "optional": ["document_store_json", "recipient_identity", "signing_json"],
+}
+
 DEFAULT_FIELDS = {
     CredentialType.TRAVEL_VISA: TRAVEL_VISA_FIELDS,
     CredentialType.PASSPORT: PASSPORT_FIELDS,
     CredentialType.DRIVERS_LICENSE: DRIVERS_LICENSE_FIELDS,
     CredentialType.ACCESS_BADGE: ACCESS_BADGE_FIELDS,
     CredentialType.NATIONAL_ID: NATIONAL_ID_FIELDS,
+    CredentialType.DTC: DTC_FIELDS,
+    CredentialType.OPEN_BADGE: OPEN_BADGE_FIELDS,
 }
 
 # Document type identifiers
@@ -80,6 +102,8 @@ DOCTYPE_MAP = {
     CredentialType.DRIVERS_LICENSE: "org.iso.18013.5.1.mDL",
     CredentialType.ACCESS_BADGE: "org.marty.access.badge.1",
     CredentialType.NATIONAL_ID: "org.marty.national_id.1",
+    CredentialType.DTC: "org.icao.dtc.1",
+    CredentialType.OPEN_BADGE: "openbadges",
 }
 
 
@@ -113,7 +137,12 @@ class ListCredentialTypesResponse(BaseModel):
 class CreateCredentialTypeRequest(BaseModel):
     """Request to configure a new credential type."""
     
-    credential_type: str = Field(..., description="Type: travel_visa, passport, drivers_license, access_badge, national_id")
+    credential_type: str = Field(
+        ...,
+        description=(
+            "Type: travel_visa, passport, drivers_license, access_badge, national_id, dtc, open_badge"
+        ),
+    )
     display_name: str = Field(..., min_length=1, max_length=255, description="Human-readable name")
     required_fields: list[str] | None = Field(None, description="Override default required fields")
     optional_fields: list[str] | None = Field(None, description="Override default optional fields")

@@ -387,6 +387,27 @@ def add_pkd_service(
     health.set("pkd.PKDService", health_pb2.HealthCheckResponse.SERVING)
 
 
+def add_open_badges_service(
+    server: grpc_aio.Server,
+    channels: dict[str, grpc_aio.Channel],
+    health: HealthServicer,
+    dependencies: ServiceDependencies,
+) -> None:
+    from marty_plugin.common.config import Config
+    from marty_plugin.lib.open_badges import OpenBadgesService
+    from marty_plugin.proto.v1 import open_badges_service_pb2_grpc
+
+    logger.info("Registering Open Badges service")
+    config = Config()
+    open_badges_service_pb2_grpc.add_OpenBadgesServiceServicer_to_server(
+        OpenBadgesService(config), server
+    )
+    health.set(
+        "open_badges.OpenBadgesService",
+        health_pb2.HealthCheckResponse.SERVING,
+    )
+
+
 SERVICE_REGISTRARS: dict[str, ServiceRegistrar] = {
     "csca-service": add_csca_service,
     "document-signer": add_document_signer_service,
@@ -396,6 +417,7 @@ SERVICE_REGISTRARS: dict[str, ServiceRegistrar] = {
     "mdl-engine": add_mdl_engine_service,
     "mdoc-engine": add_mdoc_engine_service,
     "pkd-service": add_pkd_service,
+    "open-badges": add_open_badges_service,
 }
 
 SERVICE_DEFAULT_PORTS: dict[str, int] = {
@@ -407,6 +429,7 @@ SERVICE_DEFAULT_PORTS: dict[str, int] = {
     "mdl-engine": 8085,
     "mdoc-engine": 8086,
     "pkd-service": 9090,
+    "open-badges": 8091,
 }
 
 SERVICE_DEFINITIONS: dict[str, ServiceDefinition] = {

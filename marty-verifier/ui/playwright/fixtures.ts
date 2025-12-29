@@ -26,6 +26,12 @@ export interface SyncStatus {
   iaca_certificates: number;
   csca_certificates: number;
   dsc_certificates: number;
+  open_badge_keys: number;
+  open_badge_last_sync: string | null;
+  open_badge_hours_since_sync: number | null;
+  open_badge_sync_overdue: boolean;
+  crl_cache_age_hours: number | null;
+  sync_in_progress: boolean;
   last_error: string | null;
 }
 
@@ -59,6 +65,12 @@ export const defaultSyncStatus: SyncStatus = {
   iaca_certificates: 56,
   csca_certificates: 120,
   dsc_certificates: 450,
+  open_badge_keys: 18,
+  open_badge_last_sync: new Date().toISOString(),
+  open_badge_hours_since_sync: 1,
+  open_badge_sync_overdue: false,
+  crl_cache_age_hours: 2,
+  sync_in_progress: false,
   last_error: null,
 };
 
@@ -105,6 +117,7 @@ async function injectTauriMock(page: Page, commands: MockCommands = {}) {
         sync_interval_hours: 24,
         max_offline_hours: 72,
         enable_usb_import: true,
+        open_badge_keys_url: null,
       },
       reporting_config: {
         enabled: true,
@@ -120,6 +133,11 @@ async function injectTauriMock(page: Page, commands: MockCommands = {}) {
         verification_events_days: 30,
         audit_log_days: 90,
         encrypt_pii: true,
+      },
+      open_badge_trust: {
+        policy: 'fail_closed',
+        stale_warning_hours: 24,
+        stale_critical_hours: 48,
       },
     },
     ...commands,

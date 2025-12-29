@@ -9,11 +9,14 @@ use crate::state::AppState;
 #[derive(Debug, Deserialize)]
 pub struct FaceMatchRequest {
     /// Reference image (enrollment) base64
+    #[allow(dead_code)]
     pub reference_image: String,
     /// Probe image (live capture) base64
+    #[allow(dead_code)]
     pub probe_image: String,
     /// Optional similarity threshold
     #[serde(default)]
+    #[allow(dead_code)]
     pub threshold: Option<f32>,
     /// Optional liveness challenge metadata (nonce/session/signature)
     #[serde(default)]

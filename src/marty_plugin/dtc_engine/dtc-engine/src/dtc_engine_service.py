@@ -24,6 +24,7 @@ import qrcode
 
 # Import common utilities
 from marty_plugin.common.config import Config
+from marty_plugin.common import crypto_bridge
 from marty_plugin.common.crypto import generate_hash
 from marty_plugin.common.grpc_client import GRPCClient as GrpcClient
 from marty_plugin.common.logging_config import get_logger
@@ -91,17 +92,44 @@ class DTCEngineService(DTCEngineServicer):
         )
 
         logger.info(f"DTC Engine Service initialized with data directory: {self.data_dir}")
+        service_config = {}
+        try:
+            service_config = config.get_service("dtc_engine")
+        except Exception:  # pragma: no cover - defensive
+            service_config = {}
+
+        self.signer_id = service_config.get("signer_id", "rust-dtc")
         self.signing_key_pem = os.environ.get("DTC_SIGNING_KEY_PEM")
         self.signer_public_key_pem = os.environ.get("DTC_SIGNER_PUBLIC_KEY_PEM")
+
+        signing_key_path = service_config.get("signing_key_path") or os.environ.get(
+            "DTC_SIGNING_KEY_PATH"
+        )
+        if signing_key_path and Path(signing_key_path).exists():
+            self.signing_key_pem = Path(signing_key_path).read_text(encoding="utf-8")
+
+        public_key_path = service_config.get("signer_public_key_path") or os.environ.get(
+            "DTC_SIGNER_PUBLIC_KEY_PATH"
+        )
+        if public_key_path and Path(public_key_path).exists():
+            self.signer_public_key_pem = Path(public_key_path).read_text(encoding="utf-8")
+
+        if self.signing_key_pem and not self.signer_public_key_pem:
+            try:
+                private_der = crypto_bridge.load_private_key_pem(self.signing_key_pem)
+                public_der = crypto_bridge.extract_public_key(private_der)
+                self.signer_public_key_pem = crypto_bridge.save_public_key_pem(public_der)
+            except Exception:  # pragma: no cover - defensive
+                logger.warning("Failed to derive DTC public key from signing key")
         self.trust_anchors_pem = []
         self.certificate_chain_pem = []
-        ta_path = os.environ.get("DTC_TRUST_ANCHORS_PATH")
+        ta_path = service_config.get("trust_anchors_path") or os.environ.get("DTC_TRUST_ANCHORS_PATH")
         if ta_path and Path(ta_path).exists():
             try:
                 self.trust_anchors_pem = Path(ta_path).read_text(encoding="utf-8").split("\n\n")
             except Exception:  # pragma: no cover - defensive
                 logger.warning("Failed to load trust anchors from %s", ta_path)
-        chain_path = os.environ.get("DTC_CERT_CHAIN_PATH")
+        chain_path = service_config.get("certificate_chain_path") or os.environ.get("DTC_CERT_CHAIN_PATH")
         if chain_path and Path(chain_path).exists():
             try:
                 self.certificate_chain_pem = Path(chain_path).read_text(encoding="utf-8").split(
@@ -640,9 +668,13 @@ class DTCEngineService(DTCEngineServicer):
                 try:
                     dtc_payload = dtc_data.copy()
                     dtc_payload["signing_key_pem"] = self.signing_key_pem
-                    dtc_payload["signer_id"] = "rust-dtc"
+                    dtc_payload["signer_id"] = self.signer_id
                     signed = self._rust_sign(json.dumps(dtc_payload))
                     dtc_data.update(signed)
+                    if self.signer_public_key_pem:
+                        dtc_data.setdefault("signature_info", {})[
+                            "signer_public_key_pem"
+                        ] = self.signer_public_key_pem
                     if self._store_dtc(dtc_id, dtc_data):
                         response = SignDTCResponse(success=True, error_message="")
                         response.signature_info.signature_date = (
@@ -651,9 +683,17 @@ class DTCEngineService(DTCEngineServicer):
                         response.signature_info.signer_id = (
                             dtc_data.get("signature_info", {}).get("signer_id", "")
                         )
-                        response.signature_info.signature = dtc_data.get("signature_info", {}).get(
-                            "signature", b""
-                        )
+                        signature_value = dtc_data.get("signature_info", {}).get("signature", "")
+                        if isinstance(signature_value, str):
+                            try:
+                                signature_bytes = base64.b64decode(signature_value)
+                            except Exception:  # pragma: no cover - defensive
+                                signature_bytes = signature_value.encode("utf-8")
+                        elif isinstance(signature_value, (bytes, bytearray)):
+                            signature_bytes = bytes(signature_value)
+                        else:
+                            signature_bytes = b""
+                        response.signature_info.signature = signature_bytes
                         response.signature_info.is_valid = dtc_data.get("signature_info", {}).get(
                             "is_valid", False
                         )
@@ -1074,10 +1114,13 @@ class DTCEngineService(DTCEngineServicer):
                 sig_info = dtc_data.get("signature_info", {})
                 has_signature = bool(sig_info.get("signature"))
 
-                if self._use_rust_dtc() and self.signer_public_key_pem:
+                signer_public_key_pem = (
+                    sig_info.get("signer_public_key_pem") or self.signer_public_key_pem
+                )
+                if self._use_rust_dtc() and signer_public_key_pem:
                     try:
                         payload = dtc_data.copy()
-                        payload["signer_public_key_pem"] = self.signer_public_key_pem
+                        payload["signer_public_key_pem"] = signer_public_key_pem
                         if self.trust_anchors_pem:
                             payload["trust_anchors_pem"] = self.trust_anchors_pem
                         if self.certificate_chain_pem:

@@ -10,6 +10,7 @@ from . import dtc_engine_pb2
 from . import inspection_system_pb2
 from . import mdl_engine_pb2
 from . import mdoc_engine_pb2
+from . import open_badges_service_pb2
 from . import passport_engine_pb2
 from . import pkd_service_pb2
 from . import rfid_service_pb2
@@ -27,6 +28,7 @@ from . import dtc_engine_pb2_grpc
 from . import inspection_system_pb2_grpc
 from . import mdl_engine_pb2_grpc
 from . import mdoc_engine_pb2_grpc
+from . import open_badges_service_pb2_grpc
 from . import passport_engine_pb2_grpc
 from . import pkd_service_pb2_grpc
 from . import rfid_service_pb2_grpc

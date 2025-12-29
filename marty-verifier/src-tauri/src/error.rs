@@ -18,6 +18,7 @@ pub enum AppError {
     Verification(String),
 
     #[error("Hardware error: {0}")]
+    #[allow(dead_code)]
     Hardware(String),
 
     #[error("Configuration error: {0}")]
@@ -30,6 +31,7 @@ pub enum AppError {
     InsufficientHardware { required: String, available: String },
 
     #[error("Offline operation failed: {0}")]
+    #[allow(dead_code)]
     Offline(String),
 
     #[error(transparent)]

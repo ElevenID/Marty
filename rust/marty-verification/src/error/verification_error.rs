@@ -326,6 +326,18 @@ pub enum VerificationError {
         span_trace: SpanTrace,
     },
 
+    /// Digital Travel Credential error.
+    #[error("[{code}] DTC error: {reason}")]
+    DtcError {
+        reason: String,
+        code: &'static str,
+        context: ErrorContext,
+        #[source]
+        source: Option<Box<dyn std::error::Error + Send + Sync>>,
+        bt: CapturedBacktrace,
+        span_trace: SpanTrace,
+    },
+
     /// I/O error.
     #[error("[{code}] I/O error: {reason}")]
     IoError {
@@ -391,6 +403,7 @@ impl VerificationError {
             Self::PemError { code, .. } => code,
             Self::CborError { code, .. } => code,
             Self::OpenBadgesError { code, .. } => code,
+            Self::DtcError { code, .. } => code,
             Self::IoError { code, .. } => code,
             Self::ConfigError { code, .. } => code,
             Self::Internal { code, .. } => code,
@@ -434,6 +447,7 @@ impl VerificationError {
             }
 
             Self::OpenBadgesError { .. } => ErrorCategory::OpenBadges,
+            Self::DtcError { .. } => ErrorCategory::Dtc,
 
             Self::IoError { .. } => ErrorCategory::Io,
 
@@ -495,6 +509,7 @@ impl VerificationError {
             Self::PemError { bt, .. } => bt,
             Self::CborError { bt, .. } => bt,
             Self::OpenBadgesError { bt, .. } => bt,
+            Self::DtcError { bt, .. } => bt,
             Self::IoError { bt, .. } => bt,
             Self::ConfigError { bt, .. } => bt,
             Self::Internal { bt, .. } => bt,
@@ -532,6 +547,7 @@ impl VerificationError {
             Self::PemError { span_trace, .. } => span_trace,
             Self::CborError { span_trace, .. } => span_trace,
             Self::OpenBadgesError { span_trace, .. } => span_trace,
+            Self::DtcError { span_trace, .. } => span_trace,
             Self::IoError { span_trace, .. } => span_trace,
             Self::ConfigError { span_trace, .. } => span_trace,
             Self::Internal { span_trace, .. } => span_trace,

@@ -5,7 +5,7 @@ An on-site credential verification kiosk built with Tauri, designed for edge che
 ## Features
 
 - **Offline-First**: Operates without network for 72+ hours with local trust anchor cache
-- **Multi-Credential Support**: mDL (ISO 18013-5), eMRTD (ICAO 9303), OID4VP, SD-JWT
+- **Multi-Credential Support**: mDL (ISO 18013-5), eMRTD (ICAO 9303), OID4VP, SD-JWT, DTC, Open Badges
 - **Secure Storage**: SQLCipher encrypted database with platform keychain integration
 - **Cryptographic Licensing**: JWT licenses with Ed25519 signatures and hardware binding
 - **Trust Anchor Sync**: AAMVA DTS, ICAO PKD sources with USB import for air-gapped environments
@@ -43,7 +43,7 @@ marty-verifier/
 
 ### Simple Kiosk
 - Camera for QR code scanning
-- Basic mDL/OID4VP verification
+- Basic mDL/OID4VP/DTC/Open Badge verification
 - No biometrics
 
 ### Complex Kiosk
@@ -190,15 +190,26 @@ For environments without network access:
   "version": "1.0.0",
   "created_at": "2024-01-15T12:00:00Z",
   "signature": "base64-encoded-ed25519-signature",
-  "certificates": [
-    {
-      "type": "IACA",
-      "jurisdiction": "US-CA",
-      "subject": "...",
-      "certificate_pem": "..."
-    }
-  ]
-}
+    "certificates": [
+      {
+        "type": "IACA",
+        "jurisdiction": "US-CA",
+        "subject": "...",
+        "certificate_pem": "..."
+      }
+    ],
+    "open_badge_verification_methods": [
+      {
+        "id": "did:example:issuer#key-1",
+        "type": "JsonWebKey2020",
+        "controller": "did:example:issuer",
+        "publicKeyJwk": { "kty": "OKP", "crv": "Ed25519", "x": "..." },
+        "status": "active",
+        "not_before": "2025-01-01T00:00:00Z",
+        "not_after": "2027-01-01T00:00:00Z"
+      }
+    ]
+  }
 ```
 
 ## Security

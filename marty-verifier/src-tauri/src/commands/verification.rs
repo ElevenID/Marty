@@ -6,18 +6,25 @@ use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
 use chrono::{DateTime, Duration, Utc};
-use marty_secure_storage::TrustAnchorType;
+use marty_secure_storage::{OpenBadgeVerificationMethod, TrustAnchorType};
 use marty_verification::chip_io::{verify_from_reader, MockPassportReader};
+use marty_verification::open_badges::{
+    detect_version as detect_open_badges_version, verify_ob2_json, verify_ob3_json_async,
+    DocumentStore, OpenBadgesVersion,
+};
 use marty_verification::trust_anchor::CscaRegistry;
 use marty_verification::verification::emrtd::{verify_emrtd, SecurityObject};
 use ring::hmac;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use tauri::State;
 use uuid::Uuid;
 use x509_cert::der::Decode;
 use x509_cert::Certificate;
 
-use crate::config::{LivenessRetentionConfig, PadProviderConfig, PadProviderType};
+use crate::config::{
+    LivenessRetentionConfig, OpenBadgeTrustPolicy, PadProviderConfig, PadProviderType,
+};
 use crate::error::{AppError, AppResult};
 use crate::state::{AppState, StoredLivenessChallenge};
 
@@ -376,7 +383,7 @@ pub(crate) async fn validate_liveness_challenge(
 /// Verification request
 #[derive(Debug, Deserialize)]
 pub struct VerifyRequest {
-    /// Credential type: "mdl", "emrtd", "oid4vp", "sd-jwt"
+    /// Credential type: "mdl", "emrtd", "oid4vp", "sd-jwt", "dtc", "open-badge"
     pub credential_type: String,
     /// Raw credential data (base64, JWT, or QR content)
     pub credential_data: String,
@@ -391,12 +398,15 @@ pub struct VerifyRequest {
     pub require_liveness: bool,
     /// Preferred liveness mode (on-device vs network)
     #[serde(default)]
+    #[allow(dead_code)]
     pub preferred_liveness_mode: Option<LivenessMode>,
     /// Allow network fallback if preferred mode unavailable
     #[serde(default)]
+    #[allow(dead_code)]
     pub allow_network_fallback: Option<bool>,
     /// Accessibility adjustments (pose/blink only)
     #[serde(default)]
+    #[allow(dead_code)]
     pub accessibility_mode: Option<bool>,
     /// Request retention of a short audit clip
     #[serde(default)]
@@ -412,18 +422,22 @@ pub struct VerifyRequest {
     pub perform_face_match: bool,
     /// Reference image for face match (base64)
     #[serde(default)]
+    #[allow(dead_code)]
     pub reference_image: Option<String>,
     /// Probe image for face match (base64)
     #[serde(default)]
+    #[allow(dead_code)]
     pub probe_image: Option<String>,
     /// Optional threshold for face match
     #[serde(default)]
     pub face_threshold: Option<f32>,
     /// Verification policy to apply
+    #[allow(dead_code)]
     pub policy: Option<VerificationPolicy>,
 }
 
 /// Verification policy configuration
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 pub struct VerificationPolicy {
     /// Required claims to verify
@@ -458,6 +472,12 @@ pub struct VerificationResult {
     /// eMRTD-specific details (present when credential_type == "emrtd")
     #[serde(skip_serializing_if = "Option::is_none")]
     pub emrtd_details: Option<EmrtdDetails>,
+    /// DTC-specific details (present when credential_type == "dtc")
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dtc_details: Option<DtcDetails>,
+    /// Open Badge verification details (present when credential_type == "open-badge")
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub open_badge_details: Option<OpenBadgeDetails>,
     /// Liveness evaluation (if performed)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub liveness: Option<LivenessResultPayload>,
@@ -473,6 +493,41 @@ pub struct EmrtdDetails {
     pub sod_signature_status: String,
     pub dg_hash_status: String,
     pub errors: Vec<String>,
+}
+
+/// DTC verification details.
+#[derive(Debug, Serialize)]
+pub struct DtcDetails {
+    pub checks: Vec<VerificationCheck>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dtc_type: Option<i32>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub errors: Vec<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub error_codes: Vec<String>,
+}
+
+/// Verification check result.
+#[derive(Debug, Serialize)]
+pub struct VerificationCheck {
+    pub check_name: String,
+    pub passed: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub details: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error_code: Option<String>,
+}
+
+/// Open Badge verification details.
+#[derive(Debug, Serialize)]
+pub struct OpenBadgeDetails {
+    pub version: String,
+    pub errors: Vec<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub error_codes: Vec<String>,
+    pub warnings: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub normalized: Option<Value>,
 }
 
 /// Liveness result payload
@@ -594,10 +649,13 @@ pub enum VerificationStatus {
     /// Credential verification failed
     Failed,
     /// Credential expired
+    #[allow(dead_code)]
     Expired,
     /// Credential revoked
+    #[allow(dead_code)]
     Revoked,
     /// Verification pending (offline, queued)
+    #[allow(dead_code)]
     Pending,
 }
 
@@ -710,11 +768,12 @@ pub async fn verify_credential(
     // Check online status
     let is_online = *state.is_online.read().await;
 
-    let mut result = if request.credential_type.to_lowercase() == "emrtd" {
-        verify_emrtd_payload(&request, &state, is_online).await?
-    } else {
-        // TODO: extend for other credential types
-        placeholder_success(&request, is_online)
+    let credential_type = request.credential_type.to_lowercase();
+    let mut result = match credential_type.as_str() {
+        "emrtd" => verify_emrtd_payload(&request, &state, is_online).await?,
+        "dtc" => verify_dtc_payload(&request, is_online).await?,
+        "open-badge" => verify_open_badge_payload(&request, &state, is_online).await?,
+        _ => placeholder_success(&request, is_online),
     };
 
     // Face match (placeholder/mock)
@@ -763,6 +822,632 @@ pub async fn verify_credential(
     Ok(result)
 }
 
+async fn verify_dtc_payload(
+    request: &VerifyRequest,
+    is_online: bool,
+) -> AppResult<VerificationResult> {
+    let raw = parse_json_input(&request.credential_data, "DTC")?;
+    let payload = build_dtc_verify_payload(&raw)?;
+    let verify_json = serde_json::to_string(&payload)?;
+    let verify_result = marty_verification::dtc::verify_dtc_json(&verify_json)
+        .map_err(|e| AppError::Verification(format!("DTC verification failed: {}", e)))?;
+    let value: Value = serde_json::from_str(&verify_result).map_err(|e| {
+        AppError::Verification(format!("Invalid DTC verify response: {}", e))
+    })?;
+
+    let is_valid = value
+        .get("is_valid")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+
+    let dtc_data = value.get("dtc_data").cloned().unwrap_or(Value::Null);
+    let checks = parse_dtc_checks(&value);
+    let dtc_errors = extract_string_list(value.get("errors"));
+    let dtc_error_codes = extract_string_list(value.get("error_codes"));
+    let dtc_type = dtc_data
+        .get("dtc_type")
+        .and_then(|v| v.as_i64())
+        .map(|v| v as i32);
+
+    let issuer = dtc_data
+        .get("issuing_authority")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+
+    let mut warnings = Vec::new();
+    if let Some(msg) = value.get("error_message").and_then(|v| v.as_str()) {
+        if !msg.is_empty() {
+            warnings.push(msg.to_string());
+        }
+    }
+    if !is_online {
+        warnings.push("Verified offline with local DTC trust data".to_string());
+    }
+
+    let trust_chain_valid = dtc_trust_chain_valid(&checks);
+    let revocation_status = if dtc_data
+        .get("is_revoked")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false)
+    {
+        RevocationStatus::Revoked
+    } else {
+        RevocationStatus::Unknown
+    };
+
+    Ok(VerificationResult {
+        verification_id: uuid::Uuid::new_v4().to_string(),
+        status: if is_valid {
+            VerificationStatus::Valid
+        } else {
+            VerificationStatus::Invalid
+        },
+        credential_type: request.credential_type.clone(),
+        issuer: issuer.map(|issuer| IssuerInfo {
+            name: Some(issuer.clone()),
+            jurisdiction: Some(issuer),
+            subject: None,
+        }),
+        disclosed_claims: build_dtc_claims(&dtc_data),
+        trust_chain: TrustChainStatus {
+            valid: trust_chain_valid,
+            chain_type: "x509".to_string(),
+            trust_anchor: None,
+            offline_verified: !is_online,
+        },
+        revocation_status,
+        verified_at: chrono::Utc::now().to_rfc3339(),
+        warnings,
+        emrtd_details: None,
+        dtc_details: Some(DtcDetails {
+            checks,
+            dtc_type,
+            errors: dtc_errors,
+            error_codes: dtc_error_codes,
+        }),
+        open_badge_details: None,
+        liveness: None,
+        face_match: None,
+    })
+}
+
+async fn verify_open_badge_payload(
+    request: &VerifyRequest,
+    state: &AppState,
+    is_online: bool,
+) -> AppResult<VerificationResult> {
+    let raw = parse_json_input(&request.credential_data, "Open Badge")?;
+    let (version, mut req_value) = build_open_badge_request(&raw)?;
+
+    let trust_config = state.config.read().await.open_badge_trust.clone();
+    let trusted_methods = state.storage.get_open_badge_keys().await?;
+    let mut store = build_trusted_open_badge_store(&trusted_methods);
+    let mut warnings = Vec::new();
+
+    if store.is_empty() {
+        warnings.push("Open Badge trust store is empty".to_string());
+    }
+
+    let method_id = extract_open_badge_method_id(&req_value, version);
+    if let Some(method_id) = method_id.as_deref() {
+        if !open_badge_method_trusted(&store, method_id) {
+            warnings.push(format!(
+                "Open Badge verification method not trusted: {}",
+                method_id
+            ));
+            if matches!(trust_config.policy, OpenBadgeTrustPolicy::FailClosed) {
+                return Ok(build_open_badge_result(
+                    request,
+                    version,
+                    false,
+                    warnings,
+                    Some(method_id.to_string()),
+                    None,
+                    is_online,
+                    OpenBadgeDetails {
+                        version: open_badge_version_label(version).to_string(),
+                        errors: vec!["Verification method not trusted".to_string()],
+                        error_codes: Vec::new(),
+                        warnings: Vec::new(),
+                        normalized: None,
+                    },
+                ));
+            }
+        }
+    }
+
+    let request_store = extract_open_badge_document_store(&req_value)?;
+    let allow_untrusted_keys = matches!(trust_config.policy, OpenBadgeTrustPolicy::FailOpen);
+    merge_open_badge_store(&mut store, &request_store, allow_untrusted_keys);
+
+    if let Value::Object(ref mut obj) = req_value {
+        obj.insert(
+            "document_store".to_string(),
+            serde_json::to_value(&store)?,
+        );
+    }
+
+    let req_json = serde_json::to_string(&req_value)?;
+    let verify_result_json = match version {
+        OpenBadgesVersion::V2 => verify_ob2_json(&req_json)
+            .map_err(|e| AppError::Verification(format!("Open Badge verify failed: {}", e)))?,
+        OpenBadgesVersion::V3 => verify_ob3_json_async(&req_json)
+            .await
+            .map_err(|e| AppError::Verification(format!("Open Badge verify failed: {}", e)))?,
+        OpenBadgesVersion::Unknown => {
+            return Err(AppError::Verification(
+                "Unable to detect Open Badge version".to_string(),
+            ))
+        }
+    };
+
+    let result_value: Value = serde_json::from_str(&verify_result_json).map_err(|e| {
+        AppError::Verification(format!("Invalid Open Badge verify response: {}", e))
+    })?;
+
+    let valid = result_value
+        .get("valid")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let errors = extract_string_list(result_value.get("errors"));
+    let error_codes = extract_string_list(result_value.get("error_codes"));
+    let warnings_from_result = extract_string_list(result_value.get("warnings"));
+    let normalized = result_value.get("normalized").cloned();
+
+    let details = OpenBadgeDetails {
+        version: result_value
+            .get("version")
+            .and_then(|v| v.as_str())
+            .unwrap_or(open_badge_version_label(version))
+            .to_string(),
+        errors,
+        error_codes,
+        warnings: warnings_from_result,
+        normalized: normalized.clone(),
+    };
+
+    let (stale_warning, stale_critical) =
+        open_badge_trust_staleness(state, &trust_config).await?;
+    if let Some(msg) = stale_warning {
+        warnings.push(msg);
+    }
+    if let Some(msg) = stale_critical {
+        warnings.push(msg);
+    }
+
+    Ok(build_open_badge_result(
+        request,
+        version,
+        valid,
+        warnings,
+        method_id,
+        normalized,
+        is_online,
+        details,
+    ))
+}
+
+fn parse_json_input(input: &str, label: &str) -> AppResult<Value> {
+    serde_json::from_str(input).map_err(|e| {
+        AppError::Verification(format!("{} credential data must be JSON: {}", label, e))
+    })
+}
+
+fn build_dtc_verify_payload(raw: &Value) -> AppResult<Value> {
+    let mut payload = match raw.get("dtc_data") {
+        Some(dtc) => dtc.clone(),
+        None => raw.clone(),
+    };
+
+    if !payload.is_object() {
+        return Err(AppError::Verification(
+            "DTC payload must be a JSON object".to_string(),
+        ));
+    }
+
+    if let Value::Object(ref mut obj) = payload {
+        for key in ["signer_public_key_pem", "trust_anchors_pem", "certificate_chain_pem"] {
+            if let Some(value) = raw.get(key) {
+                obj.insert(key.to_string(), value.clone());
+            }
+        }
+    }
+
+    Ok(payload)
+}
+
+fn parse_dtc_checks(value: &Value) -> Vec<VerificationCheck> {
+    value
+        .get("verification_results")
+        .and_then(|v| v.as_array())
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|item| {
+                    let check_name = item.get("check_name")?.as_str()?.to_string();
+                    let passed = item.get("passed").and_then(|v| v.as_bool()).unwrap_or(false);
+                    let details = item
+                        .get("details")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string());
+                    let error_code = item
+                        .get("error_code")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string());
+                    Some(VerificationCheck {
+                        check_name,
+                        passed,
+                        details,
+                        error_code,
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn dtc_trust_chain_valid(checks: &[VerificationCheck]) -> bool {
+    let chain_ok = checks
+        .iter()
+        .find(|c| c.check_name == "TrustChain")
+        .map(|c| c.passed)
+        .unwrap_or(true);
+    let signer_ok = checks
+        .iter()
+        .find(|c| c.check_name == "SignerKeyMatchesCertificate")
+        .map(|c| c.passed)
+        .unwrap_or(true);
+    chain_ok && signer_ok
+}
+
+fn build_dtc_claims(dtc_data: &Value) -> Value {
+    let mut claims = serde_json::Map::new();
+
+    if let Some(id) = dtc_data.get("dtc_id").and_then(|v| v.as_str()) {
+        claims.insert("dtc_id".to_string(), Value::String(id.to_string()));
+    }
+    if let Some(num) = dtc_data.get("passport_number").and_then(|v| v.as_str()) {
+        claims.insert("passport_number".to_string(), Value::String(num.to_string()));
+    }
+    if let Some(value) = dtc_data.get("issue_date").and_then(|v| v.as_str()) {
+        claims.insert("issue_date".to_string(), Value::String(value.to_string()));
+    }
+    if let Some(value) = dtc_data.get("expiry_date").and_then(|v| v.as_str()) {
+        claims.insert("expiry_date".to_string(), Value::String(value.to_string()));
+    }
+    if let Some(value) = dtc_data.get("dtc_type").and_then(|v| v.as_i64()) {
+        claims.insert("dtc_type".to_string(), Value::Number(value.into()));
+    }
+
+    if let Some(details) = dtc_data.get("personal_details").and_then(|v| v.as_object()) {
+        for (key, field) in [
+            ("first_name", "first_name"),
+            ("last_name", "last_name"),
+            ("date_of_birth", "date_of_birth"),
+            ("nationality", "nationality"),
+        ] {
+            if let Some(value) = details.get(field).and_then(|v| v.as_str()) {
+                claims.insert(key.to_string(), Value::String(value.to_string()));
+            }
+        }
+    }
+
+    Value::Object(claims)
+}
+
+fn build_open_badge_request(raw: &Value) -> AppResult<(OpenBadgesVersion, Value)> {
+    if let Value::Object(obj) = raw {
+        if let Some(assertion) = obj.get("assertion") {
+            let version = detect_open_badges_version(assertion);
+            return Ok((version, raw.clone()));
+        }
+        if let Some(credential) = obj.get("credential") {
+            let version = detect_open_badges_version(credential);
+            return Ok((version, raw.clone()));
+        }
+    }
+
+    let version = detect_open_badges_version(raw);
+    match version {
+        OpenBadgesVersion::V2 => Ok((version, serde_json::json!({ "assertion": raw }))),
+        OpenBadgesVersion::V3 => Ok((version, serde_json::json!({ "credential": raw }))),
+        OpenBadgesVersion::Unknown => Err(AppError::Verification(
+            "Unable to detect Open Badge version".to_string(),
+        )),
+    }
+}
+
+fn build_trusted_open_badge_store(
+    methods: &[OpenBadgeVerificationMethod],
+) -> DocumentStore {
+    let mut store = DocumentStore::new();
+    for method in methods {
+        store.insert(method.id.clone(), method.document.clone());
+    }
+    store
+}
+
+fn extract_open_badge_method_id(
+    request: &Value,
+    version: OpenBadgesVersion,
+) -> Option<String> {
+    match version {
+        OpenBadgesVersion::V2 => request
+            .get("assertion")
+            .and_then(extract_ob2_method_id),
+        OpenBadgesVersion::V3 => request
+            .get("credential")
+            .and_then(extract_ob3_method_id),
+        OpenBadgesVersion::Unknown => None,
+    }
+}
+
+fn extract_ob2_method_id(assertion: &Value) -> Option<String> {
+    let verification = assertion.get("verification")?;
+    extract_ob2_verification_value(verification)
+}
+
+fn extract_ob2_verification_value(value: &Value) -> Option<String> {
+    match value {
+        Value::String(_) => extract_method_id_from_value(value),
+        Value::Object(obj) => {
+            if let Some(creator) = obj.get("creator") {
+                return extract_method_id_from_value(creator);
+            }
+            if let Some(method) = obj.get("verificationMethod") {
+                return extract_method_id_from_value(method);
+            }
+            None
+        }
+        Value::Array(items) => items.iter().find_map(extract_ob2_verification_value),
+        _ => None,
+    }
+}
+
+fn extract_ob3_method_id(credential: &Value) -> Option<String> {
+    let proof = credential.get("proof")?;
+    extract_ob3_proof_method_id(proof)
+}
+
+fn extract_ob3_proof_method_id(value: &Value) -> Option<String> {
+    match value {
+        Value::String(_) => extract_method_id_from_value(value),
+        Value::Object(obj) => {
+            if let Some(method) = obj.get("verificationMethod") {
+                if let Some(found) = extract_method_id_from_value(method) {
+                    return Some(found);
+                }
+            }
+            if let Some(creator) = obj.get("creator") {
+                if let Some(found) = extract_method_id_from_value(creator) {
+                    return Some(found);
+                }
+            }
+            obj.get("id")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string())
+        }
+        Value::Array(items) => items.iter().find_map(extract_ob3_proof_method_id),
+        _ => None,
+    }
+}
+
+fn extract_method_id_from_value(value: &Value) -> Option<String> {
+    match value {
+        Value::String(method) => Some(method.to_string()),
+        Value::Object(obj) => obj
+            .get("id")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string()),
+        _ => None,
+    }
+}
+
+fn extract_open_badge_document_store(request: &Value) -> AppResult<DocumentStore> {
+    match request.get("document_store") {
+        None | Some(Value::Null) => Ok(DocumentStore::new()),
+        Some(Value::Object(map)) => {
+            let mut store = DocumentStore::new();
+            for (key, value) in map {
+                store.insert(key.clone(), value.clone());
+            }
+            Ok(store)
+        }
+        _ => Err(AppError::Verification(
+            "document_store must be a JSON object".to_string(),
+        )),
+    }
+}
+
+fn merge_open_badge_store(
+    base: &mut DocumentStore,
+    supplemental: &DocumentStore,
+    allow_untrusted_keys: bool,
+) {
+    for (key, value) in supplemental {
+        if base.contains_key(key) {
+            continue;
+        }
+        if !allow_untrusted_keys && is_open_badge_key_document(value) {
+            continue;
+        }
+        base.insert(key.clone(), value.clone());
+    }
+}
+
+fn open_badge_method_trusted(store: &DocumentStore, method_id: &str) -> bool {
+    if store.contains_key(method_id) {
+        return true;
+    }
+
+    if let Some((base, _)) = method_id.split_once('#') {
+        if store.contains_key(base) {
+            return true;
+        }
+    }
+
+    false
+}
+
+fn is_open_badge_key_document(value: &Value) -> bool {
+    let Some(obj) = value.as_object() else {
+        return false;
+    };
+
+    obj.contains_key("publicKeyJwk")
+        || obj.contains_key("publicKeyPem")
+        || obj.contains_key("publicKey")
+        || obj.contains_key("publicKeyBase58")
+        || obj.contains_key("publicKeyMultibase")
+        || obj.contains_key("verificationMethod")
+}
+
+fn extract_string_list(value: Option<&Value>) -> Vec<String> {
+    value
+        .and_then(|v| v.as_array())
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|item| item.as_str().map(|s| s.to_string()))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+async fn open_badge_trust_staleness(
+    state: &AppState,
+    config: &crate::config::OpenBadgeTrustConfig,
+) -> AppResult<(Option<String>, Option<String>)> {
+    let last_sync = state.storage.get_latest_open_badge_sync().await?;
+    let Some(last_sync) = last_sync else {
+        return Ok((None, None));
+    };
+
+    let age_hours = (Utc::now() - last_sync).num_minutes() as f64 / 60.0;
+
+    if age_hours > config.stale_critical_hours as f64 {
+        return Ok((
+            None,
+            Some(format!(
+                "Open Badge trust list critically stale ({:.1} hours old)",
+                age_hours
+            )),
+        ));
+    }
+
+    if age_hours > config.stale_warning_hours as f64 {
+        return Ok((
+            Some(format!(
+                "Open Badge trust list stale ({:.1} hours old)",
+                age_hours
+            )),
+            None,
+        ));
+    }
+
+    Ok((None, None))
+}
+
+fn open_badge_version_label(version: OpenBadgesVersion) -> &'static str {
+    match version {
+        OpenBadgesVersion::V2 => "2.0",
+        OpenBadgesVersion::V3 => "3.0",
+        OpenBadgesVersion::Unknown => "unknown",
+    }
+}
+
+fn build_open_badge_result(
+    request: &VerifyRequest,
+    version: OpenBadgesVersion,
+    valid: bool,
+    warnings: Vec<String>,
+    trust_anchor: Option<String>,
+    normalized: Option<Value>,
+    is_online: bool,
+    details: OpenBadgeDetails,
+) -> VerificationResult {
+    let disclosed_claims = normalized
+        .as_ref()
+        .map(open_badge_claims_from_normalized)
+        .unwrap_or_else(|| serde_json::json!({}));
+    let issuer = normalized
+        .as_ref()
+        .and_then(open_badge_issuer_from_normalized);
+
+    VerificationResult {
+        verification_id: uuid::Uuid::new_v4().to_string(),
+        status: if valid {
+            VerificationStatus::Valid
+        } else {
+            VerificationStatus::Invalid
+        },
+        credential_type: request.credential_type.clone(),
+        issuer,
+        disclosed_claims,
+        trust_chain: TrustChainStatus {
+            valid,
+            chain_type: match version {
+                OpenBadgesVersion::V2 | OpenBadgesVersion::V3 => "did".to_string(),
+                OpenBadgesVersion::Unknown => "unknown".to_string(),
+            },
+            trust_anchor,
+            offline_verified: !is_online,
+        },
+        revocation_status: RevocationStatus::Unknown,
+        verified_at: chrono::Utc::now().to_rfc3339(),
+        warnings,
+        emrtd_details: None,
+        dtc_details: None,
+        open_badge_details: Some(details),
+        liveness: None,
+        face_match: None,
+    }
+}
+
+fn open_badge_claims_from_normalized(normalized: &Value) -> Value {
+    let mut claims = serde_json::Map::new();
+
+    for (key, field) in [
+        ("assertion_id", "assertion_id"),
+        ("badge_id", "badge_id"),
+        ("issuer_id", "issuer_id"),
+        ("credential_id", "credential_id"),
+        ("issuer", "issuer"),
+    ] {
+        if let Some(value) = normalized.get(field).and_then(|v| v.as_str()) {
+            claims.insert(key.to_string(), Value::String(value.to_string()));
+        }
+    }
+
+    if let Some(recipient) = normalized.get("recipient") {
+        if let Some(identity) = recipient.get("identity").and_then(|v| v.as_str()) {
+            claims.insert("recipient".to_string(), Value::String(identity.to_string()));
+        } else if let Some(value) = recipient.as_str() {
+            claims.insert("recipient".to_string(), Value::String(value.to_string()));
+        }
+    }
+
+    if let Some(subject) = normalized.get("credential_subject") {
+        if let Some(subject_id) = subject.get("id").and_then(|v| v.as_str()) {
+            claims.insert("subject_id".to_string(), Value::String(subject_id.to_string()));
+        }
+    }
+
+    Value::Object(claims)
+}
+
+fn open_badge_issuer_from_normalized(normalized: &Value) -> Option<IssuerInfo> {
+    let issuer_value = normalized
+        .get("issuer")
+        .or_else(|| normalized.get("issuer_id"))?;
+
+    issuer_value.as_str().map(|issuer| IssuerInfo {
+        name: Some(issuer.to_string()),
+        jurisdiction: None,
+        subject: None,
+    })
+}
+
 /// Placeholder response for non-eMRTD types (to be replaced as other types are wired up).
 fn placeholder_success(request: &VerifyRequest, is_online: bool) -> VerificationResult {
     VerificationResult {
@@ -797,6 +1482,8 @@ fn placeholder_success(request: &VerifyRequest, is_online: bool) -> Verification
             vec!["Verified offline with cached trust anchors".to_string()]
         },
         emrtd_details: None,
+        dtc_details: None,
+        open_badge_details: None,
         liveness: None,
         face_match: None,
     }
@@ -805,6 +1492,7 @@ fn placeholder_success(request: &VerifyRequest, is_online: bool) -> Verification
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
 
     fn sample_challenge() -> LivenessChallenge {
         LivenessChallenge {
@@ -847,6 +1535,85 @@ mod tests {
         tampered.nonce = "wrong".to_string();
 
         assert!(!verify_challenge_signature(&tampered, secret));
+    }
+
+    #[test]
+    fn open_badge_request_auto_detects_versions() {
+        let ob2 = json!({
+            "@context": "https://w3id.org/openbadges/v2",
+            "type": "Assertion"
+        });
+        let (version, request) = build_open_badge_request(&ob2).expect("ob2 request");
+        assert_eq!(version, OpenBadgesVersion::V2);
+        assert!(request.get("assertion").is_some());
+
+        let ob3 = json!({
+            "@context": "https://purl.imsglobal.org/spec/ob/v3p0/context.json",
+            "type": ["OpenBadgeCredential"]
+        });
+        let (version, request) = build_open_badge_request(&ob3).expect("ob3 request");
+        assert_eq!(version, OpenBadgesVersion::V3);
+        assert!(request.get("credential").is_some());
+    }
+
+    #[test]
+    fn open_badge_store_filters_untrusted_keys() {
+        let mut base = DocumentStore::new();
+        base.insert(
+            "trusted-key".to_string(),
+            json!({ "publicKeyJwk": { "kty": "OKP", "crv": "Ed25519", "x": "abc" } }),
+        );
+
+        let mut supplemental = DocumentStore::new();
+        supplemental.insert(
+            "untrusted-key".to_string(),
+            json!({ "publicKeyJwk": { "kty": "OKP", "crv": "Ed25519", "x": "def" } }),
+        );
+        supplemental.insert("badge".to_string(), json!({ "id": "badge-1" }));
+
+        merge_open_badge_store(&mut base, &supplemental, false);
+
+        assert!(base.contains_key("trusted-key"));
+        assert!(base.contains_key("badge"));
+        assert!(!base.contains_key("untrusted-key"));
+    }
+
+    #[test]
+    fn extract_open_badge_method_id_from_ob2_creator() {
+        let request = json!({
+            "assertion": {
+                "verification": { "creator": "https://issuer.example.org/keys/1" }
+            }
+        });
+        let method =
+            extract_open_badge_method_id(&request, OpenBadgesVersion::V2).expect("method id");
+        assert_eq!(method, "https://issuer.example.org/keys/1");
+    }
+
+    #[test]
+    fn extract_open_badge_method_id_from_proof() {
+        let request = json!({
+            "credential": {
+                "proof": { "verificationMethod": "did:example:issuer#key-1" }
+            }
+        });
+        let method =
+            extract_open_badge_method_id(&request, OpenBadgesVersion::V3).expect("method id");
+        assert_eq!(method, "did:example:issuer#key-1");
+    }
+
+    #[test]
+    fn open_badge_method_trusted_with_did_document() {
+        let mut store = DocumentStore::new();
+        store.insert(
+            "did:example:issuer".to_string(),
+            json!({ "verificationMethod": [{ "id": "did:example:issuer#key-1" }] }),
+        );
+
+        assert!(open_badge_method_trusted(
+            &store,
+            "did:example:issuer#key-1"
+        ));
     }
 }
 
@@ -981,6 +1748,10 @@ async fn verify_emrtd_payload(
             dg_hash_status: format!("{:?}", verification.dg_hash_status),
             errors: verification.errors,
         }),
+        dtc_details: None,
+        open_badge_details: None,
+        liveness: None,
+        face_match: None,
     })
 }
 

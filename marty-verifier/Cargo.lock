@@ -4326,6 +4326,7 @@ dependencies = [
  "marty-secure-storage",
  "marty-sync",
  "marty-verification",
+ "ring",
  "serde",
  "serde_json",
  "tauri",

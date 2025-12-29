@@ -18,6 +18,7 @@ pub struct StoredLivenessChallenge {
     pub challenge_id: String,
     pub nonce: String,
     pub session_id: String,
+    #[allow(dead_code)]
     pub issued_at: chrono::DateTime<chrono::Utc>,
     pub expires_at: chrono::DateTime<chrono::Utc>,
     pub used: bool,
@@ -123,6 +124,7 @@ impl AppState {
     }
 
     /// Update online status
+    #[allow(dead_code)]
     pub async fn set_online(&self, online: bool) {
         let mut is_online = self.is_online.write().await;
         if *is_online != online {

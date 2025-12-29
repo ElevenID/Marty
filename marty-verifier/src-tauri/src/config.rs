@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use directories::ProjectDirs;
 use serde::{Deserialize, Serialize};
 
-use crate::error::{AppError, AppResult};
+use crate::error::AppResult;
 
 // Re-export crate types for convenience
 pub use marty_reporting::ReportingConfig;
@@ -43,6 +43,10 @@ pub struct AppConfig {
     /// Retention policy
     #[serde(default)]
     pub retention: RetentionConfig,
+
+    /// Open Badge trust policy
+    #[serde(default)]
+    pub open_badge_trust: OpenBadgeTrustConfig,
 }
 
 /// UI configuration
@@ -78,6 +82,27 @@ pub struct RetentionConfig {
 
     /// Fields to redact before reporting
     pub redacted_fields: Vec<String>,
+}
+
+/// Open Badge trust policy configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OpenBadgeTrustConfig {
+    /// Trust policy for unknown keys
+    #[serde(default)]
+    pub policy: OpenBadgeTrustPolicy,
+    /// Warning threshold for trust list staleness (hours)
+    pub stale_warning_hours: u32,
+    /// Critical threshold for trust list staleness (hours)
+    pub stale_critical_hours: u32,
+}
+
+/// Open Badge trust policy
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OpenBadgeTrustPolicy {
+    FailClosed,
+    FailOpen,
+    Selective,
 }
 
 /// Liveness-specific retention and media controls
@@ -124,6 +149,7 @@ impl Default for AppConfig {
             reporting_config: ReportingConfig::default(),
             ui_config: UiConfig::default(),
             retention: RetentionConfig::default(),
+            open_badge_trust: OpenBadgeTrustConfig::default(),
         }
     }
 }
@@ -152,6 +178,22 @@ impl Default for RetentionConfig {
                 "biometric_template".to_string(),
             ],
         }
+    }
+}
+
+impl Default for OpenBadgeTrustConfig {
+    fn default() -> Self {
+        Self {
+            policy: OpenBadgeTrustPolicy::FailClosed,
+            stale_warning_hours: 24,
+            stale_critical_hours: 48,
+        }
+    }
+}
+
+impl Default for OpenBadgeTrustPolicy {
+    fn default() -> Self {
+        OpenBadgeTrustPolicy::FailClosed
     }
 }
 

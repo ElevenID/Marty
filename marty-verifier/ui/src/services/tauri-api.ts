@@ -60,6 +60,8 @@ export interface VerificationResult {
   verified_at: string;
   warnings: string[];
   emrtd_details?: EmrtdDetails;
+  dtc_details?: DtcDetails;
+  open_badge_details?: OpenBadgeDetails;
   liveness?: LivenessResult;
   face_match?: FaceMatchResponse;
 }
@@ -75,6 +77,28 @@ export interface EmrtdDetails {
   sod_signature_status: string;
   dg_hash_status: string;
   errors: string[];
+}
+
+export interface DtcDetails {
+  checks: VerificationCheck[];
+  dtc_type?: number;
+  errors?: string[];
+  error_codes?: string[];
+}
+
+export interface VerificationCheck {
+  check_name: string;
+  passed: boolean;
+  details?: string;
+  error_code?: string;
+}
+
+export interface OpenBadgeDetails {
+  version: string;
+  errors: string[];
+  error_codes?: string[];
+  warnings: string[];
+  normalized?: Record<string, unknown> | null;
 }
 
 export interface TrustChainStatus {
@@ -99,6 +123,10 @@ export interface SyncStatus {
   iaca_certificates: number;
   csca_certificates: number;
   dsc_certificates: number;
+  open_badge_keys: number;
+  open_badge_last_sync: string | null;
+  open_badge_hours_since_sync: number | null;
+  open_badge_sync_overdue: boolean;
   crl_cache_age_hours: number | null;
   sync_overdue: boolean;
   sync_in_progress: boolean;
@@ -110,6 +138,7 @@ export interface SyncResult {
   iaca_updated: number;
   csca_updated: number;
   dsc_updated: number;
+  open_badge_keys_updated: number;
   crl_updated: boolean;
   duration_seconds: number;
   error: string | null;
@@ -118,6 +147,7 @@ export interface SyncResult {
 export interface UsbImportResult {
   success: boolean;
   certificates_imported: number;
+  open_badge_keys_imported: number;
   signature_valid: boolean;
   package_version: string | null;
   error: string | null;
@@ -150,11 +180,13 @@ export interface AppConfig {
   reporting_config: ReportingConfig;
   ui_config: UiConfig;
   retention: RetentionConfig;
+  open_badge_trust: OpenBadgeTrustConfig;
 }
 
 export interface SyncConfig {
   aamva_dts_url: string | null;
   icao_pkd_url: string | null;
+  open_badge_keys_url: string | null;
   sync_interval_hours: number;
   enable_usb_import: boolean;
   max_offline_hours: number;
@@ -182,6 +214,12 @@ export interface RetentionConfig {
   audit_log_days: number;
   encrypt_pii: boolean;
   redacted_fields: string[];
+}
+
+export interface OpenBadgeTrustConfig {
+  policy: 'fail_closed' | 'fail_open' | 'selective';
+  stale_warning_hours: number;
+  stale_critical_hours: number;
 }
 
 export interface LivenessRetentionConfig {

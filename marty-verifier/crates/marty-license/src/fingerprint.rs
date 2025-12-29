@@ -61,6 +61,7 @@ pub fn generate_hardware_fingerprint() -> String {
 }
 
 /// Verify a hardware fingerprint matches current hardware
+#[allow(dead_code)]
 pub fn verify_hardware_fingerprint(expected: &str) -> bool {
     let current = generate_hardware_fingerprint();
     current == expected

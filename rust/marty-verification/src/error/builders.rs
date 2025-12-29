@@ -238,6 +238,138 @@ impl VerificationError {
         })
     }
 
+    /// Create an Open Badges error for missing context.
+    pub fn open_badges_context_missing(reason: impl Into<String>) -> Box<Self> {
+        Box::new(Self::OpenBadgesError {
+            reason: reason.into(),
+            code: codes::OPEN_BADGES_CONTEXT_MISSING,
+            context: ErrorContext::default(),
+            source: None,
+            bt: CapturedBacktrace::capture(),
+            span_trace: SpanTrace::capture(),
+        })
+    }
+
+    /// Create an Open Badges signature error.
+    pub fn open_badges_signature_invalid(reason: impl Into<String>) -> Box<Self> {
+        Box::new(Self::OpenBadgesError {
+            reason: reason.into(),
+            code: codes::OPEN_BADGES_SIGNATURE_INVALID,
+            context: ErrorContext::default(),
+            source: None,
+            bt: CapturedBacktrace::capture(),
+            span_trace: SpanTrace::capture(),
+        })
+    }
+
+    /// Create an Open Badges proof verification error.
+    pub fn open_badges_proof_invalid(reason: impl Into<String>) -> Box<Self> {
+        Box::new(Self::OpenBadgesError {
+            reason: reason.into(),
+            code: codes::OPEN_BADGES_PROOF_INVALID,
+            context: ErrorContext::default(),
+            source: None,
+            bt: CapturedBacktrace::capture(),
+            span_trace: SpanTrace::capture(),
+        })
+    }
+
+    /// Create an Open Badges document missing error.
+    pub fn open_badges_document_missing(reason: impl Into<String>) -> Box<Self> {
+        Box::new(Self::OpenBadgesError {
+            reason: reason.into(),
+            code: codes::OPEN_BADGES_DOCUMENT_MISSING,
+            context: ErrorContext::default(),
+            source: None,
+            bt: CapturedBacktrace::capture(),
+            span_trace: SpanTrace::capture(),
+        })
+    }
+
+    /// Create an Open Badges unsupported feature error.
+    pub fn open_badges_unsupported(reason: impl Into<String>) -> Box<Self> {
+        Box::new(Self::OpenBadgesError {
+            reason: reason.into(),
+            code: codes::OPEN_BADGES_UNSUPPORTED,
+            context: ErrorContext::default(),
+            source: None,
+            bt: CapturedBacktrace::capture(),
+            span_trace: SpanTrace::capture(),
+        })
+    }
+
+    /// Create a DTC error.
+    pub fn dtc_invalid(reason: impl Into<String>) -> Box<Self> {
+        Box::new(Self::DtcError {
+            reason: reason.into(),
+            code: codes::DTC_INVALID,
+            context: ErrorContext::default(),
+            source: None,
+            bt: CapturedBacktrace::capture(),
+            span_trace: SpanTrace::capture(),
+        })
+    }
+
+    /// Create a DTC missing field error.
+    pub fn dtc_missing_field(field: impl Into<String>) -> Box<Self> {
+        Box::new(Self::DtcError {
+            reason: format!("Missing required field: {}", field.into()),
+            code: codes::DTC_MISSING_FIELD,
+            context: ErrorContext::default(),
+            source: None,
+            bt: CapturedBacktrace::capture(),
+            span_trace: SpanTrace::capture(),
+        })
+    }
+
+    /// Create a DTC unsupported feature error.
+    pub fn dtc_unsupported(reason: impl Into<String>) -> Box<Self> {
+        Box::new(Self::DtcError {
+            reason: reason.into(),
+            code: codes::DTC_UNSUPPORTED,
+            context: ErrorContext::default(),
+            source: None,
+            bt: CapturedBacktrace::capture(),
+            span_trace: SpanTrace::capture(),
+        })
+    }
+
+    /// Create a DTC signing error.
+    pub fn dtc_signing_failed(reason: impl Into<String>) -> Box<Self> {
+        Box::new(Self::DtcError {
+            reason: reason.into(),
+            code: codes::DTC_SIGNING_FAILED,
+            context: ErrorContext::default(),
+            source: None,
+            bt: CapturedBacktrace::capture(),
+            span_trace: SpanTrace::capture(),
+        })
+    }
+
+    /// Create a DTC signature invalid error.
+    pub fn dtc_signature_invalid(reason: impl Into<String>) -> Box<Self> {
+        Box::new(Self::DtcError {
+            reason: reason.into(),
+            code: codes::DTC_SIGNATURE_INVALID,
+            context: ErrorContext::default(),
+            source: None,
+            bt: CapturedBacktrace::capture(),
+            span_trace: SpanTrace::capture(),
+        })
+    }
+
+    /// Create a DTC trust chain error.
+    pub fn dtc_trust_chain_invalid(reason: impl Into<String>) -> Box<Self> {
+        Box::new(Self::DtcError {
+            reason: reason.into(),
+            code: codes::DTC_TRUST_CHAIN_INVALID,
+            context: ErrorContext::default(),
+            source: None,
+            bt: CapturedBacktrace::capture(),
+            span_trace: SpanTrace::capture(),
+        })
+    }
+
     /// Create a not-implemented error.
     pub fn not_implemented(feature: impl Into<String>) -> Box<Self> {
         Box::new(Self::Internal {

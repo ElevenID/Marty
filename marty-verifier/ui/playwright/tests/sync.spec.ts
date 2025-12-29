@@ -11,7 +11,7 @@ test.describe('Sync Page', () => {
   });
 
   test('should display sync page heading', async ({ page }) => {
-    await expect(page.getByRole('heading', { name: /trust anchor sync/i })).toBeVisible();
+    await expect(page.getByRole('heading', { name: /trust store sync/i })).toBeVisible();
   });
 
   test('should show online status', async ({ page }) => {
@@ -27,6 +27,8 @@ test.describe('Sync Page', () => {
     
     await expect(page.getByText(/dsc certificates/i)).toBeVisible();
     await expect(page.getByText('450')).toBeVisible();
+
+    await expect(page.getByText(/open badge keys/i)).toBeVisible();
   });
 
   test('should show last sync time', async ({ page }) => {
@@ -91,13 +93,19 @@ test.describe('Sync Status Variations', () => {
         iaca_certificates: 0,
         csca_certificates: 0,
         dsc_certificates: 0,
+        open_badge_keys: 0,
+        open_badge_last_sync: null,
+        open_badge_hours_since_sync: null,
+        open_badge_sync_overdue: true,
+        crl_cache_age_hours: null,
+        sync_in_progress: false,
         last_error: null,
       },
     });
     await page.goto('/sync');
 
     await expect(page.getByText(/never/i)).toBeVisible();
-    await expect(page.getByText('0')).toHaveCount(3); // 3 certificate counts
+    await expect(page.getByText('0')).toHaveCount(4); // 4 trust material counts
   });
 });
 
@@ -109,6 +117,7 @@ test.describe('Sync Actions', () => {
         iaca_updated: 5,
         csca_updated: 10,
         dsc_updated: 25,
+        open_badge_keys_updated: 2,
         duration_seconds: 3.5,
       },
     });
@@ -128,6 +137,7 @@ test.describe('Sync Actions', () => {
         iaca_updated: 0,
         csca_updated: 0,
         dsc_updated: 0,
+        open_badge_keys_updated: 0,
         duration_seconds: 0.1,
       },
     });

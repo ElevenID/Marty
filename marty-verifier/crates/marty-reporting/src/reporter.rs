@@ -104,7 +104,7 @@ impl Reporter {
     }
 
     /// Redact sensitive fields from event
-    fn redact_event(&self, mut event: VerificationEvent) -> VerificationEvent {
+    fn redact_event(&self, event: VerificationEvent) -> VerificationEvent {
         // The actual redaction depends on payload structure
         // For now, we don't modify since our payloads don't contain PII
         // In production, we'd inspect and redact specific fields

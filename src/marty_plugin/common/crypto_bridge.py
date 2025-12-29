@@ -87,6 +87,9 @@ try:
         open_badge_ob2_verify as _open_badge_ob2_verify,
         open_badge_ob3_issue as _open_badge_ob3_issue,
         open_badge_ob3_verify as _open_badge_ob3_verify,
+        dtc_create as _dtc_create,
+        dtc_sign as _dtc_sign,
+        dtc_verify as _dtc_verify,
         # Certificate operations
         load_certificate_pem as _load_certificate_pem,
         load_certificate_der as _load_certificate_der,
@@ -190,6 +193,9 @@ except ImportError:
         open_badge_ob2_verify as _open_badge_ob2_verify,
         open_badge_ob3_issue as _open_badge_ob3_issue,
         open_badge_ob3_verify as _open_badge_ob3_verify,
+        dtc_create as _dtc_create,
+        dtc_sign as _dtc_sign,
+        dtc_verify as _dtc_verify,
         load_certificate_pem as _load_certificate_pem,
         load_certificate_der as _load_certificate_der,
         get_certificate_info as _get_certificate_info,
@@ -1356,6 +1362,49 @@ def open_badge_ob3_verify(request_json: str) -> str:
         JSON verification result
     """
     return _open_badge_ob3_verify(request_json)
+
+
+# =============================================================================
+# DTC (Digital Travel Credential) Operations
+# =============================================================================
+
+def dtc_create(request_json: str) -> str:
+    """
+    Normalize a DTC payload (JSON in/out).
+
+    Args:
+        request_json: JSON payload describing the DTC record
+
+    Returns:
+        JSON string of the normalized DTC record
+    """
+    return _dtc_create(request_json)
+
+
+def dtc_sign(request_json: str) -> str:
+    """
+    Sign a DTC payload (JSON in/out).
+
+    Args:
+        request_json: JSON payload with DTC record + signing_key_pem
+
+    Returns:
+        JSON string of the signed DTC record
+    """
+    return _dtc_sign(request_json)
+
+
+def dtc_verify(request_json: str) -> str:
+    """
+    Verify a DTC payload (JSON in/out).
+
+    Args:
+        request_json: JSON payload with DTC record + signer_public_key_pem
+
+    Returns:
+        JSON string of the verification result
+    """
+    return _dtc_verify(request_json)
 
 
 # =============================================================================

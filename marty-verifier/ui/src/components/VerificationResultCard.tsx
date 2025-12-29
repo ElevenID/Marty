@@ -169,6 +169,70 @@ export default function VerificationResultCard({ result }: VerificationResultCar
             </Box>
           )}
 
+          {/* DTC Details */}
+          {result.dtc_details && (
+            <Box>
+              <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+                DTC Verification Checks
+              </Typography>
+              <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+                {result.dtc_details.checks.map((check) => (
+                  <Chip
+                    key={check.check_name}
+                    label={`${check.check_name}: ${check.passed ? 'Passed' : 'Failed'}${
+                      check.error_code ? ` (${check.error_code})` : ''
+                    }`}
+                    color={check.passed ? 'success' : 'error'}
+                    variant="outlined"
+                    title={check.details}
+                  />
+                ))}
+              </Stack>
+              {result.dtc_details.errors && result.dtc_details.errors.length > 0 && (
+                <Box sx={{ mt: 1 }}>
+                  {result.dtc_details.errors.map((err, idx) => {
+                    const code = result.dtc_details?.error_codes?.[idx];
+                    return (
+                      <Alert key={idx} severity="error" sx={{ mb: 0.5 }}>
+                        {code ? `[${code}] ${err}` : err}
+                      </Alert>
+                    );
+                  })}
+                </Box>
+              )}
+            </Box>
+          )}
+
+          {/* Open Badge Details */}
+          {result.open_badge_details && (
+            <Box>
+              <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+                Open Badge Details (v{result.open_badge_details.version})
+              </Typography>
+              {result.open_badge_details.errors.length > 0 && (
+                <Box sx={{ mb: 1 }}>
+                  {result.open_badge_details.errors.map((err, idx) => {
+                    const code = result.open_badge_details?.error_codes?.[idx];
+                    return (
+                      <Alert key={idx} severity="error" sx={{ mb: 0.5 }}>
+                        {code ? `[${code}] ${err}` : err}
+                      </Alert>
+                    );
+                  })}
+                </Box>
+              )}
+              {result.open_badge_details.warnings.length > 0 && (
+                <Box>
+                  {result.open_badge_details.warnings.map((warn, idx) => (
+                    <Alert key={idx} severity="warning" sx={{ mb: 0.5 }}>
+                      {warn}
+                    </Alert>
+                  ))}
+                </Box>
+              )}
+            </Box>
+          )}
+
           {/* Warnings */}
           {result.warnings.length > 0 && (
             <Box>

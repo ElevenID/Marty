@@ -18,7 +18,7 @@ impl HardwareTier {
         match self {
             HardwareTier::Simple => matches!(
                 feature,
-                "mdl_qr" | "oid4vp" | "sd-jwt" | "basic_verification"
+                "mdl_qr" | "oid4vp" | "sd-jwt" | "basic_verification" | "dtc" | "open-badge"
             ),
             HardwareTier::Complex => true, // Complex tier supports all features
         }
@@ -179,6 +179,7 @@ impl HardwareDetector {
     }
 
     /// Refresh hardware detection
+    #[allow(dead_code)]
     pub fn refresh(&mut self) {
         self.capabilities = Self::detect_capabilities();
     }

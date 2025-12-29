@@ -318,6 +318,8 @@ export default function VerifierPanel({
               <MenuItem value="emrtd">eMRTD (Passport)</MenuItem>
               <MenuItem value="oid4vp">OID4VP</MenuItem>
               <MenuItem value="sd-jwt">SD-JWT</MenuItem>
+              <MenuItem value="dtc">DTC</MenuItem>
+              <MenuItem value="open-badge">Open Badge</MenuItem>
             </Select>
           </FormControl>
 
@@ -441,6 +443,10 @@ export default function VerifierPanel({
             placeholder={
               selectedType === 'emrtd'
                 ? '{"sod_base64":"...","data_groups":{"DG1":"..."},"country":"USA"}'
+                : selectedType === 'dtc'
+                ? '{"passport_number":"P1234567","issuing_authority":"USA","dtc_type":4}'
+                : selectedType === 'open-badge'
+                ? '{"credential":{"@context":"https://purl.imsglobal.org/spec/ob/v3p0/context.json"}}'
                 : 'Paste credential payload'
             }
             value={credentialData}

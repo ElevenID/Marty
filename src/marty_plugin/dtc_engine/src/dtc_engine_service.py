@@ -7,18 +7,21 @@ This service handles the creation, management, signing, and verification of
 Digital Travel Credentials (DTCs) according to ICAO standards.
 """
 
+import base64
 import io
 import json
 import logging
 import os
 import uuid
 from datetime import datetime
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
 import grpc
 import qrcode
 
+from marty_plugin.common import crypto_bridge
 from marty_plugin.common.config import Config
 from marty_plugin.common.crypto import hash_password, verify_password, verify_signature
 from marty_plugin.common.grpc_client import GRPCClient
@@ -59,6 +62,61 @@ class DTCEngineService(dtc_engine_pb2_grpc.DTCEngineServicer):
             self.logger.info("Successfully connected to Document Signer service")
         except Exception:
             self.logger.exception("Failed to connect to Document Signer service")
+
+        service_config = {}
+        try:
+            service_config = config.get_service("dtc_engine")
+        except Exception:  # pragma: no cover - defensive
+            service_config = {}
+
+        self.signer_id = service_config.get("signer_id", "rust-dtc")
+        self.signing_key_pem = os.environ.get("DTC_SIGNING_KEY_PEM")
+        self.signer_public_key_pem = os.environ.get("DTC_SIGNER_PUBLIC_KEY_PEM")
+
+        signing_key_path = service_config.get("signing_key_path") or os.environ.get(
+            "DTC_SIGNING_KEY_PATH"
+        )
+        if signing_key_path and Path(signing_key_path).exists():
+            self.signing_key_pem = Path(signing_key_path).read_text(encoding="utf-8")
+
+        public_key_path = service_config.get("signer_public_key_path") or os.environ.get(
+            "DTC_SIGNER_PUBLIC_KEY_PATH"
+        )
+        if public_key_path and Path(public_key_path).exists():
+            self.signer_public_key_pem = Path(public_key_path).read_text(encoding="utf-8")
+
+        if self.signing_key_pem and not self.signer_public_key_pem:
+            try:
+                private_der = crypto_bridge.load_private_key_pem(self.signing_key_pem)
+                public_der = crypto_bridge.extract_public_key(private_der)
+                self.signer_public_key_pem = crypto_bridge.save_public_key_pem(public_der)
+            except Exception:  # pragma: no cover - defensive
+                self.logger.warning("Failed to derive DTC public key from signing key")
+
+        self.trust_anchors_pem: list[str] = []
+        self.certificate_chain_pem: list[str] = []
+
+        trust_path = service_config.get("trust_anchors_path") or os.environ.get(
+            "DTC_TRUST_ANCHORS_PATH"
+        )
+        if trust_path and Path(trust_path).exists():
+            try:
+                self.trust_anchors_pem = Path(trust_path).read_text(encoding="utf-8").split(
+                    "\n\n"
+                )
+            except Exception:  # pragma: no cover - defensive
+                self.logger.warning("Failed to load trust anchors from %s", trust_path)
+
+        chain_path = service_config.get("certificate_chain_path") or os.environ.get(
+            "DTC_CERT_CHAIN_PATH"
+        )
+        if chain_path and Path(chain_path).exists():
+            try:
+                self.certificate_chain_pem = Path(chain_path).read_text(encoding="utf-8").split(
+                    "\n\n"
+                )
+            except Exception:  # pragma: no cover - defensive
+                self.logger.warning("Failed to load certificate chain from %s", chain_path)
 
     def _vr(self, name: str) -> int:
         """Resolve overall verification result enum to its integer value."""
@@ -136,6 +194,18 @@ class DTCEngineService(dtc_engine_pb2_grpc.DTCEngineServicer):
                 with open(signature_path, "wb") as f:
                     f.write(request.personal_details.signature)
                 dtc_data["personal_details"]["signature_path"] = signature_path
+
+            # Normalize via Rust helpers when available while preserving access key hash
+            try:
+                dtc_payload = dict(dtc_data)
+                dtc_payload.pop("access_key_hash", None)
+                dtc_payload["access_key"] = request.access_key or ""
+                created = json.loads(crypto_bridge.dtc_create(json.dumps(dtc_payload)))
+                created["access_key_hash"] = dtc_data["access_key_hash"]
+                created.pop("access_key", None)
+                dtc_data = created
+            except Exception:
+                self.logger.debug("Rust DTC create unavailable; using raw payload")
 
             # Save DTC data to storage
             dtc_file_path = os.path.join(self.dtc_storage_dir, f"{dtc_id}.json")
@@ -323,6 +393,47 @@ class DTCEngineService(dtc_engine_pb2_grpc.DTCEngineServicer):
                     error_message="DTC is already signed",
                     signature_info=signature_info,
                 )
+
+            # Prefer Rust DTC signing when key material is available
+            if self.signing_key_pem:
+                try:
+                    dtc_payload = dict(dtc_data)
+                    dtc_payload["signing_key_pem"] = self.signing_key_pem
+                    dtc_payload["signer_id"] = self.signer_id
+                    signed = json.loads(crypto_bridge.dtc_sign(json.dumps(dtc_payload)))
+                    dtc_data.update(signed)
+                    dtc_data.pop("access_key", None)
+                    if self.signer_public_key_pem:
+                        dtc_data.setdefault("signature_info", {})[
+                            "signer_public_key_pem"
+                        ] = self.signer_public_key_pem
+                    with open(dtc_file_path, "w") as f:
+                        json.dump(dtc_data, f, indent=2)
+                    self._dtc_store[request.dtc_id] = dtc_data
+
+                    signature_value = dtc_data.get("signature_info", {}).get("signature", "")
+                    if isinstance(signature_value, str):
+                        try:
+                            signature_bytes = base64.b64decode(signature_value)
+                        except Exception:  # pragma: no cover - defensive
+                            signature_bytes = signature_value.encode("utf-8")
+                    elif isinstance(signature_value, (bytes, bytearray)):
+                        signature_bytes = bytes(signature_value)
+                    else:
+                        signature_bytes = b""
+
+                    signature_info = dtc_engine_pb2.SignatureInfo(
+                        signature_date=dtc_data.get("signature_info", {}).get("signature_date", ""),
+                        signer_id=dtc_data.get("signature_info", {}).get("signer_id", ""),
+                        signature=signature_bytes,
+                        is_valid=dtc_data.get("signature_info", {}).get("is_valid", True),
+                    )
+                    self.logger.info(f"Successfully signed DTC with ID: {request.dtc_id}")
+                    return dtc_engine_pb2.SignDTCResponse(
+                        success=True, error_message="", signature_info=signature_info
+                    )
+                except Exception:
+                    self.logger.exception("Rust DTC signing failed; falling back to document signer")
 
             # Check if document signer service is available
             if not self.document_signer_client:
@@ -622,8 +733,39 @@ class DTCEngineService(dtc_engine_pb2_grpc.DTCEngineServicer):
             except (ValueError, KeyError):
                 self.logger.warning(f"DTC with ID {request.dtc_id} has invalid date format")
 
+            signer_public_key_pem = (
+                dtc_data.get("signature_info", {}).get("signer_public_key_pem")
+                or self.signer_public_key_pem
+            )
+            if signer_public_key_pem:
+                try:
+                    payload = dict(dtc_data)
+                    payload["signer_public_key_pem"] = signer_public_key_pem
+                    if self.trust_anchors_pem:
+                        payload["trust_anchors_pem"] = self.trust_anchors_pem
+                    if self.certificate_chain_pem:
+                        payload["certificate_chain_pem"] = self.certificate_chain_pem
+                    verify_result = json.loads(crypto_bridge.dtc_verify(json.dumps(payload)))
+                    if verify_result.get("is_valid"):
+                        self.logger.info(
+                            f"Successfully verified DTC with ID: {request.dtc_id} (rust)"
+                        )
+                        return SimpleNamespace(
+                            success=True, error_message="", verification_result=self._vr("VALID")
+                        )
+                    error_message = verify_result.get("error_message", "DTC verification failed")
+                    return SimpleNamespace(
+                        success=True,
+                        error_message=error_message,
+                        verification_result=self._vr("INVALID_SIGNATURE"),
+                    )
+                except Exception:
+                    self.logger.exception("Rust DTC verification failed; falling back")
+
             # Verify the signature
             signature = dtc_data.get("signature")
+            if not signature:
+                signature = dtc_data.get("signature_info", {}).get("signature")
             if not signature:
                 self.logger.error(f"DTC with ID {request.dtc_id} has no signature data")
                 return SimpleNamespace(

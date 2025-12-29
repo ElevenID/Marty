@@ -115,6 +115,12 @@ describe('AppStore', () => {
         iaca_certificates: 50,
         csca_certificates: 100,
         dsc_certificates: 400,
+        open_badge_keys: 10,
+        open_badge_last_sync: '2025-12-19T10:30:00Z',
+        open_badge_hours_since_sync: 1.5,
+        open_badge_sync_overdue: false,
+        crl_cache_age_hours: null,
+        sync_in_progress: false,
         last_error: null,
       };
 
@@ -152,6 +158,12 @@ describe('AppStore', () => {
         iaca_certificates: 25,
         csca_certificates: 50,
         dsc_certificates: 200,
+        open_badge_keys: 6,
+        open_badge_last_sync: '2025-12-19T10:30:00Z',
+        open_badge_hours_since_sync: 0.5,
+        open_badge_sync_overdue: false,
+        crl_cache_age_hours: null,
+        sync_in_progress: false,
         last_error: null,
       };
 

@@ -105,7 +105,7 @@ fn generate_dev_license_jwt() -> String {
 
     let header = r#"{"alg":"EdDSA","typ":"JWT"}"#;
     let claims = format!(
-        r#"{{"iss":"marty-license-issuer","sub":"dev-org-001","iat":{},"exp":{},"jti":"dev-license-auto","features":["mdl","emrtd","oid4vp","sd-jwt","usb-sync","reporting"],"deployment_mode":"development","max_verifications_per_day":1000,"org_name":"Development License","grace_period_days":90}}"#,
+        r#"{{"iss":"marty-license-issuer","sub":"dev-org-001","iat":{},"exp":{},"jti":"dev-license-auto","features":["mdl","emrtd","oid4vp","sd-jwt","dtc","open-badge","usb-sync","reporting"],"deployment_mode":"development","max_verifications_per_day":1000,"org_name":"Development License","grace_period_days":90}}"#,
         now, exp
     );
 

@@ -13,6 +13,7 @@ dev_hosts: &dev_hosts
   dtc_engine: localhost
   credential_ledger: localhost
   pkd_service: localhost
+  open_badges: localhost
 
 # Service ports (inherited from base patterns)
 ports: &default_ports
@@ -26,6 +27,7 @@ ports: &default_ports
   dtc_engine: 8087
   credential_ledger: 8088
   pkd_service: 8089
+  open_badges: 8091
 
 # Service hosts
 hosts: *dev_hosts
@@ -73,6 +75,16 @@ services:
     max_concurrent_inspections: 10
     inspection_timeout_seconds: 300
     enable_biometric_verification: true
+
+  dtc_engine:
+    signing_key_id: dtc-engine-default
+    signing_algorithm: ecdsa-p256
+    signer_id: dtc-engine
+    trust_anchors_path: "data/trust/dtc/anchors.pem"
+    certificate_chain_path: "data/trust/dtc/chain.pem"
+
+  open_badges:
+    trust_store_path: "data/trust/open_badges/trust_store.json"
 
 # Development-specific logging (more verbose)
 logging:

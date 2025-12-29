@@ -93,8 +93,14 @@ services:
     signing_algorithm: rsa2048
     signing_key_id: document-signer-default
   dtc_engine:
-    signing_algorithm: rsa2048
-    signing_key_id: document-signer-default
+    signing_algorithm: ecdsa-p256
+    signing_key_id: dtc-engine-default
+    signer_id: dtc-engine
+    trust_anchors_path: "data/trust/dtc/anchors.pem"
+    certificate_chain_path: "data/trust/dtc/chain.pem"
+
+  open_badges:
+    trust_store_path: "data/trust/open_badges/trust_store.json"
 
 # Logging
 logging:
@@ -233,6 +239,11 @@ services:
     dependencies: ["postgres"]
     required_for: ["e2e"]
 
+  open-badges:
+    startup_delay: 5
+    dependencies: ["postgres"]
+    required_for: ["e2e"]
+
 # Test environment modes
 test_modes:
   unit:
@@ -253,7 +264,7 @@ test_modes:
   e2e:
     description: "End-to-end tests with full service stack"
     services_required: ["postgres", "zookeeper", "kafka", "trust-anchor", "csca-service", "document-signer",
-                       "inspection-system", "passport-engine", "mdl-engine", "mdoc-engine", "dtc-engine", "credential-ledger"]
+                       "inspection-system", "passport-engine", "mdl-engine", "mdoc-engine", "dtc-engine", "open-badges", "credential-ledger"]
     parallel_execution: false
 
 # Test isolation settings

@@ -10,6 +10,8 @@ import {
   Badge as MdlIcon,
   Flight as EmrtdIcon,
   Fingerprint as OidIcon,
+  TravelExplore as DtcIcon,
+  WorkspacePremium as OpenBadgeIcon,
 } from '@mui/icons-material';
 import { VerifierPanel } from '@/components';
 import { useAppStore } from '@/store';
@@ -18,6 +20,8 @@ const credentialTypes = [
   { value: 'mdl', label: 'mDL', icon: <MdlIcon /> },
   { value: 'emrtd', label: 'eMRTD', icon: <EmrtdIcon /> },
   { value: 'oid4vp', label: 'OID4VP', icon: <OidIcon /> },
+  { value: 'dtc', label: 'DTC', icon: <DtcIcon /> },
+  { value: 'open-badge', label: 'Open Badge', icon: <OpenBadgeIcon /> },
 ];
 
 export default function VerificationPage() {

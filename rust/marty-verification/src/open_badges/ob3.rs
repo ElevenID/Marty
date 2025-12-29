@@ -17,7 +17,7 @@ use ssi::jwk::Params as JwkParams;
 use ssi::JWK;
 use ssi::json_ld::syntax::{Context, ContextEntry};
 
-use crate::error::{VerificationError, VerificationResult};
+use crate::error::{codes as error_codes, VerificationError, VerificationResult};
 
 use super::contexts::{ob3_context_uri, open_badges_context_loader, security_v2_context_uri};
 use super::types::{DocumentStore, OpenBadgesIssueResult, OpenBadgesVerificationResult};
@@ -134,12 +134,18 @@ pub async fn verify_ob3_json_async(request_json: &str) -> VerificationResult<Str
         .map_err(|e| VerificationError::open_badges(format!("Invalid OB3 credential: {}", e)))?;
 
     let mut errors = Vec::new();
+    let mut error_codes_out = Vec::new();
     let mut warnings = Vec::new();
 
     if !has_context(&req.credential, ob3_context_uri())
         && !has_context(&req.credential, "https://w3id.org/openbadges/v3")
     {
-        errors.push("Missing Open Badges v3 context".to_string());
+        push_error(
+            &mut errors,
+            &mut error_codes_out,
+            error_codes::OPEN_BADGES_CONTEXT_MISSING,
+            "Missing Open Badges v3 context",
+        );
     }
 
     let store = req.document_store.unwrap_or_default();
@@ -150,8 +156,18 @@ pub async fn verify_ob3_json_async(request_json: &str) -> VerificationResult<Str
 
     match credential.verify(params).await {
         Ok(Ok(())) => {}
-        Ok(Err(invalid)) => errors.push(format!("Credential invalid: {}", invalid)),
-        Err(err) => errors.push(format!("Credential verification error: {}", err)),
+        Ok(Err(invalid)) => push_error(
+            &mut errors,
+            &mut error_codes_out,
+            error_codes::OPEN_BADGES_PROOF_INVALID,
+            format!("Credential invalid: {}", invalid),
+        ),
+        Err(err) => push_error(
+            &mut errors,
+            &mut error_codes_out,
+            error_codes::OPEN_BADGES_PROOF_INVALID,
+            format!("Credential verification error: {}", err),
+        ),
     }
 
     let normalized = normalize_ob3(&req.credential);
@@ -160,6 +176,7 @@ pub async fn verify_ob3_json_async(request_json: &str) -> VerificationResult<Str
         valid: errors.is_empty(),
         version: "3.0".to_string(),
         errors,
+        error_codes: error_codes_out,
         warnings,
         normalized: Some(normalized),
     };
@@ -185,7 +202,7 @@ fn parse_proof_purpose(value: &str) -> VerificationResult<ProofPurpose> {
         "capabilityInvocation" => Ok(ProofPurpose::CapabilityInvocation),
         "capabilityDelegation" => Ok(ProofPurpose::CapabilityDelegation),
         "keyAgreement" => Ok(ProofPurpose::KeyAgreement),
-        _ => Err(VerificationError::open_badges(format!(
+        _ => Err(VerificationError::open_badges_unsupported(format!(
             "Unsupported proof purpose: {}",
             value
         ))),
@@ -231,7 +248,7 @@ fn build_verification_method(
                 Ed25519VerificationKey2020::from_public_key(verification_method.clone(), controller, verifying_key);
             Ok((AnyMethod::Ed25519VerificationKey2020(method), AnySuite::Ed25519Signature2020))
         }
-        _ => Err(VerificationError::open_badges(format!(
+        _ => Err(VerificationError::open_badges_unsupported(format!(
             "Unsupported verification method type: {}",
             method_type
         ))),
@@ -241,7 +258,7 @@ fn build_verification_method(
 fn ed25519_public_key_bytes(jwk: &JWK) -> VerificationResult<Vec<u8>> {
     match &jwk.params {
         JwkParams::OKP(params) if params.curve == "Ed25519" => Ok(params.public_key.0.clone()),
-        _ => Err(VerificationError::open_badges(
+        _ => Err(VerificationError::open_badges_unsupported(
             "Ed25519 verification methods require an Ed25519 OKP JWK".to_string(),
         )),
     }
@@ -252,6 +269,16 @@ fn ed25519_verifying_key(jwk: &JWK) -> VerificationResult<ed25519_dalek::Verifyi
     ed25519_dalek::VerifyingKey::try_from(public_key.as_slice()).map_err(|e| {
         VerificationError::open_badges(format!("Invalid Ed25519 public key: {}", e))
     })
+}
+
+fn push_error(
+    errors: &mut Vec<String>,
+    error_codes_out: &mut Vec<String>,
+    code: &'static str,
+    message: impl Into<String>,
+) {
+    errors.push(message.into());
+    error_codes_out.push(code.to_string());
 }
 
 fn has_context(value: &Value, context_uri: &str) -> bool {

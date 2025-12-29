@@ -43,6 +43,7 @@ prod_hosts: &prod_hosts
   dtc_engine: dtc-engine
   credential_ledger: credential-ledger
   pkd_service: pkd-service
+  open_badges: open-badges
 
 # Service ports (inherited from base patterns)
 ports: &default_ports
@@ -56,6 +57,7 @@ ports: &default_ports
   dtc_engine: 8087
   credential_ledger: 8088
   pkd_service: 8089
+  open_badges: 8091
 
 # Service hosts
 hosts: *prod_hosts
@@ -83,6 +85,16 @@ services:
     max_concurrent_inspections: 20
     inspection_timeout_seconds: 300
     enable_biometric_verification: true
+
+  dtc_engine:
+    signing_algorithm: ecdsa-p256
+    signing_key_id: dtc-engine-default
+    signer_id: dtc-engine
+    trust_anchors_path: "data/trust/dtc/anchors.pem"
+    certificate_chain_path: "data/trust/dtc/chain.pem"
+
+  open_badges:
+    trust_store_path: "data/trust/open_badges/trust_store.json"
 
 # Production logging (standard level)
 logging:

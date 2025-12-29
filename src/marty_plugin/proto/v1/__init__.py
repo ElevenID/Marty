@@ -21,6 +21,8 @@ from . import (
     mdl_engine_pb2_grpc,
     mdoc_engine_pb2,
     mdoc_engine_pb2_grpc,
+    open_badges_service_pb2,
+    open_badges_service_pb2_grpc,
     passport_engine_pb2,
     passport_engine_pb2_grpc,
     pkd_service_pb2,

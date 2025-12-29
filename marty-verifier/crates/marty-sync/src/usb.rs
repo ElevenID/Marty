@@ -5,13 +5,14 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 
 use crate::error::SyncError;
-use marty_secure_storage::TrustAnchor;
+use marty_secure_storage::{OpenBadgeKeySource, OpenBadgeVerificationMethod, TrustAnchor};
 
 /// USB import result
 #[derive(Debug, Serialize, Deserialize)]
 pub struct UsbImportResult {
     pub success: bool,
     pub certificates_imported: usize,
+    pub open_badge_keys_imported: usize,
     pub signature_valid: bool,
     pub package_version: Option<String>,
     pub error: Option<String>,
@@ -23,10 +24,13 @@ pub struct TrustAnchorPackage {
     /// Package version
     pub version: String,
     /// Package creation timestamp
+    #[allow(dead_code)]
     pub created_at: String,
     /// Signing certificate (PEM)
+    #[allow(dead_code)]
     pub signing_cert: String,
     /// Package signature (base64)
+    #[allow(dead_code)]
     pub signature: String,
     /// IACA certificates (DER, base64 encoded)
     pub iaca_certificates: Vec<CertificateEntry>,
@@ -34,6 +38,9 @@ pub struct TrustAnchorPackage {
     pub csca_certificates: Vec<CertificateEntry>,
     /// DSC certificates (DER, base64 encoded)
     pub dsc_certificates: Vec<CertificateEntry>,
+    /// Open Badge verification methods (trusted public keys)
+    #[serde(default)]
+    pub open_badge_verification_methods: Vec<serde_json::Value>,
 }
 
 /// Certificate entry in package
@@ -58,7 +65,7 @@ pub struct CertificateEntry {
 /// Import trust anchors from USB package
 pub async fn import_from_usb(
     path: &Path,
-) -> Result<(Vec<TrustAnchor>, UsbImportResult), SyncError> {
+) -> Result<(Vec<TrustAnchor>, Vec<OpenBadgeVerificationMethod>, UsbImportResult), SyncError> {
     tracing::info!(path = ?path, "Importing trust anchors from USB");
 
     // Check path exists
@@ -115,17 +122,30 @@ pub async fn import_from_usb(
         }
     }
 
+    // Convert Open Badge verification methods
+    let mut open_badge_keys = Vec::new();
+    let mut open_badge_count = 0;
+    for method in &package.open_badge_verification_methods {
+        if let Ok(entry) = parse_open_badge_method(method) {
+            open_badge_keys.push(entry);
+            open_badge_count += 1;
+        }
+    }
+
     tracing::info!(
         count,
+        open_badge_count,
         version = %package.version,
-        "Imported certificates from USB package"
+        "Imported trust materials from USB package"
     );
 
     Ok((
         anchors,
+        open_badge_keys,
         UsbImportResult {
             success: true,
             certificates_imported: count,
+            open_badge_keys_imported: open_badge_count,
             signature_valid,
             package_version: Some(package.version),
             error: None,
@@ -168,6 +188,47 @@ fn parse_certificate_entry(
         certificate_der,
         certificate_hash: hash.to_hex().to_string(),
         source: marty_secure_storage::TrustAnchorSource::UsbImport,
+        synced_at: Utc::now(),
+    })
+}
+
+fn parse_open_badge_method(
+    value: &serde_json::Value,
+) -> Result<OpenBadgeVerificationMethod, SyncError> {
+    use chrono::Utc;
+
+    let id = value
+        .get("id")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| SyncError::Parse("Open Badge method missing id".to_string()))?;
+
+    let controller = value.get("controller").and_then(|v| v.as_str()).map(|s| s.to_string());
+    let issuer = value.get("issuer").and_then(|v| v.as_str()).map(|s| s.to_string());
+    let kid = value.get("kid").and_then(|v| v.as_str()).map(|s| s.to_string());
+    let status = value.get("status").and_then(|v| v.as_str()).map(|s| s.to_string());
+    let not_before = value
+        .get("not_before")
+        .or_else(|| value.get("notBefore"))
+        .and_then(|v| v.as_str())
+        .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+        .map(|dt| dt.with_timezone(&Utc));
+    let not_after = value
+        .get("not_after")
+        .or_else(|| value.get("notAfter"))
+        .and_then(|v| v.as_str())
+        .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+        .map(|dt| dt.with_timezone(&Utc));
+
+    Ok(OpenBadgeVerificationMethod {
+        id: id.to_string(),
+        document: value.clone(),
+        controller,
+        issuer,
+        kid,
+        not_before,
+        not_after,
+        status,
+        source: OpenBadgeKeySource::UsbImport,
         synced_at: Utc::now(),
     })
 }

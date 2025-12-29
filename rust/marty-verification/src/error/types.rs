@@ -72,6 +72,8 @@ pub enum ErrorCategory {
     Encoding,
     /// Open Badges related
     OpenBadges,
+    /// Digital Travel Credential related
+    Dtc,
     /// I/O related
     Io,
     /// Internal/unexpected errors
@@ -88,6 +90,7 @@ impl fmt::Display for ErrorCategory {
             ErrorCategory::ExternalService => write!(f, "SERVICE"),
             ErrorCategory::Encoding => write!(f, "ENCODING"),
             ErrorCategory::OpenBadges => write!(f, "OPENBADGES"),
+            ErrorCategory::Dtc => write!(f, "DTC"),
             ErrorCategory::Io => write!(f, "IO"),
             ErrorCategory::Internal => write!(f, "INTERNAL"),
         }
@@ -235,6 +238,7 @@ mod tests {
     #[test]
     fn test_error_category_display() {
         assert_eq!(ErrorCategory::CertificateChain.to_string(), "CHAIN");
+        assert_eq!(ErrorCategory::Dtc.to_string(), "DTC");
         assert_eq!(ErrorCategory::Internal.to_string(), "INTERNAL");
     }
 }

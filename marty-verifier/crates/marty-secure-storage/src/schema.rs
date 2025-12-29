@@ -47,6 +47,26 @@ CREATE INDEX IF NOT EXISTS idx_trust_anchors_type_jurisdiction
 CREATE INDEX IF NOT EXISTS idx_trust_anchors_hash 
     ON trust_anchors(certificate_hash);
 
+-- Open Badge verification methods (trusted public keys)
+CREATE TABLE IF NOT EXISTS open_badge_keys (
+    id TEXT PRIMARY KEY,
+    document_json TEXT NOT NULL, -- JSON verification method document
+    controller TEXT,
+    issuer TEXT,
+    kid TEXT,
+    not_before TEXT,
+    not_after TEXT,
+    status TEXT,
+    source TEXT, -- 'sync', 'usb_import', 'manual'
+    synced_at TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_open_badge_keys_controller
+    ON open_badge_keys(controller);
+CREATE INDEX IF NOT EXISTS idx_open_badge_keys_status
+    ON open_badge_keys(status);
+
 -- CRL cache
 CREATE TABLE IF NOT EXISTS crl_cache (
     id TEXT PRIMARY KEY,

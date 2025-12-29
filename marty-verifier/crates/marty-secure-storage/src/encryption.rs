@@ -9,10 +9,12 @@ use rand::RngCore;
 use crate::error::StorageError;
 
 /// PII field encryptor using AES-256-GCM
+#[allow(dead_code)]
 pub struct PiiEncryptor {
     cipher: Aes256Gcm,
 }
 
+#[allow(dead_code)]
 impl PiiEncryptor {
     /// Create new encryptor with the given key
     pub fn new(key: &[u8]) -> Result<Self, StorageError> {

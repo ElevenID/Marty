@@ -17,6 +17,7 @@
 //! | E5xx | PKD | Public Key Directory and external service errors |
 //! | E6xx | Encoding | DER, PEM, CBOR encoding/decoding errors |
 //! | E7xx | Open Badges | Open Badges verification/issuance errors |
+//! | E8xx | DTC | Digital Travel Credential errors |
 //! | E9xx | General | I/O, configuration, and internal errors |
 
 //=========================================================================
@@ -147,6 +148,28 @@ pub const OPEN_BADGES_DOCUMENT_MISSING: &str = "E705";
 pub const OPEN_BADGES_UNSUPPORTED: &str = "E706";
 
 //=========================================================================
+// DTC errors (8xx) - Digital Travel Credential
+//=========================================================================
+
+/// E801: DTC payload is invalid or malformed.
+pub const DTC_INVALID: &str = "E801";
+
+/// E802: Required DTC field is missing.
+pub const DTC_MISSING_FIELD: &str = "E802";
+
+/// E803: DTC uses unsupported algorithm or key type.
+pub const DTC_UNSUPPORTED: &str = "E803";
+
+/// E804: DTC signing failed.
+pub const DTC_SIGNING_FAILED: &str = "E804";
+
+/// E805: DTC signature verification failed.
+pub const DTC_SIGNATURE_INVALID: &str = "E805";
+
+/// E806: DTC trust chain validation failed.
+pub const DTC_TRUST_CHAIN_INVALID: &str = "E806";
+
+//=========================================================================
 // I/O and general errors (9xx) - General errors
 //=========================================================================
 
@@ -260,6 +283,17 @@ pub fn error_codes_markdown() -> String {
     md.push_str("| E704 | `OPEN_BADGES_PROOF_INVALID` | Open Badges proof verification failed |\n");
     md.push_str("| E705 | `OPEN_BADGES_DOCUMENT_MISSING` | Open Badges referenced document not found in offline store |\n");
     md.push_str("| E706 | `OPEN_BADGES_UNSUPPORTED` | Open Badges unsupported feature or algorithm |\n");
+    md.push('\n');
+
+    md.push_str("## DTC Errors (E8xx)\n\n");
+    md.push_str("| Code | Constant | Description |\n");
+    md.push_str("|------|----------|-------------|\n");
+    md.push_str("| E801 | `DTC_INVALID` | DTC payload is invalid or malformed |\n");
+    md.push_str("| E802 | `DTC_MISSING_FIELD` | Required DTC field is missing |\n");
+    md.push_str("| E803 | `DTC_UNSUPPORTED` | DTC uses unsupported algorithm or key type |\n");
+    md.push_str("| E804 | `DTC_SIGNING_FAILED` | DTC signing failed |\n");
+    md.push_str("| E805 | `DTC_SIGNATURE_INVALID` | DTC signature verification failed |\n");
+    md.push_str("| E806 | `DTC_TRUST_CHAIN_INVALID` | DTC trust chain validation failed |\n");
     md.push('\n');
 
     md.push_str("## General Errors (E9xx)\n\n");

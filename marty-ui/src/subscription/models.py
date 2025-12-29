@@ -274,6 +274,8 @@ class CredentialType(str, enum.Enum):
     DRIVERS_LICENSE = "drivers_license"  # mDL
     ACCESS_BADGE = "access_badge"
     NATIONAL_ID = "national_id"
+    DTC = "dtc"
+    OPEN_BADGE = "open_badge"
 
 
 class CredentialTypeConfiguration(Base):

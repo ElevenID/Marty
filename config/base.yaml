@@ -14,6 +14,7 @@ default_ports: &default_ports
   dtc_engine: 8087
   credential_ledger: 8088
   pkd_service: 8089
+  open_badges: 8091
 
 # Common service configuration patterns
 common_service_config: &common_service_config
@@ -41,6 +42,16 @@ common_service_config: &common_service_config
     mrz_validation_enabled: true
     photo_validation_enabled: true
     security_features_check: true
+
+  dtc_engine:
+    signing_key_id: dtc-engine-default
+    signing_algorithm: ecdsa-p256
+    signer_id: dtc-engine
+    trust_anchors_path: "data/trust/dtc/anchors.pem"
+    certificate_chain_path: "data/trust/dtc/chain.pem"
+
+  open_badges:
+    trust_store_path: "data/trust/open_badges/trust_store.json"
 
 # Common database configuration
 common_database: &common_database

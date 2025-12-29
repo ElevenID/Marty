@@ -26,6 +26,8 @@ pub struct OpenBadgesVerificationResult {
     pub valid: bool,
     pub version: String,
     pub errors: Vec<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub error_codes: Vec<String>,
     pub warnings: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub normalized: Option<Value>,

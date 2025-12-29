@@ -20,6 +20,7 @@ use p384::ecdsa::{Signature as P384Signature, SigningKey as P384SigningKey, Veri
 use p384::{PublicKey as P384PublicKey, SecretKey as P384SecretKey};
 use spki::SubjectPublicKeyInfoRef;
 use x509_cert::Certificate;
+use crate::error::{codes as error_codes, VerificationError, VerificationResult};
 use crate::verification::ChainValidator;
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
@@ -166,14 +167,18 @@ fn b64_decode(s: &str) -> Option<Vec<u8>> {
     general_purpose::STANDARD.decode(s.as_bytes()).ok()
 }
 
-fn canonical_payload(record: &DtcRecord) -> Result<Vec<u8>, String> {
+fn canonical_payload(record: &DtcRecord) -> VerificationResult<Vec<u8>> {
     // Serialize with stable key ordering (BTreeMap) and without signature_info to avoid self-reference
-    let mut map = serde_json::to_value(record).map_err(|e| e.to_string())?;
+    let mut map = serde_json::to_value(record).map_err(|e| {
+        VerificationError::dtc_invalid(format!("Failed to serialize DTC payload: {}", e))
+    })?;
     if let Value::Object(ref mut obj) = map {
         obj.remove("signature_info");
         obj.remove("is_signed");
     }
-    serde_json::to_vec(&map).map_err(|e| e.to_string())
+    serde_json::to_vec(&map).map_err(|e| {
+        VerificationError::dtc_invalid(format!("Failed to serialize DTC payload: {}", e))
+    })
 }
 
 fn normalize_base64(value: &mut String) {
@@ -223,7 +228,7 @@ fn normalize_record(mut record: DtcRecord) -> DtcRecord {
     record
 }
 
-fn decode_pem_body(pem: &str) -> Result<Vec<u8>, String> {
+fn decode_pem_body(pem: &str) -> VerificationResult<Vec<u8>> {
     let mut b64 = String::new();
     for line in pem.lines() {
         let line = line.trim();
@@ -233,11 +238,11 @@ fn decode_pem_body(pem: &str) -> Result<Vec<u8>, String> {
         b64.push_str(line);
     }
     if b64.is_empty() {
-        return Err("PEM payload missing".to_string());
+        return Err(VerificationError::dtc_invalid("PEM payload missing".to_string()));
     }
     general_purpose::STANDARD
         .decode(b64.as_bytes())
-        .map_err(|e| format!("Invalid PEM base64: {}", e))
+        .map_err(|e| VerificationError::dtc_invalid(format!("Invalid PEM base64: {}", e)))
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -247,18 +252,20 @@ enum EcCurve {
 }
 
 fn curve_from_oid(oid: ObjectIdentifier) -> Option<EcCurve> {
-    match oid {
-        oid if oid == ObjectIdentifier::new_unwrap("1.2.840.10045.3.1.7") => Some(EcCurve::P256),
-        oid if oid == ObjectIdentifier::new_unwrap("1.3.132.0.34") => Some(EcCurve::P384),
+    match oid.to_string().as_str() {
+        "1.2.840.10045.3.1.7" => Some(EcCurve::P256),
+        "1.3.132.0.34" => Some(EcCurve::P384),
         _ => None,
     }
 }
 
-fn detect_curve_from_private_key_pem(pem: &str) -> Result<EcCurve, String> {
+fn detect_curve_from_private_key_pem(pem: &str) -> VerificationResult<EcCurve> {
     let der = decode_pem_body(pem)?;
     if let Ok(pkcs8) = PrivateKeyInfo::try_from(der.as_slice()) {
         if let Some(params) = pkcs8.algorithm.parameters {
-            let oid = params.decode_as::<ObjectIdentifier>().map_err(|e| e.to_string())?;
+            let oid = params
+                .decode_as::<ObjectIdentifier>()
+                .map_err(|e| VerificationError::dtc_invalid(e.to_string()))?;
             if let Some(curve) = curve_from_oid(oid) {
                 return Ok(curve);
             }
@@ -272,14 +279,18 @@ fn detect_curve_from_private_key_pem(pem: &str) -> Result<EcCurve, String> {
         return Ok(EcCurve::P384);
     }
 
-    Err("Unsupported EC private key format or curve".to_string())
+    Err(VerificationError::dtc_unsupported(
+        "Unsupported EC private key format or curve".to_string(),
+    ))
 }
 
-fn detect_curve_from_public_key_pem(pem: &str) -> Result<EcCurve, String> {
+fn detect_curve_from_public_key_pem(pem: &str) -> VerificationResult<EcCurve> {
     let der = decode_pem_body(pem)?;
     if let Ok(spki) = SubjectPublicKeyInfoRef::try_from(der.as_slice()) {
         if let Some(params) = spki.algorithm.parameters {
-            let oid = params.decode_as::<ObjectIdentifier>().map_err(|e| e.to_string())?;
+            let oid = params
+                .decode_as::<ObjectIdentifier>()
+                .map_err(|e| VerificationError::dtc_invalid(e.to_string()))?;
             if let Some(curve) = curve_from_oid(oid) {
                 return Ok(curve);
             }
@@ -289,37 +300,59 @@ fn detect_curve_from_public_key_pem(pem: &str) -> Result<EcCurve, String> {
     match der.len() {
         65 => Ok(EcCurve::P256),
         97 => Ok(EcCurve::P384),
-        _ => Err("Unsupported EC public key format or curve".to_string()),
+        _ => Err(VerificationError::dtc_unsupported(
+            "Unsupported EC public key format or curve".to_string(),
+        )),
     }
 }
 
-fn parse_p256_signing_key(pem: &str) -> Result<P256SigningKey, String> {
+fn parse_p256_signing_key(pem: &str) -> VerificationResult<P256SigningKey> {
     let pkcs8 = P256SigningKey::from_pkcs8_pem(pem).map_err(|e| e.to_string());
     if let Ok(key) = pkcs8 {
         return Ok(key);
     }
     let pkcs8_err = pkcs8.err().unwrap_or_else(|| "unknown PKCS#8 error".to_string());
     let der = decode_pem_body(pem)
-        .map_err(|e| format!("PKCS#8 parse failed: {}; SEC1 decode failed: {}", pkcs8_err, e))?;
+        .map_err(|e| {
+            VerificationError::dtc_invalid(format!(
+                "PKCS#8 parse failed: {}; SEC1 decode failed: {}",
+                pkcs8_err, e
+            ))
+        })?;
     let secret = P256SecretKey::from_sec1_der(&der)
-        .map_err(|e| format!("PKCS#8 parse failed: {}; SEC1 parse failed: {}", pkcs8_err, e))?;
+        .map_err(|e| {
+            VerificationError::dtc_invalid(format!(
+                "PKCS#8 parse failed: {}; SEC1 parse failed: {}",
+                pkcs8_err, e
+            ))
+        })?;
     Ok(P256SigningKey::from(secret))
 }
 
-fn parse_p384_signing_key(pem: &str) -> Result<P384SigningKey, String> {
+fn parse_p384_signing_key(pem: &str) -> VerificationResult<P384SigningKey> {
     let pkcs8 = P384SigningKey::from_pkcs8_pem(pem).map_err(|e| e.to_string());
     if let Ok(key) = pkcs8 {
         return Ok(key);
     }
     let pkcs8_err = pkcs8.err().unwrap_or_else(|| "unknown PKCS#8 error".to_string());
     let der = decode_pem_body(pem)
-        .map_err(|e| format!("PKCS#8 parse failed: {}; SEC1 decode failed: {}", pkcs8_err, e))?;
+        .map_err(|e| {
+            VerificationError::dtc_invalid(format!(
+                "PKCS#8 parse failed: {}; SEC1 decode failed: {}",
+                pkcs8_err, e
+            ))
+        })?;
     let secret = P384SecretKey::from_sec1_der(&der)
-        .map_err(|e| format!("PKCS#8 parse failed: {}; SEC1 parse failed: {}", pkcs8_err, e))?;
+        .map_err(|e| {
+            VerificationError::dtc_invalid(format!(
+                "PKCS#8 parse failed: {}; SEC1 parse failed: {}",
+                pkcs8_err, e
+            ))
+        })?;
     Ok(P384SigningKey::from(secret))
 }
 
-fn sign_ecdsa(payload: &[u8], signing_key_pem: &str) -> Result<String, String> {
+fn sign_ecdsa(payload: &[u8], signing_key_pem: &str) -> VerificationResult<String> {
     match detect_curve_from_private_key_pem(signing_key_pem)? {
         EcCurve::P256 => {
             let sk = parse_p256_signing_key(signing_key_pem)?;
@@ -334,42 +367,60 @@ fn sign_ecdsa(payload: &[u8], signing_key_pem: &str) -> Result<String, String> {
     }
 }
 
-fn parse_p256_verifying_key(pem: &str) -> Result<P256VerifyingKey, String> {
+fn parse_p256_verifying_key(pem: &str) -> VerificationResult<P256VerifyingKey> {
     if let Ok(key) = P256VerifyingKey::from_public_key_pem(pem) {
         return Ok(key);
     }
     let der = decode_pem_body(pem)?;
-    let public_key = P256PublicKey::from_sec1_bytes(&der).map_err(|e| e.to_string())?;
+    let public_key = P256PublicKey::from_sec1_bytes(&der)
+        .map_err(|e| VerificationError::dtc_invalid(e.to_string()))?;
     Ok(P256VerifyingKey::from(public_key))
 }
 
-fn parse_p384_verifying_key(pem: &str) -> Result<P384VerifyingKey, String> {
+fn parse_p384_verifying_key(pem: &str) -> VerificationResult<P384VerifyingKey> {
     if let Ok(key) = P384VerifyingKey::from_public_key_pem(pem) {
         return Ok(key);
     }
     let der = decode_pem_body(pem)?;
-    let public_key = P384PublicKey::from_sec1_bytes(&der).map_err(|e| e.to_string())?;
+    let public_key = P384PublicKey::from_sec1_bytes(&der)
+        .map_err(|e| VerificationError::dtc_invalid(e.to_string()))?;
     Ok(P384VerifyingKey::from(public_key))
 }
 
-fn verify_ecdsa(payload: &[u8], sig_b64: &str, public_key_pem: &str) -> Result<bool, String> {
-    let sig_bytes = b64_decode(sig_b64).ok_or_else(|| "invalid signature b64".to_string())?;
+fn verify_ecdsa(
+    payload: &[u8],
+    sig_b64: &str,
+    public_key_pem: &str,
+) -> VerificationResult<bool> {
+    let sig_bytes = b64_decode(sig_b64).ok_or_else(|| {
+        VerificationError::dtc_invalid("Invalid signature base64".to_string())
+    })?;
 
     match detect_curve_from_public_key_pem(public_key_pem)? {
         EcCurve::P256 => {
             let vk = parse_p256_verifying_key(public_key_pem)?;
-            let sig = P256Signature::from_der(&sig_bytes).map_err(|e| e.to_string())?;
+            let sig = P256Signature::from_der(&sig_bytes).map_err(|e| {
+                VerificationError::dtc_signature_invalid(format!(
+                    "Invalid P-256 signature: {}",
+                    e
+                ))
+            })?;
             Ok(vk.verify(payload, &sig).is_ok())
         }
         EcCurve::P384 => {
             let vk = parse_p384_verifying_key(public_key_pem)?;
-            let sig = P384Signature::from_der(&sig_bytes).map_err(|e| e.to_string())?;
+            let sig = P384Signature::from_der(&sig_bytes).map_err(|e| {
+                VerificationError::dtc_signature_invalid(format!(
+                    "Invalid P-384 signature: {}",
+                    e
+                ))
+            })?;
             Ok(vk.verify(payload, &sig).is_ok())
         }
     }
 }
 
-fn public_key_bytes_from_pem(pem: &str) -> Result<Vec<u8>, String> {
+fn public_key_bytes_from_pem(pem: &str) -> VerificationResult<Vec<u8>> {
     let der = decode_pem_body(pem)?;
     if let Ok(spki) = SubjectPublicKeyInfoRef::try_from(der.as_slice()) {
         return Ok(spki.subject_public_key.raw_bytes().to_vec());
@@ -377,9 +428,10 @@ fn public_key_bytes_from_pem(pem: &str) -> Result<Vec<u8>, String> {
     Ok(der)
 }
 
-fn public_key_bytes_from_cert_pem(pem: &str) -> Result<Vec<u8>, String> {
+fn public_key_bytes_from_cert_pem(pem: &str) -> VerificationResult<Vec<u8>> {
     let der = decode_pem_body(pem)?;
-    let cert = Certificate::from_der(&der).map_err(|e| e.to_string())?;
+    let cert = Certificate::from_der(&der)
+        .map_err(|e| VerificationError::dtc_invalid(e.to_string()))?;
     Ok(cert
         .tbs_certificate
         .subject_public_key_info
@@ -388,7 +440,7 @@ fn public_key_bytes_from_cert_pem(pem: &str) -> Result<Vec<u8>, String> {
         .to_vec())
 }
 
-fn validate_chain(trust_anchors: &[String], chain: &[String]) -> Result<bool, String> {
+fn validate_chain(trust_anchors: &[String], chain: &[String]) -> VerificationResult<bool> {
     if trust_anchors.is_empty() || chain.is_empty() {
         return Ok(true); // nothing to validate
     }
@@ -396,7 +448,7 @@ fn validate_chain(trust_anchors: &[String], chain: &[String]) -> Result<bool, St
     for ta in trust_anchors {
         validator
             .add_trust_anchor_pem(ta)
-            .map_err(|e| e.to_string())?;
+            .map_err(|e| VerificationError::dtc_trust_chain_invalid(e.to_string()))?;
     }
     for (idx, cert) in chain.iter().enumerate() {
         if idx == chain.len() - 1 {
@@ -405,32 +457,76 @@ fn validate_chain(trust_anchors: &[String], chain: &[String]) -> Result<bool, St
         }
         validator
             .add_intermediate_pem(cert)
-            .map_err(|e| e.to_string())?;
+            .map_err(|e| VerificationError::dtc_trust_chain_invalid(e.to_string()))?;
     }
-    let result = validator.validate_chain(chain).map_err(|e| e.to_string())?;
+    let result = validator
+        .validate_chain(chain)
+        .map_err(|e| VerificationError::dtc_trust_chain_invalid(e.to_string()))?;
     Ok(result.valid)
 }
 
-pub fn create_dtc_json(input: &str) -> Result<String, String> {
-    let record: DtcRecord = serde_json::from_str(input).map_err(|e| e.to_string())?;
-    let norm = normalize_record(record);
-    serde_json::to_string(&norm).map_err(|e| e.to_string())
+fn record_check(
+    checks: &mut Vec<Value>,
+    errors: &mut Vec<String>,
+    error_codes: &mut Vec<String>,
+    name: &str,
+    passed: bool,
+    details: Option<String>,
+    error_code: Option<&'static str>,
+) {
+    let mut check = serde_json::Map::new();
+    check.insert("check_name".to_string(), Value::String(name.to_string()));
+    check.insert("passed".to_string(), Value::Bool(passed));
+
+    if let Some(ref details) = details {
+        check.insert("details".to_string(), Value::String(details.clone()));
+    }
+    if let Some(code) = error_code {
+        check.insert("error_code".to_string(), Value::String(code.to_string()));
+    }
+
+    checks.push(Value::Object(check));
+
+    if !passed {
+        if let Some(details) = details {
+            errors.push(details);
+        } else {
+            errors.push(format!("{} failed", name));
+        }
+        if let Some(code) = error_code {
+            error_codes.push(code.to_string());
+        }
+    }
 }
 
-pub fn sign_dtc_json(input: &str) -> Result<String, String> {
+pub fn create_dtc_json(input: &str) -> VerificationResult<String> {
+    let record: DtcRecord = serde_json::from_str(input).map_err(|e| {
+        VerificationError::dtc_invalid(format!("Invalid DTC payload: {}", e))
+    })?;
+    let norm = normalize_record(record);
+    serde_json::to_string(&norm).map_err(|e| {
+        VerificationError::dtc_invalid(format!("Failed to serialize DTC payload: {}", e))
+    })
+}
+
+pub fn sign_dtc_json(input: &str) -> VerificationResult<String> {
     // Accept optional signing_key_pem and signer_public_key_pem in the JSON envelope
-    let value: Value = serde_json::from_str(input).map_err(|e| e.to_string())?;
+    let value: Value = serde_json::from_str(input).map_err(|e| {
+        VerificationError::dtc_invalid(format!("Invalid DTC payload: {}", e))
+    })?;
     let signing_key = value
         .get("signing_key_pem")
         .and_then(|v| v.as_str())
         .map(|s| s.to_string())
-        .ok_or_else(|| "signing_key_pem is required".to_string())?;
+        .ok_or_else(|| VerificationError::dtc_missing_field("signing_key_pem"))?;
     let signer_id = value
         .get("signer_id")
         .and_then(|v| v.as_str())
         .unwrap_or("rust-dtc");
 
-    let mut record: DtcRecord = serde_json::from_value(value.clone()).map_err(|e| e.to_string())?;
+    let mut record: DtcRecord = serde_json::from_value(value.clone()).map_err(|e| {
+        VerificationError::dtc_invalid(format!("Invalid DTC payload: {}", e))
+    })?;
     let norm = normalize_record(record.clone());
     let payload = canonical_payload(&norm)?;
     let sig_b64 = sign_ecdsa(&payload, &signing_key)?;
@@ -443,15 +539,23 @@ pub fn sign_dtc_json(input: &str) -> Result<String, String> {
         is_valid: true,
     });
 
-    serde_json::to_string(&record).map_err(|e| e.to_string())
+    serde_json::to_string(&record).map_err(|e| {
+        VerificationError::dtc_invalid(format!("Failed to serialize DTC payload: {}", e))
+    })
 }
 
-pub fn verify_dtc_json(input: &str) -> Result<String, String> {
-    let value: Value = serde_json::from_str(input).map_err(|e| e.to_string())?;
-    let record: DtcRecord = serde_json::from_value(value.clone()).map_err(|e| e.to_string())?;
+pub fn verify_dtc_json(input: &str) -> VerificationResult<String> {
+    let value: Value = serde_json::from_str(input).map_err(|e| {
+        VerificationError::dtc_invalid(format!("Invalid DTC payload: {}", e))
+    })?;
+    let record: DtcRecord = serde_json::from_value(value.clone()).map_err(|e| {
+        VerificationError::dtc_invalid(format!("Invalid DTC payload: {}", e))
+    })?;
     let norm = normalize_record(record.clone());
 
     let mut checks: Vec<Value> = Vec::new();
+    let mut errors: Vec<String> = Vec::new();
+    let mut error_codes_out: Vec<String> = Vec::new();
     let mut is_valid = true;
     let signer_public_key_pem = value
         .get("signer_public_key_pem")
@@ -461,18 +565,84 @@ pub fn verify_dtc_json(input: &str) -> Result<String, String> {
 
     // Signature check
     if let Some(sig_info) = &record.signature_info {
-        let payload = canonical_payload(&norm)?;
-        if let Some(pub_pem) = signer_public_key_pem.as_deref() {
-            let ok = verify_ecdsa(&payload, &sig_info.signature, pub_pem)?;
-            is_valid &= ok;
-            checks.push(json!({"check_name": "Signature", "passed": ok}));
-        } else {
-            is_valid = false;
-            checks.push(json!({"check_name": "Signature", "passed": false, "details": "missing public key"}));
+        match canonical_payload(&norm) {
+            Ok(payload) => {
+                if let Some(pub_pem) = signer_public_key_pem.as_deref() {
+                    match verify_ecdsa(&payload, &sig_info.signature, pub_pem) {
+                        Ok(ok) => {
+                            is_valid &= ok;
+                            if ok {
+                                record_check(
+                                    &mut checks,
+                                    &mut errors,
+                                    &mut error_codes_out,
+                                    "Signature",
+                                    true,
+                                    None,
+                                    None,
+                                );
+                            } else {
+                                record_check(
+                                    &mut checks,
+                                    &mut errors,
+                                    &mut error_codes_out,
+                                    "Signature",
+                                    false,
+                                    Some("signature invalid".to_string()),
+                                    Some(error_codes::DTC_SIGNATURE_INVALID),
+                                );
+                            }
+                        }
+                        Err(err) => {
+                            is_valid = false;
+                            record_check(
+                                &mut checks,
+                                &mut errors,
+                                &mut error_codes_out,
+                                "Signature",
+                                false,
+                                Some(err.to_string()),
+                                Some(err.code()),
+                            );
+                        }
+                    }
+                } else {
+                    is_valid = false;
+                    record_check(
+                        &mut checks,
+                        &mut errors,
+                        &mut error_codes_out,
+                        "Signature",
+                        false,
+                        Some("missing public key".to_string()),
+                        Some(error_codes::DTC_MISSING_FIELD),
+                    );
+                }
+            }
+            Err(err) => {
+                is_valid = false;
+                record_check(
+                    &mut checks,
+                    &mut errors,
+                    &mut error_codes_out,
+                    "Signature",
+                    false,
+                    Some(err.to_string()),
+                    Some(err.code()),
+                );
+            }
         }
     } else {
         is_valid = false;
-        checks.push(json!({"check_name": "Signature", "passed": false, "details": "missing"}));
+        record_check(
+            &mut checks,
+            &mut errors,
+            &mut error_codes_out,
+            "Signature",
+            false,
+            Some("missing signature".to_string()),
+            Some(error_codes::DTC_MISSING_FIELD),
+        );
     }
 
     // Type-specific checks
@@ -496,32 +666,123 @@ pub fn verify_dtc_json(input: &str) -> Result<String, String> {
                 };
                 let ok = has_lines && hash_ok;
                 is_valid &= ok;
-                checks.push(json!({"check_name": "Type1Profile", "passed": ok}));
+                let details = if ok {
+                    None
+                } else {
+                    let mut failures = Vec::new();
+                    if !has_lines {
+                        failures.push("missing MRZ lines");
+                    }
+                    if !hash_ok {
+                        failures.push("SOD hash mismatch");
+                    }
+                    Some(failures.join("; "))
+                };
+                let error_code = if ok {
+                    None
+                } else if !hash_ok {
+                    Some(error_codes::DTC_INVALID)
+                } else {
+                    Some(error_codes::DTC_MISSING_FIELD)
+                };
+                record_check(
+                    &mut checks,
+                    &mut errors,
+                    &mut error_codes_out,
+                    "Type1Profile",
+                    ok,
+                    details,
+                    error_code,
+                );
             } else {
                 is_valid = false;
-                checks.push(json!({"check_name": "Type1Profile", "passed": false, "details": "missing profile"}));
+                record_check(
+                    &mut checks,
+                    &mut errors,
+                    &mut error_codes_out,
+                    "Type1Profile",
+                    false,
+                    Some("missing profile".to_string()),
+                    Some(error_codes::DTC_MISSING_FIELD),
+                );
             }
         }
         5 => {
             // Type2
             if let Some(t2) = &norm.type2_profile {
-                let ok = !t2.chip_auth_public_key.is_empty() && !t2.device_public_key.is_empty();
+                let mut missing = Vec::new();
+                if t2.chip_auth_public_key.is_empty() {
+                    missing.push("chip_auth_public_key");
+                }
+                if t2.device_public_key.is_empty() {
+                    missing.push("device_public_key");
+                }
+                let ok = missing.is_empty();
                 is_valid &= ok;
-                checks.push(json!({"check_name": "Type2Profile", "passed": ok}));
+                let details = if ok {
+                    None
+                } else {
+                    Some(format!("missing fields: {}", missing.join(", ")))
+                };
+                record_check(
+                    &mut checks,
+                    &mut errors,
+                    &mut error_codes_out,
+                    "Type2Profile",
+                    ok,
+                    details,
+                    if ok { None } else { Some(error_codes::DTC_MISSING_FIELD) },
+                );
             } else {
                 is_valid = false;
-                checks.push(json!({"check_name": "Type2Profile", "passed": false, "details": "missing profile"}));
+                record_check(
+                    &mut checks,
+                    &mut errors,
+                    &mut error_codes_out,
+                    "Type2Profile",
+                    false,
+                    Some("missing profile".to_string()),
+                    Some(error_codes::DTC_MISSING_FIELD),
+                );
             }
         }
         6 => {
             // Type3
             if let Some(t3) = &norm.type3_profile {
-                let ok = !t3.remote_attestation_report.is_empty() && !t3.device_binding_id.is_empty();
+                let mut missing = Vec::new();
+                if t3.remote_attestation_report.is_empty() {
+                    missing.push("remote_attestation_report");
+                }
+                if t3.device_binding_id.is_empty() {
+                    missing.push("device_binding_id");
+                }
+                let ok = missing.is_empty();
                 is_valid &= ok;
-                checks.push(json!({"check_name": "Type3Profile", "passed": ok}));
+                let details = if ok {
+                    None
+                } else {
+                    Some(format!("missing fields: {}", missing.join(", ")))
+                };
+                record_check(
+                    &mut checks,
+                    &mut errors,
+                    &mut error_codes_out,
+                    "Type3Profile",
+                    ok,
+                    details,
+                    if ok { None } else { Some(error_codes::DTC_MISSING_FIELD) },
+                );
             } else {
                 is_valid = false;
-                checks.push(json!({"check_name": "Type3Profile", "passed": false, "details": "missing profile"}));
+                record_check(
+                    &mut checks,
+                    &mut errors,
+                    &mut error_codes_out,
+                    "Type3Profile",
+                    false,
+                    Some("missing profile".to_string()),
+                    Some(error_codes::DTC_MISSING_FIELD),
+                );
             }
         }
         _ => {}
@@ -539,24 +800,101 @@ pub fn verify_dtc_json(input: &str) -> Result<String, String> {
         .map(|arr| arr.iter().filter_map(|s| s.as_str().map(|x| x.to_string())).collect())
         .unwrap_or_default();
     if let (Some(pub_pem), Some(leaf_pem)) = (signer_public_key_pem.as_deref(), cert_chain.first()) {
-        let signer_bytes = public_key_bytes_from_pem(pub_pem)?;
-        let leaf_bytes = public_key_bytes_from_cert_pem(leaf_pem)?;
-        let ok = signer_bytes == leaf_bytes;
-        is_valid &= ok;
-        checks.push(json!({"check_name": "SignerKeyMatchesCertificate", "passed": ok}));
+        match (
+            public_key_bytes_from_pem(pub_pem),
+            public_key_bytes_from_cert_pem(leaf_pem),
+        ) {
+            (Ok(signer_bytes), Ok(leaf_bytes)) => {
+                let ok = signer_bytes == leaf_bytes;
+                is_valid &= ok;
+                record_check(
+                    &mut checks,
+                    &mut errors,
+                    &mut error_codes_out,
+                    "SignerKeyMatchesCertificate",
+                    ok,
+                    if ok {
+                        None
+                    } else {
+                        Some("signer key does not match certificate".to_string())
+                    },
+                    if ok {
+                        None
+                    } else {
+                        Some(error_codes::DTC_TRUST_CHAIN_INVALID)
+                    },
+                );
+            }
+            (Err(err), _) | (_, Err(err)) => {
+                is_valid = false;
+                record_check(
+                    &mut checks,
+                    &mut errors,
+                    &mut error_codes_out,
+                    "SignerKeyMatchesCertificate",
+                    false,
+                    Some(err.to_string()),
+                    Some(err.code()),
+                );
+            }
+        }
     }
     if !trust_anchors.is_empty() && !cert_chain.is_empty() {
-        let chain_ok = validate_chain(&trust_anchors, &cert_chain)?;
-        is_valid &= chain_ok;
-        checks.push(json!({"check_name": "TrustChain", "passed": chain_ok}));
+        match validate_chain(&trust_anchors, &cert_chain) {
+            Ok(chain_ok) => {
+                is_valid &= chain_ok;
+                record_check(
+                    &mut checks,
+                    &mut errors,
+                    &mut error_codes_out,
+                    "TrustChain",
+                    chain_ok,
+                    if chain_ok {
+                        None
+                    } else {
+                        Some("trust chain validation failed".to_string())
+                    },
+                    if chain_ok {
+                        None
+                    } else {
+                        Some(error_codes::DTC_TRUST_CHAIN_INVALID)
+                    },
+                );
+            }
+            Err(err) => {
+                is_valid = false;
+                record_check(
+                    &mut checks,
+                    &mut errors,
+                    &mut error_codes_out,
+                    "TrustChain",
+                    false,
+                    Some(err.to_string()),
+                    Some(err.code()),
+                );
+            }
+        }
     }
+
+    let error_message = if is_valid {
+        String::new()
+    } else {
+        errors
+            .first()
+            .cloned()
+            .unwrap_or_else(|| "Verification failed".to_string())
+    };
 
     let resp = json!({
         "is_valid": is_valid,
         "verification_results": checks,
+        "errors": errors,
+        "error_codes": error_codes_out,
         "dtc_data": record,
-        "error_message": if is_valid { "" } else { "Verification failed" },
+        "error_message": error_message,
     });
 
-    serde_json::to_string(&resp).map_err(|e| e.to_string())
+    serde_json::to_string(&resp).map_err(|e| {
+        VerificationError::dtc_invalid(format!("Failed to serialize DTC verification result: {}", e))
+    })
 }

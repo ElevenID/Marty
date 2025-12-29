@@ -120,6 +120,7 @@ impl From<VerificationError> for pyo3::PyErr {
             ErrorCategory::ExternalService => PyConnectionError::new_err(message),
             ErrorCategory::Encoding => PyValueError::new_err(message),
             ErrorCategory::OpenBadges => PyValueError::new_err(message),
+            ErrorCategory::Dtc => PyValueError::new_err(message),
             ErrorCategory::Io => PyIOError::new_err(message),
             ErrorCategory::Internal => PyRuntimeError::new_err(message),
         }

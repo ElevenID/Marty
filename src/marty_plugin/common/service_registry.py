@@ -129,6 +129,12 @@ class ServiceRegistry:
             base_port=8088,
             description="Public key directory service",
         ),
+        "open-badges": ServiceDefinition(
+            name="open-badges",
+            service_type=ServiceType.GRPC,
+            base_port=8091,
+            description="Open Badges issuance and verification service",
+        ),
         "credential-ledger": ServiceDefinition(
             name="credential-ledger",
             service_type=ServiceType.GRPC,

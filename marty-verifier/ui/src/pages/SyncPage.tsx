@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   Box,
   Container,
@@ -20,7 +20,13 @@ import {
   Usb as UsbIcon,
   Security as CertIcon,
 } from '@mui/icons-material';
-import { syncTrustAnchors, importTrustAnchorsUsb, SyncResult, UsbImportResult } from '@/services/tauri-api';
+import {
+  syncTrustAnchors,
+  importTrustAnchorsUsb,
+  getConfig,
+  SyncResult,
+  UsbImportResult,
+} from '@/services/tauri-api';
 import { useAppStore } from '@/store';
 
 export default function SyncPage() {
@@ -28,7 +34,14 @@ export default function SyncPage() {
   const [importing, setImporting] = useState(false);
   const [result, setResult] = useState<SyncResult | UsbImportResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [openBadgePolicy, setOpenBadgePolicy] = useState<string | null>(null);
   const { sync, loadSyncStatus, isOnline } = useAppStore();
+
+  useEffect(() => {
+    getConfig()
+      .then((config) => setOpenBadgePolicy(config.open_badge_trust.policy))
+      .catch(() => setOpenBadgePolicy(null));
+  }, []);
 
   const handleSync = async () => {
     setSyncing(true);
@@ -76,10 +89,10 @@ export default function SyncPage() {
     <Container maxWidth="md">
       <Box sx={{ mb: 4 }}>
         <Typography variant="h4" gutterBottom>
-          Trust Anchor Sync
+          Trust Store Sync
         </Typography>
         <Typography variant="body1" color="text.secondary">
-          Manage IACA and CSCA certificates for credential verification.
+          Manage trust anchors and Open Badge verification keys for credential verification.
         </Typography>
       </Box>
 
@@ -98,11 +111,14 @@ export default function SyncPage() {
             {sync?.sync_overdue && (
               <Chip label="Sync Overdue" color="warning" size="small" />
             )}
+            {sync?.open_badge_sync_overdue && (
+              <Chip label="Open Badge Trust Overdue" color="warning" size="small" />
+            )}
           </Box>
 
           {sync && (
             <Grid container spacing={2}>
-              <Grid item xs={12} sm={4}>
+              <Grid item xs={12} sm={3}>
                 <Box sx={{ textAlign: 'center' }}>
                   <CertIcon color="primary" sx={{ fontSize: 40 }} />
                   <Typography variant="h4">{sync.iaca_certificates}</Typography>
@@ -111,7 +127,7 @@ export default function SyncPage() {
                   </Typography>
                 </Box>
               </Grid>
-              <Grid item xs={12} sm={4}>
+              <Grid item xs={12} sm={3}>
                 <Box sx={{ textAlign: 'center' }}>
                   <CertIcon color="secondary" sx={{ fontSize: 40 }} />
                   <Typography variant="h4">{sync.csca_certificates}</Typography>
@@ -120,12 +136,21 @@ export default function SyncPage() {
                   </Typography>
                 </Box>
               </Grid>
-              <Grid item xs={12} sm={4}>
+              <Grid item xs={12} sm={3}>
                 <Box sx={{ textAlign: 'center' }}>
                   <CertIcon color="action" sx={{ fontSize: 40 }} />
                   <Typography variant="h4">{sync.dsc_certificates}</Typography>
                   <Typography variant="body2" color="text.secondary">
                     DSC Certificates
+                  </Typography>
+                </Box>
+              </Grid>
+              <Grid item xs={12} sm={3}>
+                <Box sx={{ textAlign: 'center' }}>
+                  <CertIcon color="info" sx={{ fontSize: 40 }} />
+                  <Typography variant="h4">{sync.open_badge_keys}</Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    Open Badge Keys
                   </Typography>
                 </Box>
               </Grid>
@@ -144,6 +169,22 @@ export default function SyncPage() {
             {sync?.hours_since_sync !== null && (
               <Typography variant="body2">
                 <strong>Time Since Sync:</strong> {sync?.hours_since_sync?.toFixed(1)} hours
+              </Typography>
+            )}
+            <Typography variant="body2">
+              <strong>Open Badge Policy:</strong>{' '}
+              {openBadgePolicy ? openBadgePolicy.replace('_', ' ') : 'unknown'}
+            </Typography>
+            <Typography variant="body2">
+              <strong>Open Badge Trust Last Sync:</strong>{' '}
+              {sync?.open_badge_last_sync
+                ? new Date(sync.open_badge_last_sync).toLocaleString()
+                : 'Never'}
+            </Typography>
+            {sync?.open_badge_hours_since_sync !== null && (
+              <Typography variant="body2">
+                <strong>Open Badge Trust Age:</strong>{' '}
+                {sync?.open_badge_hours_since_sync?.toFixed(1)} hours
               </Typography>
             )}
             {sync?.last_error && (
@@ -171,13 +212,15 @@ export default function SyncPage() {
           {result && 'iaca_updated' in result && (
             <Alert severity={result.success ? 'success' : 'warning'} sx={{ mb: 2 }}>
               Sync completed: {result.iaca_updated} IACA, {result.csca_updated} CSCA,{' '}
-              {result.dsc_updated} DSC updated in {result.duration_seconds.toFixed(1)}s
+              {result.dsc_updated} DSC, {result.open_badge_keys_updated} Open Badge keys updated in{' '}
+              {result.duration_seconds.toFixed(1)}s
             </Alert>
           )}
 
           {result && 'certificates_imported' in result && (
             <Alert severity={result.success ? 'success' : 'warning'} sx={{ mb: 2 }}>
-              USB Import: {result.certificates_imported} certificates imported
+              USB Import: {result.certificates_imported} certificates,{' '}
+              {result.open_badge_keys_imported} Open Badge keys imported
               {result.package_version && ` (version ${result.package_version})`}
             </Alert>
           )}

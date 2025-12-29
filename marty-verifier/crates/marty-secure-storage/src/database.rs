@@ -6,6 +6,7 @@ use std::sync::Arc;
 use chrono::Utc;
 use rusqlite::Connection;
 use serde::Serialize;
+use serde_json::Value;
 use tokio::sync::Mutex;
 
 use crate::encryption::PiiEncryptor;
@@ -38,6 +39,7 @@ pub struct VerificationHistoryEntry {
 /// Secure storage manager
 pub struct SecureStorage {
     conn: Arc<Mutex<Connection>>,
+    #[allow(dead_code)]
     pii_encryptor: Option<PiiEncryptor>,
 }
 
@@ -236,6 +238,37 @@ impl SecureStorage {
         Ok(())
     }
 
+    /// Store a trusted Open Badge verification method
+    pub async fn store_open_badge_key(
+        &self,
+        method: &OpenBadgeVerificationMethod,
+    ) -> Result<(), StorageError> {
+        let conn = self.conn.lock().await;
+        let document_json = serde_json::to_string(&method.document)?;
+
+        conn.execute(
+            r#"
+            INSERT OR REPLACE INTO open_badge_keys
+                (id, document_json, controller, issuer, kid, not_before, not_after, status, source, synced_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            "#,
+            rusqlite::params![
+                method.id,
+                document_json,
+                method.controller,
+                method.issuer,
+                method.kid,
+                method.not_before.map(|dt| dt.to_rfc3339()),
+                method.not_after.map(|dt| dt.to_rfc3339()),
+                method.status,
+                method.source.to_string(),
+                method.synced_at.to_rfc3339(),
+            ],
+        )?;
+
+        Ok(())
+    }
+
     /// Get trust anchors by type and jurisdiction
     pub async fn get_trust_anchors(
         &self,
@@ -315,6 +348,96 @@ impl SecureStorage {
             },
             synced_at: row
                 .get::<_, String>(11)
+                .ok()
+                .and_then(|s| {
+                    chrono::DateTime::parse_from_rfc3339(&s)
+                        .ok()
+                        .map(|dt| dt.with_timezone(&Utc))
+                })
+                .unwrap_or_else(Utc::now),
+        })
+    }
+
+    /// Get all trusted Open Badge verification methods
+    pub async fn get_open_badge_keys(
+        &self,
+    ) -> Result<Vec<OpenBadgeVerificationMethod>, StorageError> {
+        let conn = self.conn.lock().await;
+        let mut stmt = conn.prepare(
+            r#"
+            SELECT id, document_json, controller, issuer, kid, not_before, not_after, status, source, synced_at
+            FROM open_badge_keys
+            "#,
+        )?;
+
+        let rows = stmt.query_map([], Self::map_open_badge_key)?;
+        let mut methods = Vec::new();
+        for row in rows {
+            methods.push(row?);
+        }
+
+        Ok(methods)
+    }
+
+    /// Count trusted Open Badge verification methods
+    pub async fn count_open_badge_keys(&self) -> Result<usize, StorageError> {
+        let conn = self.conn.lock().await;
+        let count: usize =
+            conn.query_row("SELECT COUNT(*) FROM open_badge_keys", [], |row| row.get(0))?;
+        Ok(count)
+    }
+
+    /// Get latest Open Badge trust list sync timestamp
+    pub async fn get_latest_open_badge_sync(
+        &self,
+    ) -> Result<Option<chrono::DateTime<chrono::Utc>>, StorageError> {
+        let conn = self.conn.lock().await;
+        let synced_at: Option<String> = conn
+            .query_row("SELECT MAX(synced_at) FROM open_badge_keys", [], |row| {
+                row.get(0)
+            })
+            .ok()
+            .flatten();
+
+        Ok(synced_at.and_then(|s| {
+            chrono::DateTime::parse_from_rfc3339(&s)
+                .ok()
+                .map(|dt| dt.with_timezone(&Utc))
+        }))
+    }
+
+    fn map_open_badge_key(
+        row: &rusqlite::Row<'_>,
+    ) -> rusqlite::Result<OpenBadgeVerificationMethod> {
+        let source_str: String = row.get(8)?;
+        let document_json: String = row.get(1)?;
+        let document: Value =
+            serde_json::from_str(&document_json).unwrap_or(serde_json::Value::Null);
+
+        Ok(OpenBadgeVerificationMethod {
+            id: row.get(0)?,
+            document,
+            controller: row.get(2)?,
+            issuer: row.get(3)?,
+            kid: row.get(4)?,
+            not_before: row.get::<_, Option<String>>(5)?.and_then(|s| {
+                chrono::DateTime::parse_from_rfc3339(&s)
+                    .ok()
+                    .map(|dt| dt.with_timezone(&Utc))
+            }),
+            not_after: row.get::<_, Option<String>>(6)?.and_then(|s| {
+                chrono::DateTime::parse_from_rfc3339(&s)
+                    .ok()
+                    .map(|dt| dt.with_timezone(&Utc))
+            }),
+            status: row.get(7)?,
+            source: match source_str.as_str() {
+                "sync" => OpenBadgeKeySource::Sync,
+                "usb_import" => OpenBadgeKeySource::UsbImport,
+                _ => OpenBadgeKeySource::Manual,
+            },
+            synced_at: row
+                .get::<_, String>(9)
                 .ok()
                 .and_then(|s| {
                     chrono::DateTime::parse_from_rfc3339(&s)

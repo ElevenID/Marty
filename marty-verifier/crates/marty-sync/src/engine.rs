@@ -20,6 +20,8 @@ pub struct SyncConfig {
     pub aamva_dts_url: Option<String>,
     /// ICAO PKD endpoint
     pub icao_pkd_url: Option<String>,
+    /// Open Badge trust store endpoint
+    pub open_badge_keys_url: Option<String>,
     /// Sync interval in hours
     pub sync_interval_hours: u32,
     /// Enable USB import
@@ -33,6 +35,7 @@ impl Default for SyncConfig {
         Self {
             aamva_dts_url: None,
             icao_pkd_url: None,
+            open_badge_keys_url: None,
             sync_interval_hours: 24,
             enable_usb_import: true,
             max_offline_hours: 72,
@@ -48,6 +51,10 @@ pub struct SyncStatus {
     pub iaca_certificates: usize,
     pub csca_certificates: usize,
     pub dsc_certificates: usize,
+    pub open_badge_keys: usize,
+    pub open_badge_last_sync: Option<String>,
+    pub open_badge_hours_since_sync: Option<f64>,
+    pub open_badge_sync_overdue: bool,
     pub crl_cache_age_hours: Option<f64>,
     pub sync_overdue: bool,
     pub sync_in_progress: bool,
@@ -61,6 +68,7 @@ pub struct SyncResult {
     pub iaca_updated: usize,
     pub csca_updated: usize,
     pub dsc_updated: usize,
+    pub open_badge_keys_updated: usize,
     pub crl_updated: bool,
     pub duration_seconds: f64,
     pub error: Option<String>,
@@ -101,6 +109,8 @@ impl SyncEngine {
             .storage
             .count_trust_anchors(TrustAnchorType::Dsc)
             .await?;
+        let open_badge_count = self.storage.count_open_badge_keys().await?;
+        let open_badge_last_sync = self.storage.get_latest_open_badge_sync().await?;
 
         // Calculate hours since last sync
         let (last_sync, hours_since_sync) = if let Some(ref state) = state {
@@ -116,12 +126,30 @@ impl SyncEngine {
             .map(|h| h > self.config.max_offline_hours as f64)
             .unwrap_or(true);
 
+        let (open_badge_last_sync_str, open_badge_hours_since_sync) =
+            if let Some(last) = open_badge_last_sync {
+                (
+                    Some(last.to_rfc3339()),
+                    Some((Utc::now() - last).num_minutes() as f64 / 60.0),
+                )
+            } else {
+                (None, None)
+            };
+
+        let open_badge_sync_overdue = open_badge_hours_since_sync
+            .map(|h| h > self.config.max_offline_hours as f64)
+            .unwrap_or(true);
+
         Ok(SyncStatus {
             last_sync,
             hours_since_sync,
             iaca_certificates: iaca_count,
             csca_certificates: csca_count,
             dsc_certificates: dsc_count,
+            open_badge_keys: open_badge_count,
+            open_badge_last_sync: open_badge_last_sync_str,
+            open_badge_hours_since_sync,
+            open_badge_sync_overdue,
             crl_cache_age_hours: state.as_ref().and_then(|s| {
                 s.last_crl_sync
                     .map(|dt| (Utc::now() - dt).num_minutes() as f64 / 60.0)
@@ -149,6 +177,7 @@ impl SyncEngine {
             iaca_updated: 0,
             csca_updated: 0,
             dsc_updated: 0,
+            open_badge_keys_updated: 0,
             crl_updated: false,
             duration_seconds: 0.0,
             error: None,
@@ -195,6 +224,7 @@ impl SyncEngine {
             iaca = result.iaca_updated,
             csca = result.csca_updated,
             dsc = result.dsc_updated,
+            open_badge_keys = result.open_badge_keys_updated,
             duration_secs = result.duration_seconds,
             "Sync completed"
         );
@@ -202,7 +232,7 @@ impl SyncEngine {
         Ok(result)
     }
 
-    async fn do_sync(&self, result: &mut SyncResult) -> Result<(), SyncError> {
+    async fn do_sync(&self, _result: &mut SyncResult) -> Result<(), SyncError> {
         // Sync IACA from AAMVA DTS
         #[cfg(feature = "aamva")]
         if let Some(ref url) = self.config.aamva_dts_url {
@@ -218,8 +248,17 @@ impl SyncEngine {
             // TODO: Implement actual sync
         }
 
+        // Sync Open Badge verification methods
+        if let Some(ref url) = self.config.open_badge_keys_url {
+            tracing::info!(url, "Syncing Open Badge verification methods");
+            // TODO: Implement trust store sync from endpoint
+        }
+
         // If no sources configured, that's still a "success" (offline mode)
-        if self.config.aamva_dts_url.is_none() && self.config.icao_pkd_url.is_none() {
+        if self.config.aamva_dts_url.is_none()
+            && self.config.icao_pkd_url.is_none()
+            && self.config.open_badge_keys_url.is_none()
+        {
             tracing::warn!("No sync sources configured - operating in offline mode");
         }
 
@@ -233,11 +272,16 @@ impl SyncEngine {
         }
 
         let path = Path::new(path);
-        let (anchors, mut result) = import_from_usb(path).await?;
+        let (anchors, open_badge_keys, mut result) = import_from_usb(path).await?;
 
         // Store imported anchors
         for anchor in anchors {
             self.storage.store_trust_anchor(&anchor).await?;
+        }
+
+        // Store Open Badge verification methods
+        for method in open_badge_keys {
+            self.storage.store_open_badge_key(&method).await?;
         }
 
         // Update sync state
@@ -266,6 +310,7 @@ impl SyncEngine {
                 Some(path.to_string_lossy().as_ref()),
                 Some(&serde_json::json!({
                     "certificates_imported": result.certificates_imported,
+                    "open_badge_keys_imported": result.open_badge_keys_imported,
                     "package_version": result.package_version
                 })),
             )
@@ -286,6 +331,7 @@ mod tests {
 
         assert!(config.aamva_dts_url.is_none());
         assert!(config.icao_pkd_url.is_none());
+        assert!(config.open_badge_keys_url.is_none());
         assert_eq!(config.sync_interval_hours, 24);
         assert!(config.enable_usb_import);
         assert_eq!(config.max_offline_hours, 72);
@@ -296,6 +342,7 @@ mod tests {
         let config = SyncConfig {
             aamva_dts_url: Some("https://dts.aamva.org".to_string()),
             icao_pkd_url: Some("https://pkd.icao.int".to_string()),
+            open_badge_keys_url: Some("https://trust.example.org/open-badges".to_string()),
             sync_interval_hours: 12,
             enable_usb_import: false,
             max_offline_hours: 48,
@@ -304,6 +351,10 @@ mod tests {
         assert_eq!(config.aamva_dts_url.unwrap(), "https://dts.aamva.org");
         assert_eq!(config.sync_interval_hours, 12);
         assert!(!config.enable_usb_import);
+        assert_eq!(
+            config.open_badge_keys_url.unwrap(),
+            "https://trust.example.org/open-badges"
+        );
     }
 
     #[test]
@@ -314,6 +365,10 @@ mod tests {
             iaca_certificates: 50,
             csca_certificates: 100,
             dsc_certificates: 400,
+            open_badge_keys: 12,
+            open_badge_last_sync: Some("2025-01-01T01:00:00Z".to_string()),
+            open_badge_hours_since_sync: Some(4.5),
+            open_badge_sync_overdue: false,
             crl_cache_age_hours: Some(2.0),
             sync_overdue: false,
             sync_in_progress: false,
@@ -325,6 +380,7 @@ mod tests {
 
         assert_eq!(deserialized.iaca_certificates, 50);
         assert_eq!(deserialized.csca_certificates, 100);
+        assert_eq!(deserialized.open_badge_keys, 12);
         assert!(!deserialized.sync_overdue);
     }
 
@@ -335,6 +391,7 @@ mod tests {
             iaca_updated: 10,
             csca_updated: 20,
             dsc_updated: 50,
+            open_badge_keys_updated: 4,
             crl_updated: true,
             duration_seconds: 3.5,
             error: None,
@@ -352,6 +409,7 @@ mod tests {
             iaca_updated: 0,
             csca_updated: 0,
             dsc_updated: 0,
+            open_badge_keys_updated: 0,
             crl_updated: false,
             duration_seconds: 0.1,
             error: Some("Network timeout".to_string()),

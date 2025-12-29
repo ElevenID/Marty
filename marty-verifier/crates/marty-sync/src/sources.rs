@@ -1,5 +1,7 @@
 //! Sync sources (AAMVA DTS, ICAO PKD)
 
+#![allow(dead_code)]
+
 use crate::error::SyncError;
 use marty_secure_storage::TrustAnchor;
 
