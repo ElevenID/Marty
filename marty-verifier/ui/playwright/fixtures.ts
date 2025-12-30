@@ -95,17 +95,12 @@ export interface MockCommands {
   get_hardware_tier?: string;
   detect_hardware?: HardwareCapabilities;
   get_config?: object;
-  check_online?: boolean;
   [key: string]: unknown;
 }
 
 // Extended test fixture with Tauri mocking
 export interface TestFixtures {
   mockTauri: (commands?: MockCommands) => Promise<void>;
-  setLicenseStatus: (status: Partial<LicenseStatus>) => Promise<void>;
-  setSyncStatus: (status: Partial<SyncStatus>) => Promise<void>;
-  setOffline: () => Promise<void>;
-  setOnline: () => Promise<void>;
 }
 
 /**
@@ -117,7 +112,6 @@ async function injectTauriMock(page: Page, commands: MockCommands = {}) {
     get_sync_status: defaultSyncStatus,
     get_hardware_tier: 'simple',
     detect_hardware: defaultHardwareCapabilities,
-    check_online: true,
     get_config: {
       update_config: {
         enabled: false,
@@ -205,50 +199,6 @@ export const test = base.extend<TestFixtures>({
       await injectTauriMock(page, commands);
     };
     await use(mock);
-  },
-
-  setLicenseStatus: async ({ page }, use) => {
-    const setter = async (status: Partial<LicenseStatus>) => {
-      await page.evaluate((s) => {
-        const cmds = (window as any).__TAURI_MOCK_COMMANDS__ || {};
-        cmds.get_license_status = { ...cmds.get_license_status, ...s };
-        (window as any).__TAURI_MOCK_COMMANDS__ = cmds;
-      }, status);
-    };
-    await use(setter);
-  },
-
-  setSyncStatus: async ({ page }, use) => {
-    const setter = async (status: Partial<SyncStatus>) => {
-      await page.evaluate((s) => {
-        const cmds = (window as any).__TAURI_MOCK_COMMANDS__ || {};
-        cmds.get_sync_status = { ...cmds.get_sync_status, ...s };
-        (window as any).__TAURI_MOCK_COMMANDS__ = cmds;
-      }, status);
-    };
-    await use(setter);
-  },
-
-  setOffline: async ({ page }, use) => {
-    const setter = async () => {
-      await page.evaluate(() => {
-        const cmds = (window as any).__TAURI_MOCK_COMMANDS__ || {};
-        cmds.check_online = false;
-        (window as any).__TAURI_MOCK_COMMANDS__ = cmds;
-      });
-    };
-    await use(setter);
-  },
-
-  setOnline: async ({ page }, use) => {
-    const setter = async () => {
-      await page.evaluate(() => {
-        const cmds = (window as any).__TAURI_MOCK_COMMANDS__ || {};
-        cmds.check_online = true;
-        (window as any).__TAURI_MOCK_COMMANDS__ = cmds;
-      });
-    };
-    await use(setter);
   },
 });
 

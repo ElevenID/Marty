@@ -111,13 +111,6 @@ test.describe('License Installation', () => {
   });
 
   test('should validate and install license', async ({ page, mockTauri }) => {
-    // Mock successful validation
-    await mockTauri({
-      validate_license: true,
-      get_license_status: defaultLicenseStatus,
-    });
-    await page.reload();
-
     // Enter license
     const validJwt = 'eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.test.signature';
     await page.getByLabel(/license key/i).fill(validJwt);

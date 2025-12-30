@@ -89,11 +89,6 @@ test.describe('Settings Modification', () => {
   });
 
   test('should save settings successfully', async ({ page, mockTauri }) => {
-    await mockTauri({
-      update_config: true,
-    });
-    await page.reload();
-
     // Make a change
     await page.getByLabel(/kiosk mode/i).click();
     
