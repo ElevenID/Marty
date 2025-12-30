@@ -150,7 +150,8 @@ Licenses are cryptographic JWT tokens signed with Ed25519. License claims includ
 - Licensed features
 - Expiration date
 - Hardware binding (optional)
-- Daily verification limits
+- Total verification limits
+- Update channels
 - Grace period
 
 ### Installing a License
@@ -163,7 +164,13 @@ The license is validated against:
 - Signature verification (Ed25519)
 - Expiration date
 - Hardware fingerprint (if hardware-bound)
-- Daily verification counts
+- Total verification counts
+
+## Updates
+
+Updates are distributed via the Tauri updater plugin and gated by license update channels.
+Configure the update base URL and public key in the app config, and ensure licenses include
+the allowed `update_channels` (for example: `stable`, `beta`, `dev`).
 
 ## Trust Anchor Sync
 

@@ -46,5 +46,12 @@
       "timestampUrl": null
     }
   },
-  "plugins": {}
+  "plugins": {
+    "updater": {
+      "endpoints": [
+        "https://updates.example.com/{{target}}/{{arch}}/{{current_version}}"
+      ],
+      "pubkey": ""
+    }
+  }
 }

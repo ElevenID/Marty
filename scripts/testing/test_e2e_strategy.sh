@@ -68,6 +68,9 @@ start_services() {
     echo "🔧 Starting DTC engine..."
     docker-compose -f docker/docker-compose.yml up -d dtc-engine
 
+    echo "🔧 Starting Open Badges service..."
+    docker-compose -f docker/docker-compose.yml up -d open-badges
+
     # Wait for all services to be healthy
     echo "⏳ Waiting for services to be healthy..."
     sleep 30
@@ -82,6 +85,7 @@ start_services() {
     check_service 8085 "MDL Engine" || services_ready=false
     check_service 8086 "mDoc Engine" || services_ready=false
     check_service 8087 "DTC Engine" || services_ready=false
+    check_service 8091 "Open Badges Service" || services_ready=false
 
     if [ "$services_ready" = true ]; then
         echo "✅ All services are running and healthy"

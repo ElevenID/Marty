@@ -130,14 +130,46 @@ export default function LicensePage() {
                 </Box>
               )}
 
-              {license.max_daily_verifications && (
+              {license.max_verifications_total !== null && (
                 <Box>
                   <Typography variant="subtitle2" color="text.secondary">
-                    Daily Verification Limit
+                    Verification Limit
                   </Typography>
                   <Typography variant="body1">
-                    {license.verifications_today} / {license.max_daily_verifications}
+                    {license.verifications_total} / {license.max_verifications_total}
+                    {license.verifications_remaining !== null && (
+                      <Chip
+                        label={`${license.verifications_remaining} remaining`}
+                        size="small"
+                        color={license.verifications_remaining < 100 ? 'warning' : 'success'}
+                        sx={{ ml: 1 }}
+                      />
+                    )}
                   </Typography>
+                </Box>
+              )}
+
+              {license.max_verifications_total === null && (
+                <Box>
+                  <Typography variant="subtitle2" color="text.secondary">
+                    Verification Limit
+                  </Typography>
+                  <Typography variant="body1">
+                    Unlimited ({license.verifications_total} used)
+                  </Typography>
+                </Box>
+              )}
+
+              {license.update_channels.length > 0 && (
+                <Box>
+                  <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+                    Update Channels
+                  </Typography>
+                  <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+                    {license.update_channels.map((channel) => (
+                      <Chip key={channel} label={channel} size="small" />
+                    ))}
+                  </Box>
                 </Box>
               )}
 

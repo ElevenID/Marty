@@ -35,6 +35,7 @@ fn main() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(app_state)
         .setup(move |_app| {
             // Auto-install dev license on startup if in dev mode
@@ -91,6 +92,9 @@ fn main() {
             // Config commands
             commands::config::get_config,
             commands::config::update_config,
+            // Update commands
+            commands::update::check_for_updates,
+            commands::update::download_and_install_update,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -105,7 +109,7 @@ fn generate_dev_license_jwt() -> String {
 
     let header = r#"{"alg":"EdDSA","typ":"JWT"}"#;
     let claims = format!(
-        r#"{{"iss":"marty-license-issuer","sub":"dev-org-001","iat":{},"exp":{},"jti":"dev-license-auto","features":["mdl","emrtd","oid4vp","sd-jwt","dtc","open-badge","usb-sync","reporting"],"deployment_mode":"development","max_verifications_per_day":1000,"org_name":"Development License","grace_period_days":90}}"#,
+        r#"{{"iss":"marty-license-issuer","sub":"dev-org-001","iat":{},"exp":{},"jti":"dev-license-auto","features":["mdl","emrtd","oid4vp","sd-jwt","dtc","open-badge","usb-sync","reporting"],"deployment_mode":"development","max_verifications_total":100000,"org_name":"Development License","update_channels":["stable","beta","dev"],"grace_period_days":90}}"#,
         now, exp
     );
 

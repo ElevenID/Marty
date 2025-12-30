@@ -24,6 +24,9 @@ pub enum AppError {
     #[error("Configuration error: {0}")]
     Config(String),
 
+    #[error("Update error: {0}")]
+    Update(String),
+
     #[error("Feature not licensed: {0}")]
     FeatureNotLicensed(String),
 

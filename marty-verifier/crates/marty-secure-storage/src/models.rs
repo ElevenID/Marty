@@ -140,6 +140,7 @@ pub struct LicenseState {
     pub hardware_fingerprint: Option<String>,
     pub verifications_today: i32,
     pub verifications_date: Option<String>,
+    pub verifications_total: i64,
     pub grace_period_started: Option<DateTime<Utc>>,
 }
 

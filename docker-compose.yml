@@ -125,6 +125,30 @@ services:
   #     - test-local
 
   # ---------------------------------------------------------------------------
+  # Open Badges gRPC Service
+  # ---------------------------------------------------------------------------
+  open-badges:
+    build:
+      context: .
+      dockerfile: docker/mmf-plugin.Dockerfile
+    command: ["python", "-m", "apps.open_badges"]
+    ports:
+      - "8091:8091"
+      - "9091:9091"
+    environment:
+      ENV: development
+      MARTY_ENV: development
+      GRPC_PORT: "8091"
+      SERVICE_NAME: open-badges
+      PYTHONPATH: /app/src/marty_plugin/legacy_apps:/app/src
+      OPEN_BADGES_TRUST_STORE_PATH: /app/data/trust/open_badges/trust_store.json
+    volumes:
+      - ./data:/app/data
+      - ./config:/app/config:ro
+    profiles:
+      - trust-services
+
+  # ---------------------------------------------------------------------------
   # Core API Service (Development - uses localhost URLs for browser access)
   # ---------------------------------------------------------------------------
   oid4vc-api:

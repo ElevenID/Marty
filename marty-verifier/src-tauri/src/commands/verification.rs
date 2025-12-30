@@ -710,6 +710,8 @@ pub async fn verify_credential(
 
     // Check if feature is licensed
     state.check_feature(&request.credential_type).await?;
+    state.license.check_verification_limit().await?;
+    state.license.increment_verification_count().await?;
 
     let mut liveness_result: Option<LivenessResultPayload> = None;
     if request.require_liveness || request.liveness_challenge.is_some() {

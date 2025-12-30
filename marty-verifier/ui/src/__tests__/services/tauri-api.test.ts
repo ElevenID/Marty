@@ -21,8 +21,10 @@ describe('Tauri API', () => {
         grace_period_days: null,
         hardware_bound: true,
         deployment_mode: 'production',
-        max_daily_verifications: 1000,
-        verifications_today: 50,
+        max_verifications_total: 1000,
+        verifications_total: 50,
+        verifications_remaining: 950,
+        update_channels: ['stable'],
       };
 
       mockTauriCommands({
@@ -48,8 +50,10 @@ describe('Tauri API', () => {
         grace_period_days: null,
         hardware_bound: false,
         deployment_mode: 'development',
-        max_daily_verifications: 500,
-        verifications_today: 0,
+        max_verifications_total: 500,
+        verifications_total: 0,
+        verifications_remaining: 500,
+        update_channels: ['dev'],
       };
 
       mockTauriCommands({
@@ -239,6 +243,51 @@ describe('Tauri API', () => {
       const result = await clearVerificationHistory(30);
 
       expect(result).toBe(50);
+    });
+  });
+
+  describe('Update API', () => {
+    it('should check for updates', async () => {
+      const mockUpdate = {
+        version: '0.2.0',
+        current_version: '0.1.0',
+        notes: 'Bug fixes',
+        pub_date: 1734600000,
+        channel: 'stable',
+      };
+
+      mockTauriCommands({
+        check_for_updates: mockUpdate,
+      });
+
+      const { checkForUpdates } = await import('@/services/tauri-api');
+      const result = await checkForUpdates();
+
+      expect(result).toEqual(mockUpdate);
+    });
+
+    it('should pass channel when checking for updates', async () => {
+      mockTauriCommands({
+        check_for_updates: ({ channel }: { channel?: string }) => {
+          return { channel };
+        },
+      });
+
+      const { checkForUpdates } = await import('@/services/tauri-api');
+      const result = await checkForUpdates('beta');
+
+      expect(result).toEqual({ channel: 'beta' });
+    });
+
+    it('should download and install updates', async () => {
+      mockTauriCommands({
+        download_and_install_update: true,
+      });
+
+      const { downloadAndInstallUpdate } = await import('@/services/tauri-api');
+      const result = await downloadAndInstallUpdate();
+
+      expect(result).toBe(true);
     });
   });
 });

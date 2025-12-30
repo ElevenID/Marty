@@ -6,4 +6,5 @@ pub mod hardware;
 pub mod license;
 pub mod storage;
 pub mod sync;
+pub mod update;
 pub mod verification;

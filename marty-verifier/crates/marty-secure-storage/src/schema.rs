@@ -133,6 +133,7 @@ CREATE TABLE IF NOT EXISTS license_state (
     hardware_fingerprint TEXT,
     verifications_today INTEGER NOT NULL DEFAULT 0,
     verifications_date TEXT,
+    verifications_total INTEGER NOT NULL DEFAULT 0,
     grace_period_started TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -161,4 +162,4 @@ CREATE TABLE IF NOT EXISTS config (
 "#;
 
 /// Schema version for migrations
-pub const SCHEMA_VERSION: i32 = 1;
+pub const SCHEMA_VERSION: i32 = 2;

@@ -15,8 +15,10 @@ export interface LicenseStatus {
   grace_period_days: number | null;
   hardware_bound: boolean;
   deployment_mode: string | null;
-  max_daily_verifications: number | null;
-  verifications_today: number;
+  max_verifications_total: number | null;
+  verifications_total: number;
+  verifications_remaining: number | null;
+  update_channels: string[];
 }
 
 export interface SyncStatus {
@@ -39,8 +41,9 @@ export interface HardwareCapabilities {
   has_camera: boolean;
   has_nfc: boolean;
   has_ble: boolean;
-  has_biometric: boolean;
   has_tpm: boolean;
+  has_biometric_sensor: boolean;
+  has_usb_scanner: boolean;
 }
 
 // Default mock values
@@ -54,8 +57,10 @@ export const defaultLicenseStatus: LicenseStatus = {
   grace_period_days: null,
   hardware_bound: false,
   deployment_mode: 'development',
-  max_daily_verifications: 1000,
-  verifications_today: 5,
+  max_verifications_total: 1000,
+  verifications_total: 5,
+  verifications_remaining: 995,
+  update_channels: ['stable'],
 };
 
 export const defaultSyncStatus: SyncStatus = {
@@ -78,16 +83,17 @@ export const defaultHardwareCapabilities: HardwareCapabilities = {
   has_camera: true,
   has_nfc: false,
   has_ble: false,
-  has_biometric: false,
   has_tpm: false,
+  has_biometric_sensor: false,
+  has_usb_scanner: false,
 };
 
 // Mock command responses
 export interface MockCommands {
   get_license_status?: LicenseStatus;
   get_sync_status?: SyncStatus;
-  detect_hardware_tier?: string;
-  get_hardware_capabilities?: HardwareCapabilities;
+  get_hardware_tier?: string;
+  detect_hardware?: HardwareCapabilities;
   get_config?: object;
   check_online?: boolean;
   [key: string]: unknown;
@@ -109,10 +115,16 @@ async function injectTauriMock(page: Page, commands: MockCommands = {}) {
   const mockCommands = {
     get_license_status: defaultLicenseStatus,
     get_sync_status: defaultSyncStatus,
-    detect_hardware_tier: 'Simple',
-    get_hardware_capabilities: defaultHardwareCapabilities,
+    get_hardware_tier: 'simple',
+    detect_hardware: defaultHardwareCapabilities,
     check_online: true,
     get_config: {
+      update_config: {
+        enabled: false,
+        base_url: '',
+        public_key: '',
+        default_channel: 'stable',
+      },
       sync_config: {
         sync_interval_hours: 24,
         max_offline_hours: 72,
@@ -148,7 +160,23 @@ async function injectTauriMock(page: Page, commands: MockCommands = {}) {
     const mockInvoke = (command: string, args?: unknown) => {
       console.log(`[Tauri Mock] invoke: ${command}`, args);
       if (command in cmds) {
-        return Promise.resolve(cmds[command as keyof typeof cmds]);
+        const handler = cmds[command as keyof typeof cmds];
+        if (
+          handler &&
+          typeof handler === 'object' &&
+          '__error' in handler
+        ) {
+          const message = (handler as { __error?: string }).__error;
+          return Promise.reject(new Error(message ?? 'Mock command error'));
+        }
+        if (typeof handler === 'function') {
+          try {
+            return Promise.resolve(handler(args));
+          } catch (error) {
+            return Promise.reject(error);
+          }
+        }
+        return Promise.resolve(handler);
       }
       console.warn(`[Tauri Mock] Unmocked command: ${command}`);
       return Promise.resolve(null);

@@ -34,9 +34,9 @@ pub struct LicenseClaims {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub deployment_mode: Option<String>,
 
-    /// Maximum verifications per day (0 = unlimited)
+    /// Maximum total verifications (0 = unlimited)
     #[serde(default)]
-    pub max_verifications_per_day: u32,
+    pub max_verifications_total: u64,
 
     /// Hardware binding hash (optional)
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -49,6 +49,10 @@ pub struct LicenseClaims {
     /// Organization name for display
     #[serde(skip_serializing_if = "Option::is_none")]
     pub org_name: Option<String>,
+
+    /// Allowed update channels (empty = no updates)
+    #[serde(default)]
+    pub update_channels: Vec<String>,
 
     /// Grace period days for offline renewal
     #[serde(default = "default_grace_period")]
@@ -99,6 +103,19 @@ impl LicenseClaims {
         self.hardware_binding.is_some()
     }
 
+    /// Check if an update channel is allowed
+    pub fn allows_update_channel(&self, channel: &str) -> bool {
+        if self.update_channels.is_empty() {
+            return false;
+        }
+
+        if self.update_channels.iter().any(|c| c == "*") {
+            return true;
+        }
+
+        self.update_channels.iter().any(|c| c == channel)
+    }
+
     /// Validate hardware binding
     pub fn validate_hardware_binding(&self, fingerprint: &str) -> bool {
         match &self.hardware_binding {
@@ -123,10 +140,11 @@ mod tests {
             jti: Some("license-456".to_string()),
             features: vec!["mdl".to_string(), "emrtd".to_string(), "oid4vp".to_string()],
             deployment_mode: Some("airport_kiosk".to_string()),
-            max_verifications_per_day: 10000,
+            max_verifications_total: 10000,
             hardware_binding: None,
             hardware_tier: Some("complex".to_string()),
             org_name: Some("Example Airport Authority".to_string()),
+            update_channels: vec!["stable".to_string()],
             grace_period_days: 30,
         }
     }
@@ -157,5 +175,16 @@ mod tests {
         // Set to past
         claims.exp = Utc::now().timestamp() - 86400;
         assert!(claims.is_expired());
+    }
+
+    #[test]
+    fn test_update_channel_check() {
+        let claims = sample_claims();
+        assert!(claims.allows_update_channel("stable"));
+        assert!(!claims.allows_update_channel("beta"));
+
+        let mut wildcard = claims.clone();
+        wildcard.update_channels = vec!["*".to_string()];
+        assert!(wildcard.allows_update_channel("beta"));
     }
 }

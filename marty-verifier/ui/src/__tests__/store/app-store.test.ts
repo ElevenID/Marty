@@ -76,8 +76,10 @@ describe('AppStore', () => {
         grace_period_days: null,
         hardware_bound: false,
         deployment_mode: 'development',
-        max_daily_verifications: 500,
-        verifications_today: 0,
+        max_verifications_total: 500,
+        verifications_total: 0,
+        verifications_remaining: 500,
+        update_channels: ['dev'],
       };
 
       mockTauriCommands({
@@ -147,8 +149,10 @@ describe('AppStore', () => {
         grace_period_days: null,
         hardware_bound: false,
         deployment_mode: 'development',
-        max_daily_verifications: 500,
-        verifications_today: 0,
+        max_verifications_total: 500,
+        verifications_total: 0,
+        verifications_remaining: 500,
+        update_channels: ['dev'],
       };
 
       const mockSync = {

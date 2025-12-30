@@ -43,6 +43,11 @@ data:
         url: "${CSCA_URL:-http://csca-service:8080}"
         certificate_validation: true
         crl_check_enabled: true
+
+      # Open Badges Service
+      open_badges:
+        url: "${OPEN_BADGES_URL:-http://open-badges-service:8091}"
+        trust_store_path: "/app/data/open_badges/trust_store.json"
         
       # Observability
       observability:

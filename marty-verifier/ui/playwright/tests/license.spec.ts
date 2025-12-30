@@ -7,7 +7,7 @@ import { test, expect, defaultLicenseStatus } from '../fixtures';
 test.describe('License Page', () => {
   test.beforeEach(async ({ page, mockTauri }) => {
     await mockTauri();
-    await page.goto('/license');
+    await page.goto('/#/license');
   });
 
   test('should display license management heading', async ({ page }) => {
@@ -35,8 +35,8 @@ test.describe('License Page', () => {
     await expect(page.getByText(/disabled/i)).toBeVisible();
   });
 
-  test('should show daily verification count', async ({ page }) => {
-    await expect(page.getByText(/daily verification limit/i)).toBeVisible();
+  test('should show verification count', async ({ page }) => {
+    await expect(page.getByText(/verification limit/i)).toBeVisible();
     await expect(page.getByText(/5 \/ 1000/i)).toBeVisible();
   });
 });
@@ -50,7 +50,7 @@ test.describe('License Status Variations', () => {
         features: [],
       },
     });
-    await page.goto('/license');
+    await page.goto('/#/license');
 
     await expect(page.getByText(/no valid license/i)).toBeVisible();
   });
@@ -66,11 +66,12 @@ test.describe('License Status Variations', () => {
         days_until_expiry: -1,
       },
     });
-    await page.goto('/license');
+    await page.goto('/#/license');
 
-    await expect(page.getByText(/license expired/i)).toBeVisible();
-    await expect(page.getByText(/grace period/i)).toBeVisible();
-    await expect(page.getByText(/5 days remaining/i)).toBeVisible();
+    const banner = page.getByTestId('license-warning-banner');
+    await expect(banner).toBeVisible();
+    await expect(banner).toHaveText(/grace period/i);
+    await expect(banner).toHaveText(/5 days remaining/i);
   });
 
   test('should show expiration warning when less than 30 days', async ({ page, mockTauri }) => {
@@ -80,18 +81,18 @@ test.describe('License Status Variations', () => {
         days_until_expiry: 15,
       },
     });
-    await page.goto('/license');
+    await page.goto('/#/license');
 
-    // Should show warning chip
-    const chip = page.getByText('15 days');
-    await expect(chip).toBeVisible();
+    const banner = page.getByTestId('license-warning-banner');
+    await expect(banner).toBeVisible();
+    await expect(banner).toHaveText(/15 days/i);
   });
 });
 
 test.describe('License Installation', () => {
   test.beforeEach(async ({ page, mockTauri }) => {
     await mockTauri();
-    await page.goto('/license');
+    await page.goto('/#/license');
   });
 
   test('should display license input field', async ({ page }) => {
@@ -119,7 +120,7 @@ test.describe('License Installation', () => {
 
     // Enter license
     const validJwt = 'eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.test.signature';
-    await page.getByTestId('license-input').fill(validJwt);
+    await page.getByLabel(/license key/i).fill(validJwt);
     await page.getByTestId('license-submit').click();
 
     await expect(page.getByText(/license validated and installed successfully/i)).toBeVisible();
@@ -128,13 +129,11 @@ test.describe('License Installation', () => {
   test('should show error for invalid license', async ({ page, mockTauri }) => {
     // Mock validation failure
     await mockTauri({
-      validate_license: () => {
-        throw new Error('Invalid signature');
-      },
+      validate_license: { __error: 'Invalid signature' },
     });
     await page.reload();
 
-    await page.getByTestId('license-input').fill('invalid-jwt');
+    await page.getByLabel(/license key/i).fill('invalid-jwt');
     await page.getByTestId('license-submit').click();
 
     await expect(page.getByText(/invalid signature/i)).toBeVisible();

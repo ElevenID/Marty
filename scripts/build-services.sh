@@ -16,6 +16,7 @@ declare -A SERVICES=(
     ["mdoc-engine"]="8086"
     ["passport-engine"]="8084"
     ["dtc-engine"]="8087"
+    ["open-badges"]="8091"
     ["csca-service"]="8081"
     ["document-signer"]="8082"
     ["inspection-system"]="8083"

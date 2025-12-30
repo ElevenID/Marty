@@ -129,8 +129,10 @@ export default function SettingsPage() {
           </Typography>
           <Stack spacing={2}>
             <FormControl fullWidth>
-              <InputLabel>Theme</InputLabel>
+              <InputLabel id="theme-select-label">Theme</InputLabel>
               <Select
+                id="theme-select"
+                labelId="theme-select-label"
                 value={config.ui_config.theme}
                 label="Theme"
                 onChange={(e) =>
@@ -296,6 +298,84 @@ export default function SettingsPage() {
                   },
                 })
               }
+            />
+          </Stack>
+        </CardContent>
+      </Card>
+
+      {/* Update Settings */}
+      <Card sx={{ mb: 3 }}>
+        <CardContent>
+          <Typography variant="h6" gutterBottom>
+            Updates
+          </Typography>
+          <Stack spacing={2}>
+            <FormControlLabel
+              control={
+                <Switch
+                  checked={config.update_config.enabled}
+                  onChange={(e) =>
+                    setConfig({
+                      ...config,
+                      update_config: {
+                        ...config.update_config,
+                        enabled: e.target.checked,
+                      },
+                    })
+                  }
+                />
+              }
+              label="Enable Updates"
+            />
+
+            <TextField
+              fullWidth
+              label="Update Base URL"
+              placeholder="https://updates.example.com"
+              value={config.update_config.base_url}
+              onChange={(e) =>
+                setConfig({
+                  ...config,
+                  update_config: {
+                    ...config.update_config,
+                    base_url: e.target.value,
+                  },
+                })
+              }
+            />
+
+            <TextField
+              fullWidth
+              label="Default Channel"
+              placeholder="stable"
+              value={config.update_config.default_channel}
+              onChange={(e) =>
+                setConfig({
+                  ...config,
+                  update_config: {
+                    ...config.update_config,
+                    default_channel: e.target.value,
+                  },
+                })
+              }
+            />
+
+            <TextField
+              fullWidth
+              label="Update Public Key"
+              placeholder="minisign public key"
+              value={config.update_config.public_key}
+              onChange={(e) =>
+                setConfig({
+                  ...config,
+                  update_config: {
+                    ...config.update_config,
+                    public_key: e.target.value,
+                  },
+                })
+              }
+              multiline
+              minRows={3}
             />
           </Stack>
         </CardContent>

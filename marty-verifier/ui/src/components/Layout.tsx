@@ -42,11 +42,28 @@ export default function Layout({ children }: LayoutProps) {
   const [mobileOpen, setMobileOpen] = React.useState(false);
   const location = useLocation();
   const navigate = useNavigate();
-  const { initialize, isOnline, sync } = useAppStore();
+  const { initialize, isOnline, sync, setOnlineStatus } = useAppStore();
 
   useEffect(() => {
     initialize();
   }, [initialize]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    const updateStatus = () => setOnlineStatus(navigator.onLine);
+    updateStatus();
+
+    window.addEventListener('online', updateStatus);
+    window.addEventListener('offline', updateStatus);
+
+    return () => {
+      window.removeEventListener('online', updateStatus);
+      window.removeEventListener('offline', updateStatus);
+    };
+  }, [setOnlineStatus]);
 
   const handleDrawerToggle = () => {
     setMobileOpen(!mobileOpen);

@@ -7,7 +7,7 @@ import { test, expect } from '../fixtures';
 test.describe('Settings Page', () => {
   test.beforeEach(async ({ page, mockTauri }) => {
     await mockTauri();
-    await page.goto('/settings');
+    await page.goto('/#/settings');
   });
 
   test('should display settings heading', async ({ page }) => {
@@ -54,7 +54,7 @@ test.describe('Settings Page', () => {
 test.describe('Settings Modification', () => {
   test.beforeEach(async ({ page, mockTauri }) => {
     await mockTauri();
-    await page.goto('/settings');
+    await page.goto('/#/settings');
   });
 
   test('should toggle kiosk mode', async ({ page }) => {
@@ -66,7 +66,7 @@ test.describe('Settings Modification', () => {
   });
 
   test('should change theme', async ({ page }) => {
-    const themeSelect = page.getByLabel(/theme/i);
+    const themeSelect = page.getByRole('combobox', { name: /theme/i });
     await themeSelect.click();
     await page.getByRole('option', { name: /dark/i }).click();
     
@@ -105,9 +105,7 @@ test.describe('Settings Modification', () => {
 
   test('should show error on save failure', async ({ page, mockTauri }) => {
     await mockTauri({
-      update_config: () => {
-        throw new Error('Permission denied');
-      },
+      update_config: { __error: 'Permission denied' },
     });
     await page.reload();
 
@@ -120,29 +118,29 @@ test.describe('Settings Modification', () => {
 test.describe('Settings Navigation', () => {
   test('should navigate from settings to verification', async ({ page, mockTauri }) => {
     await mockTauri();
-    await page.goto('/settings');
+    await page.goto('/#/settings');
 
-    await page.getByTestId('nav-verification').click();
+    await page.locator('[data-testid="nav-verify"]:visible').click();
     
-    await expect(page).toHaveURL('/');
+    await expect(page).toHaveURL(/#\/?$/);
     await expect(page.getByRole('heading', { name: /credential verification/i })).toBeVisible();
   });
 
   test('should navigate from settings to license', async ({ page, mockTauri }) => {
     await mockTauri();
-    await page.goto('/settings');
+    await page.goto('/#/settings');
 
-    await page.getByTestId('nav-license').click();
+    await page.locator('[data-testid="nav-license"]:visible').click();
     
-    await expect(page).toHaveURL('/license');
+    await expect(page).toHaveURL(/#\/license$/);
   });
 
   test('should navigate from settings to sync', async ({ page, mockTauri }) => {
     await mockTauri();
-    await page.goto('/settings');
+    await page.goto('/#/settings');
 
-    await page.getByTestId('nav-sync').click();
+    await page.locator('[data-testid="nav-trust-anchors"]:visible').click();
     
-    await expect(page).toHaveURL('/sync');
+    await expect(page).toHaveURL(/#\/sync$/);
   });
 });

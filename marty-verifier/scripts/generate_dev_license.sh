@@ -17,8 +17,9 @@ CLAIMS=$(cat << CLAIMS_END
   "jti": "dev-license-$(date +%Y%m%d)",
   "features": ["mdl", "emrtd", "oid4vp", "sd-jwt", "usb-sync", "reporting"],
   "deployment_mode": "development",
-  "max_verifications_per_day": 1000,
+  "max_verifications_total": 100000,
   "org_name": "Development License",
+  "update_channels": ["stable", "beta", "dev"],
   "grace_period_days": 90
 }
 CLAIMS_END

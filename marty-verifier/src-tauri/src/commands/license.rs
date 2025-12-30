@@ -27,10 +27,14 @@ pub struct LicenseStatus {
     pub grace_period_days: Option<i64>,
     /// Deployment mode
     pub deployment_mode: Option<String>,
-    /// Maximum daily verifications
-    pub max_daily_verifications: Option<u32>,
-    /// Verifications performed today
-    pub verifications_today: u32,
+    /// Maximum total verifications (None = unlimited)
+    pub max_verifications_total: Option<u64>,
+    /// Verifications performed total
+    pub verifications_total: u64,
+    /// Remaining verifications (None = unlimited)
+    pub verifications_remaining: Option<u64>,
+    /// Allowed update channels
+    pub update_channels: Vec<String>,
 }
 
 /// Validate a license file
@@ -53,8 +57,10 @@ pub async fn validate_license(
         grace_period_active: result.grace_period_active,
         grace_period_days: result.grace_period_days,
         deployment_mode: result.deployment_mode,
-        max_daily_verifications: result.max_daily_verifications,
-        verifications_today: result.verifications_today,
+        max_verifications_total: result.max_verifications_total,
+        verifications_total: result.verifications_total,
+        verifications_remaining: result.verifications_remaining,
+        update_channels: result.update_channels,
     })
 }
 
@@ -73,8 +79,10 @@ pub async fn get_license_status(state: State<'_, AppState>) -> AppResult<License
         grace_period_active: status.grace_period_active,
         grace_period_days: status.grace_period_days,
         deployment_mode: status.deployment_mode,
-        max_daily_verifications: status.max_daily_verifications,
-        verifications_today: status.verifications_today,
+        max_verifications_total: status.max_verifications_total,
+        verifications_total: status.verifications_total,
+        verifications_remaining: status.verifications_remaining,
+        update_channels: status.update_channels,
     })
 }
 
@@ -101,8 +109,10 @@ mod tests {
             grace_period_active: false,
             grace_period_days: None,
             deployment_mode: Some("production".to_string()),
-            max_daily_verifications: Some(1000),
-            verifications_today: 50,
+            max_verifications_total: Some(1000),
+            verifications_total: 50,
+            verifications_remaining: Some(950),
+            update_channels: vec!["stable".to_string()],
         };
 
         let json = serde_json::to_string(&status).unwrap();
@@ -111,7 +121,7 @@ mod tests {
         assert!(deserialized.valid);
         assert_eq!(deserialized.org_id.unwrap(), "test-org");
         assert_eq!(deserialized.features.len(), 2);
-        assert_eq!(deserialized.verifications_today, 50);
+        assert_eq!(deserialized.verifications_total, 50);
     }
 
     #[test]
@@ -126,8 +136,10 @@ mod tests {
             grace_period_active: false,
             grace_period_days: None,
             deployment_mode: None,
-            max_daily_verifications: None,
-            verifications_today: 0,
+            max_verifications_total: None,
+            verifications_total: 0,
+            verifications_remaining: None,
+            update_channels: Vec::new(),
         };
 
         assert!(!status.valid);
@@ -146,8 +158,10 @@ mod tests {
             grace_period_active: true,
             grace_period_days: Some(7),
             deployment_mode: Some("production".to_string()),
-            max_daily_verifications: Some(500),
-            verifications_today: 100,
+            max_verifications_total: Some(500),
+            verifications_total: 100,
+            verifications_remaining: Some(400),
+            update_channels: vec!["beta".to_string()],
         };
 
         assert!(status.valid);

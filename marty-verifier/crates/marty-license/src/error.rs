@@ -22,8 +22,11 @@ pub enum LicenseError {
     #[error("Feature not licensed: {0}")]
     FeatureNotLicensed(String),
 
-    #[error("Daily verification limit exceeded: {used}/{max}")]
-    VerificationLimitExceeded { used: u32, max: u32 },
+    #[error("Verification limit exceeded: {used}/{max}")]
+    VerificationLimitExceeded { used: u64, max: u64 },
+
+    #[error("Update channel not allowed: {0}")]
+    UpdateChannelNotAllowed(String),
 
     #[error("Grace period expired")]
     GracePeriodExpired,

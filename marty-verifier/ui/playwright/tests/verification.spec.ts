@@ -8,7 +8,7 @@ import { test, expect, defaultLicenseStatus } from '../fixtures';
 test.describe('Verification Page', () => {
   test.beforeEach(async ({ page, mockTauri }) => {
     await mockTauri();
-    await page.goto('/');
+    await page.goto('/#/');
   });
 
   test('should display verification page with panel', async ({ page }) => {
@@ -62,11 +62,11 @@ test.describe('Verification Page', () => {
     await expect(page.getByText(/simple/i)).toBeVisible();
   });
 
-  test('should show license warning when license is invalid', async ({ page, mockTauri }) => {
+  test('should show license warning when license is near expiry', async ({ page, mockTauri }) => {
     await mockTauri({
       get_license_status: {
         ...defaultLicenseStatus,
-        valid: false,
+        days_until_expiry: 10,
       },
     });
     await page.reload();
@@ -75,8 +75,13 @@ test.describe('Verification Page', () => {
   });
 
   test('should show offline banner when disconnected', async ({ page, mockTauri }) => {
+    await page.addInitScript(() => {
+      Object.defineProperty(navigator, 'onLine', {
+        configurable: true,
+        get: () => false,
+      });
+    });
     await mockTauri({
-      check_online: false,
       get_sync_status: {
         last_sync: new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString(),
         hours_since_sync: 48,
@@ -96,7 +101,7 @@ test.describe('Verification Page', () => {
 test.describe('Verification Flow', () => {
   test.beforeEach(async ({ page, mockTauri }) => {
     await mockTauri();
-    await page.goto('/');
+    await page.goto('/#/');
   });
 
   test('should start verification when scan button clicked', async ({ page }) => {
@@ -112,20 +117,29 @@ test.describe('Verification Flow', () => {
     // Mock a successful verification
     await mockTauri({
       verify_credential: {
-        success: true,
+        verification_id: 'test-verification',
+        status: 'valid',
         credential_type: 'mdl',
-        issuer: 'State of California',
-        subject: {
+        issuer: { name: 'State of California', jurisdiction: 'US-CA', subject: null },
+        disclosed_claims: {
           given_name: 'John',
           family_name: 'Doe',
           birth_date: '1990-01-15',
         },
-        issued_at: new Date().toISOString(),
-        expires_at: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString(),
+        trust_chain: {
+          valid: true,
+          chain_type: 'iaca',
+          trust_anchor: 'US-CA',
+          offline_verified: false,
+        },
+        revocation_status: 'valid',
+        verified_at: new Date().toISOString(),
         warnings: [],
       },
     });
     await page.reload();
+
+    await page.getByLabel(/require liveness/i).uncheck();
 
     // Trigger scan
     await page.getByTestId('scan-button').click();

@@ -36,6 +36,10 @@ pub struct AppConfig {
     #[serde(default)]
     pub reporting_config: ReportingConfig,
 
+    /// Update configuration
+    #[serde(default)]
+    pub update_config: UpdateConfig,
+
     /// UI configuration
     #[serde(default)]
     pub ui_config: UiConfig,
@@ -47,6 +51,19 @@ pub struct AppConfig {
     /// Open Badge trust policy
     #[serde(default)]
     pub open_badge_trust: OpenBadgeTrustConfig,
+}
+
+/// Updater configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdateConfig {
+    /// Enable update checks
+    pub enabled: bool,
+    /// Base URL for update endpoints
+    pub base_url: String,
+    /// Public key for update signature verification
+    pub public_key: String,
+    /// Preferred update channel when multiple are allowed
+    pub default_channel: String,
 }
 
 /// UI configuration
@@ -147,6 +164,7 @@ impl Default for AppConfig {
             pad_config: PadProviderConfig::default(),
             sync_config: SyncConfig::default(),
             reporting_config: ReportingConfig::default(),
+            update_config: UpdateConfig::default(),
             ui_config: UiConfig::default(),
             retention: RetentionConfig::default(),
             open_badge_trust: OpenBadgeTrustConfig::default(),
@@ -162,6 +180,17 @@ impl Default for UiConfig {
             show_offline_banner: true,
             theme: "system".to_string(),
             language: "en".to_string(),
+        }
+    }
+}
+
+impl Default for UpdateConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            base_url: String::new(),
+            public_key: String::new(),
+            default_channel: "stable".to_string(),
         }
     }
 }

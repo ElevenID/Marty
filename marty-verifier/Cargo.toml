@@ -21,6 +21,7 @@ repository = "https://github.com/your-org/marty-verifier"
 tauri = { version = "2.1", features = ["devtools"] }
 tauri-build = "2.0"
 tauri-plugin-shell = "2.0"
+tauri-plugin-updater = "2.1.0"
 
 # Async runtime
 tokio = { version = "1.42", features = ["full"] }
@@ -57,6 +58,7 @@ chrono = { version = "0.4", features = ["serde"] }
 
 # Encoding
 base64 = "0.22"
+url = "2"
 
 # X.509 parsing
 x509-cert = "0.2"

@@ -83,10 +83,12 @@ pub struct LicensePayload {
     pub expires_at: Option<String>,
     /// Days until expiry
     pub days_until_expiry: Option<i64>,
-    /// Verifications today
-    pub verifications_today: Option<u32>,
-    /// Max daily verifications
-    pub max_daily_verifications: Option<u32>,
+    /// Total verifications
+    pub verifications_total: Option<u64>,
+    /// Max total verifications
+    pub max_verifications_total: Option<u64>,
+    /// Remaining verifications
+    pub verifications_remaining: Option<u64>,
 }
 
 /// Error event payload

@@ -31,6 +31,7 @@ LEGACY_SERVICES=(
     "inspection-system:8083"
     "mdoc-engine:8086"
     "dtc-engine:8087"
+    "open-badges:8091"
     "pkd-service:8088"
     "ui-app:3000"
 )

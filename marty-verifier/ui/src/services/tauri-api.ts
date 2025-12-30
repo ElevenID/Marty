@@ -20,8 +20,10 @@ export interface LicenseStatus {
   grace_period_active: boolean;
   grace_period_days: number | null;
   deployment_mode: string | null;
-  max_daily_verifications: number | null;
-  verifications_today: number;
+  max_verifications_total: number | null;
+  verifications_total: number;
+  verifications_remaining: number | null;
+  update_channels: string[];
 }
 
 export interface VerifyRequest {
@@ -144,6 +146,14 @@ export interface SyncResult {
   error: string | null;
 }
 
+export interface UpdateInfo {
+  version: string;
+  current_version: string;
+  notes: string | null;
+  pub_date: number | null;
+  channel: string;
+}
+
 export interface UsbImportResult {
   success: boolean;
   certificates_imported: number;
@@ -178,9 +188,17 @@ export interface AppConfig {
   liveness_retention: LivenessRetentionConfig;
   sync_config: SyncConfig;
   reporting_config: ReportingConfig;
+  update_config: UpdateConfig;
   ui_config: UiConfig;
   retention: RetentionConfig;
   open_badge_trust: OpenBadgeTrustConfig;
+}
+
+export interface UpdateConfig {
+  enabled: boolean;
+  base_url: string;
+  public_key: string;
+  default_channel: string;
 }
 
 export interface SyncConfig {
@@ -395,4 +413,16 @@ export async function getConfig(): Promise<AppConfig> {
 
 export async function updateConfig(newConfig: AppConfig): Promise<void> {
   return invoke('update_config', { newConfig });
+}
+
+// =============================================================================
+// Update Commands
+// =============================================================================
+
+export async function checkForUpdates(channel?: string): Promise<UpdateInfo | null> {
+  return invoke('check_for_updates', { channel });
+}
+
+export async function downloadAndInstallUpdate(channel?: string): Promise<boolean> {
+  return invoke('download_and_install_update', { channel });
 }

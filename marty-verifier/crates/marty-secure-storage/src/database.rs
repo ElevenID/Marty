@@ -4,7 +4,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use chrono::Utc;
-use rusqlite::Connection;
+use rusqlite::{Connection, OptionalExtension};
 use serde::Serialize;
 use serde_json::Value;
 use tokio::sync::Mutex;
@@ -72,6 +72,9 @@ impl SecureStorage {
 
         // Initialize schema
         conn.execute_batch(SCHEMA)?;
+
+        let current_version = get_schema_version(&conn)?;
+        migrate_schema(&conn, current_version)?;
 
         // Store schema version
         conn.execute(
@@ -469,7 +472,7 @@ impl SecureStorage {
         let result = conn.query_row(
             r#"
             SELECT license_jwt, validated_at, hardware_fingerprint, 
-                   verifications_today, verifications_date, grace_period_started
+                   verifications_today, verifications_date, verifications_total, grace_period_started
             FROM license_state WHERE id = 'current'
             "#,
             [],
@@ -484,7 +487,8 @@ impl SecureStorage {
                     hardware_fingerprint: row.get(2)?,
                     verifications_today: row.get(3)?,
                     verifications_date: row.get(4)?,
-                    grace_period_started: row.get::<_, Option<String>>(5)?.and_then(|s| {
+                    verifications_total: row.get(5)?,
+                    grace_period_started: row.get::<_, Option<String>>(6)?.and_then(|s| {
                         chrono::DateTime::parse_from_rfc3339(&s)
                             .ok()
                             .map(|dt| dt.with_timezone(&Utc))
@@ -509,8 +513,8 @@ impl SecureStorage {
             r#"
             INSERT OR REPLACE INTO license_state 
                 (id, license_jwt, validated_at, hardware_fingerprint, 
-                 verifications_today, verifications_date, grace_period_started, updated_at)
-            VALUES ('current', ?, ?, ?, ?, ?, ?, ?)
+                 verifications_today, verifications_date, verifications_total, grace_period_started, updated_at)
+            VALUES ('current', ?, ?, ?, ?, ?, ?, ?, ?)
             "#,
             rusqlite::params![
                 state.license_jwt,
@@ -518,6 +522,7 @@ impl SecureStorage {
                 state.hardware_fingerprint,
                 state.verifications_today,
                 state.verifications_date,
+                state.verifications_total,
                 state.grace_period_started.map(|dt| dt.to_rfc3339()),
                 now,
             ],
@@ -695,4 +700,42 @@ impl SecureStorage {
 
         Ok(())
     }
+}
+
+fn get_schema_version(conn: &Connection) -> Result<i32, StorageError> {
+    let version: Option<String> = conn
+        .query_row(
+            "SELECT value FROM config WHERE key = 'schema_version'",
+            [],
+            |row| row.get(0),
+        )
+        .optional()?;
+    Ok(version
+        .and_then(|v| v.parse::<i32>().ok())
+        .unwrap_or(0))
+}
+
+fn migrate_schema(conn: &Connection, current_version: i32) -> Result<(), StorageError> {
+    if current_version < 2 {
+        if !column_exists(conn, "license_state", "verifications_total")? {
+            conn.execute(
+                "ALTER TABLE license_state ADD COLUMN verifications_total INTEGER NOT NULL DEFAULT 0",
+                [],
+            )?;
+        }
+    }
+
+    Ok(())
+}
+
+fn column_exists(conn: &Connection, table: &str, column: &str) -> Result<bool, StorageError> {
+    let mut stmt = conn.prepare(&format!("PRAGMA table_info({})", table))?;
+    let mut rows = stmt.query([])?;
+    while let Some(row) = rows.next()? {
+        let name: String = row.get(1)?;
+        if name == column {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }

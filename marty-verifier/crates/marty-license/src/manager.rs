@@ -25,8 +25,10 @@ pub struct LicenseValidationResult {
     pub grace_period_active: bool,
     pub grace_period_days: Option<i64>,
     pub deployment_mode: Option<String>,
-    pub max_daily_verifications: Option<u32>,
-    pub verifications_today: u32,
+    pub max_verifications_total: Option<u64>,
+    pub verifications_total: u64,
+    pub verifications_remaining: Option<u64>,
+    pub update_channels: Vec<String>,
 }
 
 /// License status (current state)
@@ -41,8 +43,10 @@ pub struct LicenseStatus {
     pub grace_period_active: bool,
     pub grace_period_days: Option<i64>,
     pub deployment_mode: Option<String>,
-    pub max_daily_verifications: Option<u32>,
-    pub verifications_today: u32,
+    pub max_verifications_total: Option<u64>,
+    pub verifications_total: u64,
+    pub verifications_remaining: Option<u64>,
+    pub update_channels: Vec<String>,
 }
 
 /// License manager for validation and tracking
@@ -104,15 +108,23 @@ impl LicenseManager {
 
         // Get current verification count
         let license_state = self.storage.get_license_state().await?;
-        let verifications_today = self.get_todays_verifications(&license_state).await;
+        let verifications_total = self.get_total_verifications(&license_state).await;
+        let (max_verifications_total, verifications_remaining) =
+            Self::compute_total_limit(claims.max_verifications_total, verifications_total);
 
         // Store license
         let new_state = LicenseState {
             license_jwt: Some(license_jwt.to_string()),
             validated_at: Some(Utc::now()),
             hardware_fingerprint: Some(self.hardware_fingerprint.clone()),
-            verifications_today: verifications_today as i32,
-            verifications_date: Some(Utc::now().format("%Y-%m-%d").to_string()),
+            verifications_today: license_state
+                .as_ref()
+                .map(|s| s.verifications_today)
+                .unwrap_or(0),
+            verifications_date: license_state
+                .as_ref()
+                .and_then(|s| s.verifications_date.clone()),
+            verifications_total: verifications_total as i64,
             grace_period_started: None,
         };
         self.storage.update_license_state(&new_state).await?;
@@ -137,8 +149,10 @@ impl LicenseManager {
             grace_period_active: false,
             grace_period_days: None,
             deployment_mode: claims.deployment_mode.clone(),
-            max_daily_verifications: Some(claims.max_verifications_per_day),
-            verifications_today,
+            max_verifications_total,
+            verifications_total,
+            verifications_remaining,
+            update_channels: claims.update_channels.clone(),
         })
     }
 
@@ -177,6 +191,37 @@ impl LicenseManager {
         self.build_status(&claims).await
     }
 
+    /// Get cached or stored license claims
+    pub async fn get_claims(&self) -> Result<LicenseClaims, LicenseError> {
+        if let Some(claims) = self.cached_claims.read().await.as_ref() {
+            return Ok(claims.clone());
+        }
+
+        // Load from storage
+        let state = self.storage.get_license_state().await?;
+        let license_jwt = state
+            .and_then(|s| s.license_jwt)
+            .ok_or(LicenseError::NoLicense)?;
+
+        let claims = if self.public_key_pem.is_empty() {
+            let parts: Vec<&str> = license_jwt.split('.').collect();
+            if parts.len() != 3 {
+                return Err(LicenseError::Jwt("Invalid JWT format".to_string()));
+            }
+            use base64::Engine;
+            let claims_json = base64::engine::general_purpose::URL_SAFE_NO_PAD
+                .decode(parts[1])
+                .map_err(|e| LicenseError::Jwt(format!("Invalid base64: {}", e)))?;
+            serde_json::from_slice::<LicenseClaims>(&claims_json)
+                .map_err(|e| LicenseError::InvalidClaims(e.to_string()))?
+        } else {
+            validate_jwt(&license_jwt, &self.public_key_pem)?
+        };
+
+        *self.cached_claims.write().await = Some(claims.clone());
+        Ok(claims)
+    }
+
     /// Check if a feature is licensed
     pub async fn is_feature_licensed(&self, feature: &str) -> Result<bool, LicenseError> {
         let status = self.get_status().await?;
@@ -189,8 +234,8 @@ impl LicenseManager {
             .any(|f| f == "*" || f == feature || feature.starts_with(f)))
     }
 
-    /// Increment daily verification count
-    pub async fn increment_verification_count(&self) -> Result<u32, LicenseError> {
+    /// Increment total verification count
+    pub async fn increment_verification_count(&self) -> Result<u64, LicenseError> {
         let mut state = self
             .storage
             .get_license_state()
@@ -201,58 +246,57 @@ impl LicenseManager {
                 hardware_fingerprint: None,
                 verifications_today: 0,
                 verifications_date: None,
+                verifications_total: 0,
                 grace_period_started: None,
             });
 
-        let today = Utc::now().format("%Y-%m-%d").to_string();
-
-        // Reset count if new day
-        if state.verifications_date.as_ref() != Some(&today) {
-            state.verifications_today = 0;
-            state.verifications_date = Some(today);
-        }
-
-        state.verifications_today += 1;
+        state.verifications_total += 1;
         self.storage.update_license_state(&state).await?;
 
-        Ok(state.verifications_today as u32)
+        Ok(state.verifications_total as u64)
     }
 
     /// Check if verification limit is exceeded
     pub async fn check_verification_limit(&self) -> Result<(), LicenseError> {
-        let claims = self.cached_claims.read().await;
-        let claims = claims.as_ref().ok_or(LicenseError::NoLicense)?;
+        let claims = self.get_claims().await?;
 
-        if claims.max_verifications_per_day == 0 {
+        if claims.max_verifications_total == 0 {
             return Ok(()); // Unlimited
         }
 
         let state = self.storage.get_license_state().await?;
-        let count = self.get_todays_verifications(&state).await as u32;
+        let count = self.get_total_verifications(&state).await;
 
-        if count >= claims.max_verifications_per_day {
+        if count >= claims.max_verifications_total {
             return Err(LicenseError::VerificationLimitExceeded {
                 used: count,
-                max: claims.max_verifications_per_day,
+                max: claims.max_verifications_total,
             });
         }
 
         Ok(())
     }
 
-    async fn get_todays_verifications(&self, state: &Option<LicenseState>) -> u32 {
-        let today = Utc::now().format("%Y-%m-%d").to_string();
-        match state {
-            Some(s) if s.verifications_date.as_ref() == Some(&today) => {
-                s.verifications_today as u32
-            }
-            _ => 0,
+    async fn get_total_verifications(&self, state: &Option<LicenseState>) -> u64 {
+        state
+            .as_ref()
+            .map(|s| s.verifications_total.max(0) as u64)
+            .unwrap_or(0)
+    }
+
+    fn compute_total_limit(max: u64, used: u64) -> (Option<u64>, Option<u64>) {
+        if max == 0 {
+            (None, None)
+        } else {
+            (Some(max), Some(max.saturating_sub(used)))
         }
     }
 
     async fn build_status(&self, claims: &LicenseClaims) -> Result<LicenseStatus, LicenseError> {
         let state = self.storage.get_license_state().await?;
-        let verifications_today = self.get_todays_verifications(&state).await;
+        let verifications_total = self.get_total_verifications(&state).await;
+        let (max_verifications_total, verifications_remaining) =
+            Self::compute_total_limit(claims.max_verifications_total, verifications_total);
 
         let is_expired = claims.is_expired();
         let grace_period_active = if is_expired {
@@ -299,8 +343,36 @@ impl LicenseManager {
             grace_period_active,
             grace_period_days,
             deployment_mode: claims.deployment_mode.clone(),
-            max_daily_verifications: Some(claims.max_verifications_per_day),
-            verifications_today,
+            max_verifications_total,
+            verifications_total,
+            verifications_remaining,
+            update_channels: claims.update_channels.clone(),
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::LicenseManager;
+
+    #[test]
+    fn compute_total_limit_unlimited() {
+        let (max, remaining) = LicenseManager::compute_total_limit(0, 10);
+        assert!(max.is_none());
+        assert!(remaining.is_none());
+    }
+
+    #[test]
+    fn compute_total_limit_remaining() {
+        let (max, remaining) = LicenseManager::compute_total_limit(100, 30);
+        assert_eq!(max, Some(100));
+        assert_eq!(remaining, Some(70));
+    }
+
+    #[test]
+    fn compute_total_limit_saturates() {
+        let (max, remaining) = LicenseManager::compute_total_limit(50, 80);
+        assert_eq!(max, Some(50));
+        assert_eq!(remaining, Some(0));
     }
 }
