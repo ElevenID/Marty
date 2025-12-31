@@ -13,7 +13,7 @@ const {
   SEEDED_USERS 
 } = require('../../utils/test-helpers');
 
-test.describe('Device Registration API', () => {
+test.describe('Device Registration API @slow', () => {
   let auth;
   let deviceReg;
 
@@ -163,7 +163,7 @@ test.describe('Device Registration API', () => {
   });
 });
 
-test.describe('Device Registration from Mobile Wallet', () => {
+test.describe('Device Registration from Mobile Wallet @slow', () => {
   // These tests simulate the mobile wallet's perspective
   
   test('mobile wallet iframe can register device via API', async ({ page }) => {

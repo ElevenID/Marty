@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import {
   Container,
   Paper,
@@ -60,6 +60,7 @@ const PresentationRequestCreator = () => {
   // Request state
   const [requestId, setRequestId] = useState(null);
   const [requestUri, setRequestUri] = useState('');
+  const [requestAudience, setRequestAudience] = useState('');
   const [requestStatus, setRequestStatus] = useState('idle'); // idle, created, pending, submitted, verified, error
   const [presentationData, setPresentationData] = useState(null);
   
@@ -67,29 +68,6 @@ const PresentationRequestCreator = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [copySnackbar, setCopySnackbar] = useState(false);
-
-  // Poll for presentation submission
-  useEffect(() => {
-    if (!requestId || requestStatus !== 'pending') return;
-
-    const pollInterval = setInterval(async () => {
-      try {
-        const response = await fetch(`/api/test/request-presentation/${requestId}/status`);
-        if (response.ok) {
-          const data = await response.json();
-          if (data.status === 'submitted') {
-            setRequestStatus('submitted');
-            setPresentationData(data.presentation);
-            clearInterval(pollInterval);
-          }
-        }
-      } catch (err) {
-        console.error('Polling error:', err);
-      }
-    }, 2000);
-
-    return () => clearInterval(pollInterval);
-  }, [requestId, requestStatus]);
 
   /**
    * Generate a new presentation request
@@ -103,14 +81,12 @@ const PresentationRequestCreator = () => {
     try {
       const nonce = customNonce || `nonce-${Date.now()}-${Math.random().toString(36).substring(7)}`;
       
-      const response = await fetch('/api/test/request-presentation', {
+      const response = await fetch('/api/verifier/request', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          credential_type: selectedCredentialType,
-          nonce: nonce,
-          verifier_name: verifierName,
-          callback_url: window.location.origin + '/api/test/presentation-callback',
+          requested_credentials: [selectedCredentialType],
+          verifier_id: verifierName,
         }),
       });
 
@@ -121,7 +97,8 @@ const PresentationRequestCreator = () => {
       const data = await response.json();
       
       setRequestId(data.request_id);
-      setRequestUri(data.request_uri);
+      setRequestUri(data.request_uri || '');
+      setRequestAudience(data.audience || '');
       setRequestStatus('pending');
     } catch (err) {
       setError(err.message);
@@ -139,12 +116,13 @@ const PresentationRequestCreator = () => {
 
     setLoading(true);
     try {
-      const response = await fetch('/api/test/verify-presentation', {
+      const response = await fetch('/api/verifier/verify-presentation', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           presentation_jwt: presentationData.vp_jwt || presentationData,
           expected_nonce: customNonce || null,
+          expected_audience: requestAudience || verifierName,
         }),
       });
 

@@ -6,7 +6,7 @@
  */
 
 import React, { useState, useEffect, useRef } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import {
   Box,
   Container,
@@ -39,12 +39,11 @@ import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import ArrowForwardIcon from '@mui/icons-material/ArrowForward';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import PhotoCameraIcon from '@mui/icons-material/PhotoCamera';
-import DirectionsCarIcon from '@mui/icons-material/DirectionsCar';
 import DeleteIcon from '@mui/icons-material/Delete';
 import UploadFileIcon from '@mui/icons-material/UploadFile';
 import { useAuth } from '../../hooks/useAuth';
 
-const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
+const API_URL = process.env.REACT_APP_API_URL || '';
 
 // US States
 const US_STATES = [
@@ -111,9 +110,10 @@ const LICENSE_CLASSES = [
 const STEPS = ['Personal Information', 'Address', 'License Details', 'Photo Upload', 'Review & Submit'];
 
 export default function ApplicationForm() {
-  const { credentialType } = useParams();
+  const { credentialType: credentialConfigId } = useParams();
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const location = useLocation();
+  const { user, organizationId } = useAuth();
   const fileInputRef = useRef(null);
 
   const [activeStep, setActiveStep] = useState(0);
@@ -121,6 +121,10 @@ export default function ApplicationForm() {
   const [error, setError] = useState(null);
   const [submitted, setSubmitted] = useState(false);
   const [applicationId, setApplicationId] = useState(null);
+  const [credentialConfig, setCredentialConfig] = useState(
+    location.state?.credential || null
+  );
+  const [configLoading, setConfigLoading] = useState(false);
 
   // Form data
   const [formData, setFormData] = useState({
@@ -151,6 +155,125 @@ export default function ApplicationForm() {
 
   // Validation errors
   const [validationErrors, setValidationErrors] = useState({});
+
+  const fetchApplicantById = async (applicantId) => {
+    if (!applicantId) {
+      return null;
+    }
+
+    const response = await fetch(`${API_URL}/api/applicants/${applicantId}`, {
+      credentials: 'include',
+    });
+
+    if (!response.ok) {
+      return null;
+    }
+
+    const data = await response.json();
+    return data?.id || null;
+  };
+
+  const fetchApplicantByUser = async () => {
+    if (!user?.user_id) {
+      return null;
+    }
+
+    const response = await fetch(`${API_URL}/api/applicants/by-user/${user.user_id}`, {
+      credentials: 'include',
+    });
+
+    if (!response.ok) {
+      return null;
+    }
+
+    const data = await response.json();
+    return data?.id || null;
+  };
+
+  const resolveApplicantId = async () => {
+    const byId = await fetchApplicantById(user?.applicant_id);
+    if (byId) {
+      return byId;
+    }
+
+    const byUser = await fetchApplicantByUser();
+    return byUser || null;
+  };
+
+  const createApplicant = async (address) => {
+    if (!user?.user_id) {
+      throw new Error('Unable to resolve applicant profile');
+    }
+
+    const response = await fetch(`${API_URL}/api/applicants`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({
+        user_id: user.user_id,
+        given_name: formData.firstName,
+        family_name: formData.lastName,
+        email: formData.email || user.email,
+        date_of_birth: formData.dateOfBirth,
+        nationality: 'USA',
+        address,
+      }),
+    });
+
+    if (!response.ok) {
+      const data = await response.json();
+      throw new Error(data.detail || 'Failed to create applicant');
+    }
+
+    const data = await response.json();
+    return data?.id || null;
+  };
+
+  const readFileAsBase64 = (file) =>
+    new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const result = reader.result;
+        if (typeof result !== 'string') {
+          resolve(null);
+          return;
+        }
+        const [, base64] = result.split(',');
+        resolve(base64 || null);
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+
+  useEffect(() => {
+    const fetchCredentialConfig = async () => {
+      if (!credentialConfigId || credentialConfig) {
+        return;
+      }
+      if (!organizationId) {
+        setError('Organization context missing for credential configuration.');
+        return;
+      }
+      setConfigLoading(true);
+      try {
+        const response = await fetch(
+          `${API_URL}/api/organizations/${organizationId}/credential-types/${credentialConfigId}`,
+          { credentials: 'include' }
+        );
+        if (!response.ok) {
+          throw new Error('Unable to load credential configuration');
+        }
+        const data = await response.json();
+        setCredentialConfig(data.credential_type || null);
+      } catch (err) {
+        setError(err.message);
+      } finally {
+        setConfigLoading(false);
+      }
+    };
+
+    fetchCredentialConfig();
+  }, [credentialConfigId, credentialConfig, organizationId]);
 
   useEffect(() => {
     // Pre-fill user email
@@ -263,37 +386,128 @@ export default function ApplicationForm() {
     setError(null);
 
     try {
-      // Create FormData for multipart upload
-      const submitData = new FormData();
-      submitData.append('credential_type', credentialType || 'mdl');
-      submitData.append('first_name', formData.firstName);
-      submitData.append('last_name', formData.lastName);
-      submitData.append('date_of_birth', formData.dateOfBirth);
-      submitData.append('email', formData.email);
-      submitData.append('street', formData.street);
-      submitData.append('city', formData.city);
-      submitData.append('state', formData.state);
-      submitData.append('zip', formData.zip);
-      submitData.append('license_class', formData.licenseClass);
-      submitData.append('document_number', formData.documentNumber);
-      submitData.append('restrictions', formData.restrictions);
-      if (formData.portrait) {
-        submitData.append('portrait', formData.portrait);
+      if (!credentialConfig?.id && !credentialConfigId) {
+        throw new Error('Please select a credential to apply for.');
+      }
+      const address = {
+        street_line1: formData.street,
+        city: formData.city,
+        state_province: formData.state,
+        postal_code: formData.zip,
+        country: 'USA',
+      };
+
+      let applicantId = await resolveApplicantId();
+      let applicantCreated = false;
+
+      if (!applicantId) {
+        applicantId = await createApplicant(address);
+        applicantCreated = true;
       }
 
-      const response = await fetch(`${API_URL}/api/applications/submit`, {
+      if (!applicantId) {
+        throw new Error('Unable to resolve applicant profile');
+      }
+
+      if (!applicantCreated) {
+        const updateResponse = await fetch(`${API_URL}/api/applicants/${applicantId}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({
+            given_name: formData.firstName,
+            family_name: formData.lastName,
+            address,
+          }),
+        });
+
+        if (!updateResponse.ok) {
+          if (updateResponse.status === 404) {
+            const fallbackApplicantId = await fetchApplicantByUser();
+            if (fallbackApplicantId) {
+              applicantId = fallbackApplicantId;
+            } else {
+              applicantId = await createApplicant(address);
+              applicantCreated = true;
+            }
+            if (!applicantId) {
+              throw new Error('Unable to resolve applicant profile');
+            }
+          } else {
+            const data = await updateResponse.json();
+            throw new Error(data.detail || 'Failed to update applicant');
+          }
+        }
+      }
+
+      const createResponse = await fetch(`${API_URL}/api/applicants/applications`, {
         method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: submitData,
+        body: JSON.stringify({
+          applicant_id: applicantId,
+          credential_configuration_id: credentialConfig?.id || credentialConfigId,
+          issuing_authority: 'Marty Trust Services',
+          requested_validity_years: 10,
+          metadata: {
+            document_number: formData.documentNumber,
+            credential_type: credentialConfig?.credentialType || credentialConfig?.credential_type,
+            credential_display_name: credentialConfig?.name || credentialConfig?.display_name,
+            license_class: formData.licenseClass,
+            restrictions: formData.restrictions,
+          },
+        }),
       });
 
-      if (!response.ok) {
-        const data = await response.json();
+      if (!createResponse.ok) {
+        const data = await createResponse.json();
+        throw new Error(data.detail || 'Failed to create application');
+      }
+
+      const created = await createResponse.json();
+
+      const submitResponse = await fetch(
+        `${API_URL}/api/applicants/applications/${created.id}/submit`,
+        {
+          method: 'POST',
+          credentials: 'include',
+        }
+      );
+
+      if (!submitResponse.ok) {
+        const data = await submitResponse.json();
         throw new Error(data.detail || 'Failed to submit application');
       }
 
-      const data = await response.json();
-      setApplicationId(data.application_id);
+      const submittedApplication = await submitResponse.json();
+
+      const imageBase64 = formData.portrait
+        ? await readFileAsBase64(formData.portrait)
+        : null;
+      const templateBase64 = imageBase64 || btoa('test-biometric-template');
+
+      const biometricResponse = await fetch(
+        `${API_URL}/api/applicants/${applicantId}/biometrics`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({
+            biometric_type: 'FACIAL',
+            template_data_base64: templateBase64,
+            image_data_base64: imageBase64,
+            is_live_capture: true,
+            capture_device_id: 'web-form',
+          }),
+        }
+      );
+
+      if (!biometricResponse.ok) {
+        const data = await biometricResponse.json();
+        throw new Error(data.detail || 'Failed to enroll biometric');
+      }
+
+      setApplicationId(submittedApplication.id);
       setSubmitted(true);
 
       // Redirect after delay
@@ -746,18 +960,43 @@ export default function ApplicationForm() {
     );
   }
 
+  if (configLoading) {
+    return (
+      <Container maxWidth="md" sx={{ py: 4 }}>
+        <Paper sx={{ p: 4, textAlign: 'center' }}>
+          <CircularProgress />
+        </Paper>
+      </Container>
+    );
+  }
+
+  if (!credentialConfig && !credentialConfigId) {
+    return (
+      <Container maxWidth="md" sx={{ py: 4 }}>
+        <Paper sx={{ p: 4 }}>
+          <Alert severity="warning" sx={{ mb: 2 }}>
+            Please select a credential from the catalog before starting an application.
+          </Alert>
+          <Button variant="contained" onClick={() => navigate('/credentials')}>
+            Go to Credential Catalog
+          </Button>
+        </Paper>
+      </Container>
+    );
+  }
+
   return (
-    <Container maxWidth="md" sx={{ py: 4 }} data-testid="mdl-application-form">
+    <Container maxWidth="md" sx={{ py: 4 }} data-testid="credential-application-form">
       {/* Header */}
       <Box sx={{ mb: 4 }}>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 1 }}>
-          <DirectionsCarIcon color="primary" fontSize="large" />
+          <CheckCircleIcon color="primary" fontSize="large" />
           <Typography variant="h4" component="h1">
-            Mobile Driver's License Application
+            {credentialConfig?.display_name || 'Credential Application'}
           </Typography>
         </Box>
         <Typography variant="body1" color="text.secondary">
-          Complete the form below to apply for your mDL credential.
+          Complete the form below to apply for your credential.
         </Typography>
       </Box>
 

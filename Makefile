@@ -8,6 +8,7 @@
 #   make dev         - Start development environment
 #   make test        - Run E2E tests (full browser matrix)
 #   make test-local  - Run fast Chromium-only tests
+#   make test-fast   - Run fast Chromium-only tests (skip @slow)
 #
 # PREREQUISITES:
 #   - Docker & Docker Compose v2
@@ -102,6 +103,17 @@ test-local: _ensure-wallet ## Run fast Chromium-only E2E tests
 	@sleep 10
 	$(COMPOSE) --profile test-local up playwright-local --exit-code-from playwright-local
 	@echo "$(GREEN)✅ Chromium tests completed!$(NC)"
+
+test-fast: _ensure-wallet ## Run fast Chromium-only E2E tests (skip @slow)
+	@echo "$(BLUE)🧪 Running fast Chromium-only E2E tests (skip @slow)...$(NC)"
+	$(COMPOSE) --profile test-local up -d postgres redis mailhog keycloak
+	@echo "$(BLUE)⏳ Waiting for infrastructure...$(NC)"
+	@sleep 5
+	$(COMPOSE) --profile test-local up -d oid4vc-api-test ui-test wallet-simulator
+	@echo "$(BLUE)⏳ Waiting for services to be healthy...$(NC)"
+	@sleep 10
+	PW_FAST=1 $(COMPOSE) --profile test-local up playwright-local --exit-code-from playwright-local
+	@echo "$(GREEN)✅ Fast Chromium tests completed!$(NC)"
 
 pytest: ## Run Python unit/integration tests
 	@echo "$(BLUE)🧪 Running Python tests...$(NC)"

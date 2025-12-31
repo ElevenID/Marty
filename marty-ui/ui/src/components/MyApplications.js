@@ -5,6 +5,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   Box,
   Card,
@@ -29,23 +30,30 @@ import { useAuth } from '../hooks/useAuth';
 // Application status colors
 const STATUS_COLORS = {
   pending: 'warning',
+  submitted: 'info',
+  pending_approval: 'warning',
   under_review: 'info',
   approved: 'success',
   rejected: 'error',
+  issued: 'success',
   completed: 'success',
 };
 
 // Application status labels
 const STATUS_LABELS = {
   pending: 'Pending',
+  submitted: 'Submitted',
+  pending_approval: 'Pending Approval',
   under_review: 'Under Review',
   approved: 'Approved',
   rejected: 'Rejected',
+  issued: 'Issued',
   completed: 'Completed',
 };
 
 function MyApplications() {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [applications, setApplications] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -55,7 +63,22 @@ function MyApplications() {
     setError(null);
 
     try {
-      const response = await fetch('/api/applicants/me/applications', {
+      let applicantId = user?.applicant_id;
+      if (!applicantId && user?.user_id) {
+        const applicantResponse = await fetch(`/api/applicants/by-user/${user.user_id}`, {
+          credentials: 'include',
+        });
+        if (applicantResponse.ok) {
+          const applicantData = await applicantResponse.json();
+          applicantId = applicantData?.id;
+        }
+      }
+
+      if (!applicantId) {
+        throw new Error('Applicant profile not found');
+      }
+
+      const response = await fetch(`/api/applicants/${applicantId}/applications`, {
         credentials: 'include',
       });
 
@@ -64,7 +87,8 @@ function MyApplications() {
       }
 
       const data = await response.json();
-      setApplications(data.applications || []);
+      const applications = Array.isArray(data) ? data : (data.applications || []);
+      setApplications(applications);
     } catch (err) {
       console.error('Error fetching applications:', err);
       setError(err.message);
@@ -97,7 +121,7 @@ function MyApplications() {
           <Button variant="outlined" startIcon={<RefreshIcon />} onClick={fetchApplications}>
             Refresh
           </Button>
-          <Button variant="contained" startIcon={<AddIcon />}>
+          <Button variant="contained" startIcon={<AddIcon />} onClick={() => navigate('/credentials')}>
             New Application
           </Button>
         </Box>
@@ -132,7 +156,7 @@ function MyApplications() {
 
       {/* Applications Table */}
       {!loading && !error && (
-        <TableContainer component={Paper}>
+        <TableContainer component={Paper} data-testid="applications-table">
           <Table>
             <TableHead>
               <TableRow>
@@ -156,18 +180,18 @@ function MyApplications() {
                 </TableRow>
               ) : (
                 applications.map((app) => (
-                  <TableRow key={app.id} hover>
+                  <TableRow key={app.id} hover data-testid={`application-row-${app.id}`}>
                     <TableCell>
                       <Typography variant="body2" fontFamily="monospace">
                         {app.id?.slice(0, 8)}...
                       </Typography>
                     </TableCell>
-                    <TableCell>{app.document_type || 'Passport'}</TableCell>
+                    <TableCell>{app.credential_display_name || app.document_type || 'Credential'}</TableCell>
                     <TableCell>{formatDate(app.submitted_at)}</TableCell>
                     <TableCell>
                       <Chip
-                        label={STATUS_LABELS[app.status] || app.status}
-                        color={STATUS_COLORS[app.status] || 'default'}
+                        label={STATUS_LABELS[`${app.status || ''}`.toLowerCase()] || app.status}
+                        color={STATUS_COLORS[`${app.status || ''}`.toLowerCase()] || 'default'}
                         size="small"
                       />
                     </TableCell>

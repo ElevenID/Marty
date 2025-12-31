@@ -25,6 +25,7 @@ const CompletionStep = ({
   membershipStatus,
   walletPaired,
   pairedDeviceId,
+  existingOrganization = false,
 }) => {
   const copyInviteCode = () => {
     navigator.clipboard.writeText(resultInviteCode);
@@ -42,7 +43,9 @@ const CompletionStep = ({
           <Box sx={{ my: 4, maxWidth: 400, mx: 'auto' }}>
             <Alert severity="success" sx={{ mb: 2 }}>
               <Typography variant="body2">
-                Your organization <strong data-testid="org-name-display">{resultOrgName}</strong> has been created!
+                {existingOrganization
+                  ? <>Organization <strong data-testid="org-name-display">{resultOrgName}</strong> is ready.</>
+                  : <>Your organization <strong data-testid="org-name-display">{resultOrgName}</strong> has been created!</>}
               </Typography>
             </Alert>
             <Paper variant="outlined" sx={{ p: 3, bgcolor: 'grey.50' }}>

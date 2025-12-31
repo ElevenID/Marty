@@ -9,7 +9,7 @@ auto-populates holder information from vetted applicant records.
 from __future__ import annotations
 
 import logging
-from datetime import date, datetime
+from datetime import datetime
 from typing import Any
 from uuid import UUID
 
@@ -55,30 +55,44 @@ class ApplicantDocumentIntegration:
     @property
     def applicant_service(self):
         if self._applicant_service is None:
-            from .applicant_service.service import ApplicantService
+            from applicant_service.service import ApplicantService
             self._applicant_service = ApplicantService()
         return self._applicant_service
 
     @property
     def application_service(self):
         if self._application_service is None:
-            from .applicant_service.service import ApplicationService
+            from applicant_service.service import ApplicationService
             self._application_service = ApplicationService()
         return self._application_service
 
     @property
     def approval_service(self):
         if self._approval_service is None:
-            from .applicant_service.service import ApprovalService
+            from applicant_service.service import ApprovalService
             self._approval_service = ApprovalService()
         return self._approval_service
 
     @property
     def document_service(self):
         if self._document_service is None:
-            from .document_service.service import DocumentService
+            from document_service.service import DocumentService
             self._document_service = DocumentService()
         return self._document_service
+
+    async def _get_credential_config(self, config_id: str):
+        from sqlalchemy import select
+        from subscription.database import session_scope
+        from subscription.models import CredentialTypeConfiguration
+
+        async with session_scope() as session:
+            result = await session.execute(
+                select(CredentialTypeConfiguration).where(
+                    CredentialTypeConfiguration.id == config_id,
+                    CredentialTypeConfiguration.is_active == True,
+                )
+            )
+            return result.scalar_one_or_none()
 
     async def get_approved_applications_for_issuance(self, limit: int = 50) -> list[dict[str, Any]]:
         """
@@ -93,27 +107,59 @@ class ApplicantDocumentIntegration:
             List of approved applications with applicant info
         """
         approved = await self.approval_service.get_approved_applications(limit)
-        
+
         result = []
         for app in approved:
             applicant = await self.applicant_service.get_applicant(app.applicant_id)
-            if applicant:
-                result.append({
-                    "application_id": str(app.id),
-                    "reference_number": app.reference_number,
-                    "document_type": app.document_type,
-                    "applicant_id": str(app.applicant_id),
-                    "applicant_name": applicant.full_name,
-                    "applicant_given_name": applicant.given_name,
-                    "applicant_family_name": applicant.family_name,
-                    "applicant_dob": applicant.date_of_birth.isoformat() if applicant.date_of_birth else None,
-                    "applicant_nationality": applicant.nationality,
-                    "requested_validity_years": app.requested_validity_years,
-                    "approved_at": app.approved_at.isoformat() if app.approved_at else None,
-                    "approved_by": app.approved_by,
-                })
-        
+            if not applicant:
+                continue
+            given_name = applicant.given_names
+            family_name = applicant.surname
+            full_name = f"{given_name} {family_name}".strip()
+            ial_level = (
+                f"IAL{applicant.identity_assurance_level}"
+                if applicant.identity_assurance_level
+                else None
+            )
+            result.append({
+                "application_id": str(app.id),
+                "reference_number": app.application_number,
+                "document_type": app.document_type,
+                "credential_configuration_id": app.credential_configuration_id,
+                "credential_type": app.credential_type,
+                "credential_display_name": (app.extra_data or {}).get("credential_display_name"),
+                "applicant_id": str(app.applicant_id),
+                "applicant_name": full_name,
+                "applicant_given_name": given_name,
+                "applicant_family_name": family_name,
+                "applicant_dob": applicant.date_of_birth.isoformat() if applicant.date_of_birth else None,
+                "applicant_nationality": applicant.nationality,
+                "requested_validity_years": app.requested_validity_years,
+                "approved_at": app.approved_at.isoformat() if app.approved_at else None,
+                "approved_by": app.approved_by,
+                "ial_level": ial_level,
+            })
+
         return result
+
+    async def get_documents_for_applicant(
+        self,
+        applicant_id: str,
+        limit: int = 200,
+    ) -> list[Any]:
+        """
+        Get issued documents for a specific applicant.
+
+        Filters document metadata for the applicant_id recorded at issuance.
+        """
+        documents = await self.document_service.list_documents(limit=limit, offset=0)
+        applicant_key = str(applicant_id)
+
+        return [
+            doc
+            for doc in documents.documents
+            if (doc.metadata or {}).get("applicant_id") == applicant_key
+        ]
 
     async def validate_application_for_issuance(self, application_id: UUID) -> tuple[bool, str]:
         """
@@ -131,12 +177,19 @@ class ApplicantDocumentIntegration:
         Returns:
             Tuple of (is_valid, error_message)
         """
-        from .applicant_service.models import ApplicationStatus, VettingCheckStatus
+        from applicant_service.models import ApplicationStatus, VettingCheckStatus
 
         # Get application
         application = await self.application_service.get_application(application_id)
         if not application:
             return False, "Application not found"
+
+        if not application.credential_configuration_id:
+            return False, "Application missing credential configuration"
+
+        config = await self._get_credential_config(application.credential_configuration_id)
+        if not config:
+            return False, "Credential configuration not found or inactive"
 
         # Check status
         if application.status != ApplicationStatus.APPROVED:
@@ -158,7 +211,7 @@ class ApplicantDocumentIntegration:
             return False, "No biometrics enrolled for applicant"
 
         # Check for facial biometric (minimum required)
-        from .applicant_service.models import BiometricType
+        from applicant_service.models import BiometricType
         has_facial = any(b.biometric_type == BiometricType.FACIAL for b in biometrics)
         if not has_facial:
             return False, "Facial biometric required for document issuance"
@@ -191,8 +244,9 @@ class ApplicantDocumentIntegration:
         Raises:
             ValueError: If validation fails
         """
-        from .applicant_service.models import ApplicationStatus
-        from .document_service.models import DocumentType, IssueDocumentRequest, ActorType
+        from applicant_service.models import ApplicationStatus
+        from document_service.models import IssueDocumentRequest, ActorType
+        from credentials.types import credential_to_document_type
 
         # Validate application
         is_valid, error = await self.validate_application_for_issuance(request.application_id)
@@ -201,39 +255,43 @@ class ApplicantDocumentIntegration:
 
         # Get application and applicant
         application = await self.application_service.get_application(request.application_id)
+        config = await self._get_credential_config(application.credential_configuration_id)
+        if not config:
+            raise ValueError("Credential configuration not found or inactive")
         applicant = await self.applicant_service.get_applicant(application.applicant_id)
+        if not applicant:
+            raise ValueError("Applicant record not found")
+        given_name = applicant.given_names
+        family_name = applicant.surname
+        full_name = f"{given_name} {family_name}".strip()
+        extra_data = application.extra_data or {}
 
-        # Map application document type to document service type
-        doc_type_mapping = {
-            "PASSPORT": DocumentType.EMRTD,
-            "PASSPORT_RENEWAL": DocumentType.EMRTD,
-            "VISA": DocumentType.VISA,
-            "TRAVEL_PERMIT": DocumentType.EMRTD,
-            "DIPLOMATIC_CREDENTIAL": DocumentType.EMRTD,
-            "EMERGENCY_TRAVEL_DOCUMENT": DocumentType.EMRTD,
-        }
-        
-        document_type = doc_type_mapping.get(application.document_type, DocumentType.EMRTD)
+        document_type = credential_to_document_type(config.credential_type)
+        if document_type is None:
+            raise ValueError(f"Credential type {config.credential_type.value} is not supported for document issuance")
 
         # Create issue request with applicant data
         issue_request = IssueDocumentRequest(
             document_type=document_type,
             document_number=request.document_number,
-            holder_name=applicant.full_name,
-            holder_given_name=applicant.given_name,
-            holder_family_name=applicant.family_name,
+            holder_name=full_name,
+            holder_given_name=given_name,
+            holder_family_name=family_name,
             holder_dob=applicant.date_of_birth.date() if isinstance(applicant.date_of_birth, datetime) else applicant.date_of_birth,
             nationality=applicant.nationality,
             validity_years=application.requested_validity_years,
             issuer_id=request.issuer_id,
-            issuing_authority=request.issuing_authority or application.issuing_authority,
+            issuing_authority=request.issuing_authority or extra_data.get("issuing_authority"),
             issuing_country=request.issuing_country,
             signer_cert_id=request.signer_cert_id,
             metadata={
                 **request.metadata,
                 "application_id": str(application.id),
-                "application_reference": application.reference_number,
+                "application_reference": application.application_number,
                 "applicant_id": str(applicant.id),
+                "credential_configuration_id": config.id,
+                "credential_type": config.credential_type.value,
+                "credential_display_name": config.display_name,
             },
         )
 
@@ -253,8 +311,29 @@ class ApplicantDocumentIntegration:
         )
 
         logger.info(
-            f"Issued document {document.id} from application {application.reference_number}"
+            f"Issued document {document.id} from application {application.application_number}"
         )
+
+        # Emit a notification for the applicant.
+        if applicant.account_id:
+            try:
+                from notifications.store import record_notification
+
+                record_notification(
+                    user_id=applicant.account_id,
+                    event_type="credential_offer",
+                    title="New Credential Available",
+                    body=f"Your document {document.document_number} is ready.",
+                    data={
+                        "document_id": str(document.id),
+                        "application_id": str(application.id),
+                        "document_type": document.document_type.value,
+                        "credential_configuration_id": config.id,
+                        "credential_type": config.credential_type.value,
+                    },
+                )
+            except Exception as exc:
+                logger.warning(f"Failed to record notification: {exc}")
 
         return {
             "document_id": str(document.id),
@@ -262,7 +341,7 @@ class ApplicantDocumentIntegration:
             "document_type": document.document_type.value,
             "holder_name": document.holder_name,
             "application_id": str(application.id),
-            "application_reference": application.reference_number,
+            "application_reference": application.application_number,
             "issued_at": document.issued_at.isoformat(),
             "expires_at": document.expires_at.isoformat(),
         }
@@ -286,7 +365,7 @@ class ApplicantDocumentIntegration:
         Returns:
             Tuple of (match_result, similarity_score)
         """
-        from .applicant_service.models import BiometricType
+        from applicant_service.models import BiometricType
 
         # Get application and applicant
         application = await self.application_service.get_application(application_id)

@@ -7,6 +7,9 @@
 const { test, expect } = require('@playwright/test');
 const { AuthHelpers, SEEDED_USERS } = require('../../utils/test-helpers');
 
+const BASE_URL = process.env.BASE_URL || 'http://localhost:9080';
+const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
 test.describe('Vendor Registration', () => {
   let auth;
 
@@ -20,7 +23,7 @@ test.describe('Vendor Registration', () => {
     await auth.loginAsSeededUser('vendor');
     
     // Should be redirected to vendor dashboard after login
-    await expect(page).toHaveURL(/^http:\/\/localhost:9080\/(vendor)?$/);
+    await expect(page).toHaveURL(new RegExp(`${escapeRegex(BASE_URL)}/(vendor)?$`));
     
     // Should see the vendor's email in the UI (indicates logged in)
     await expect(page.locator('body')).toContainText(SEEDED_USERS.vendor.email);

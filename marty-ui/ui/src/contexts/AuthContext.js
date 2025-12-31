@@ -21,6 +21,7 @@ import { getCurrentUser, initiateLogin, initiateRegister, initiateLogout } from 
  * @property {string|null} organization_id - Keycloak Organization ID (for vendors/org members)
  * @property {string|null} organization_name - Organization display name
  * @property {Object|null} organization - Raw organization claim from Keycloak
+ * @property {Array<{id: string, name: string|null}>} organizations - Organization memberships
  */
 
 /**
@@ -33,6 +34,8 @@ import { getCurrentUser, initiateLogin, initiateRegister, initiateLogout } from 
  * @property {boolean} isApplicant - Whether user is an applicant
  * @property {string|null} organizationId - Current organization ID
  * @property {string|null} organizationName - Current organization name
+ * @property {Array<{id: string, name: string|null}>} organizations - Organization memberships
+ * @property {function} setActiveOrganizationId - Select active organization
  * @property {function} login - Initiate login flow
  * @property {function} register - Initiate registration flow
  * @property {function} logout - Initiate logout flow
@@ -48,10 +51,12 @@ const defaultContextValue = {
   isApplicant: false,
   organizationId: null,
   organizationName: null,
+  organizations: [],
   login: () => {},
   register: () => {},
   logout: () => {},
   refreshUser: async () => {},
+  setActiveOrganizationId: () => {},
 };
 
 export const AuthContext = createContext(defaultContextValue);
@@ -64,22 +69,30 @@ export const AuthContext = createContext(defaultContextValue);
  */
 function parseOrganizationClaim(orgClaim) {
   if (!orgClaim || typeof orgClaim !== 'object') {
-    return { id: null, name: null };
+    return { id: null, name: null, organizations: [] };
   }
   
   // Keycloak returns organization as { "org-id": { "name": "...", ... } }
   const orgIds = Object.keys(orgClaim);
   if (orgIds.length === 0) {
-    return { id: null, name: null };
+    return { id: null, name: null, organizations: [] };
   }
   
-  // Use the first organization (user can be member of multiple, but we use primary)
-  const orgId = orgIds[0];
-  const orgData = orgClaim[orgId];
-  
+  const organizations = orgIds.map((orgId) => {
+    const orgData = orgClaim[orgId];
+    return {
+      id: orgId,
+      name: orgData?.name || null,
+    };
+  });
+
+  // Use the first organization as default
+  const primary = organizations[0];
+
   return {
-    id: orgId,
-    name: orgData?.name || null,
+    id: primary?.id || null,
+    name: primary?.name || null,
+    organizations,
   };
 }
 
@@ -125,12 +138,23 @@ export function AuthProvider({ children }) {
         const rawUser = result.user;
         const org = parseOrganizationClaim(rawUser.organization);
         const userType = determineUserType(rawUser.roles, rawUser.user_type);
-        
+        const fallbackOrganizations = org.organizations.length
+          ? org.organizations
+          : rawUser.organization_id
+            ? [{ id: rawUser.organization_id, name: rawUser.organization_name || null }]
+            : [];
+        const storedOrgId = window.localStorage.getItem('activeOrgId');
+        const activeOrg =
+          fallbackOrganizations.find((entry) => entry.id === storedOrgId) ||
+          fallbackOrganizations[0] ||
+          null;
+
         setUser({
           ...rawUser,
           user_type: userType,
-          organization_id: org.id || rawUser.organization_id || null,
-          organization_name: org.name || rawUser.organization_name || null,
+          organization_id: activeOrg?.id || org.id || rawUser.organization_id || null,
+          organization_name: activeOrg?.name || org.name || rawUser.organization_name || null,
+          organizations: fallbackOrganizations,
         });
       } else {
         setUser(null);
@@ -173,6 +197,24 @@ export function AuthProvider({ children }) {
   }, [fetchUser]);
 
   // Computed values - derive role booleans and organization info
+  const setActiveOrganizationId = useCallback(
+    (orgId) => {
+      setUser((prev) => {
+        if (!prev) return prev;
+        const memberships = prev.organizations || [];
+        const selected = memberships.find((entry) => entry.id === orgId);
+        if (!selected) return prev;
+        window.localStorage.setItem('activeOrgId', orgId);
+        return {
+          ...prev,
+          organization_id: selected.id,
+          organization_name: selected.name || prev.organization_name,
+        };
+      });
+    },
+    [setUser]
+  );
+
   const contextValue = useMemo(() => {
     const userType = user?.user_type;
     const roles = user?.roles || [];
@@ -188,13 +230,15 @@ export function AuthProvider({ children }) {
       // Organization info
       organizationId: user?.organization_id || null,
       organizationName: user?.organization_name || null,
+      organizations: user?.organizations || [],
       // Actions
       login,
       register,
       logout,
       refreshUser,
+      setActiveOrganizationId,
     };
-  }, [user, isLoading, login, register, logout, refreshUser]);
+  }, [user, isLoading, login, register, logout, refreshUser, setActiveOrganizationId]);
 
   return (
     <AuthContext.Provider value={contextValue}>

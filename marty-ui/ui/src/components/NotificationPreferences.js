@@ -37,6 +37,7 @@ import {
   Close as CloseIcon,
   Refresh as RefreshIcon,
 } from '@mui/icons-material';
+import { useAuth } from '../hooks/useAuth';
 
 const API_BASE_URL = process.env.REACT_APP_API_URL || '/api';
 
@@ -80,6 +81,7 @@ const NOTIFICATION_CATEGORIES = [
  * NotificationPreferences Component
  */
 const NotificationPreferences = () => {
+  const { user, organizationId } = useAuth();
   // State
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -167,13 +169,27 @@ const NotificationPreferences = () => {
     try {
       const mockToken = `fcm_web_${Date.now()}`;
 
-      await fetch(`${API_BASE_URL}/test/wallet/register`, {
+      if (!user?.user_id) {
+        throw new Error('Missing user context');
+      }
+
+      const prefix = organizationId ? `${organizationId}:` : '';
+      const storageKey = `wallet_device_id:${prefix || 'default'}`;
+      let deviceId = localStorage.getItem(storageKey);
+      if (!deviceId) {
+        deviceId = `${prefix}web-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        localStorage.setItem(storageKey, deviceId);
+      }
+
+      await fetch(`${API_BASE_URL}/devices/register`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-User-ID': user.user_id },
         credentials: 'include',
         body: JSON.stringify({
-          push_token: mockToken,
+          device_id: deviceId,
+          fcm_token: mockToken,
           platform: 'web',
+          app_version: 'web-1.0.0',
         }),
       });
     } catch (err) {
@@ -206,32 +222,6 @@ const NotificationPreferences = () => {
     setError(null);
 
     try {
-      // Send test notification via backend
-      const response = await fetch(`${API_BASE_URL}/test/send-push-notification`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({
-          notification_type: 'test',
-          title: 'Test Notification',
-          body: 'This is a test notification from Marty Trust Services',
-          data: { test: true },
-        }),
-      });
-
-      if (response.ok) {
-        // Also show browser notification
-        if (Notification.permission === 'granted') {
-          new Notification('Test Notification', {
-            body: 'This is a test notification from Marty Trust Services',
-            icon: '/favicon.ico',
-          });
-        }
-        setSuccess('Test notification sent!');
-        setSnackbarOpen(true);
-      }
-    } catch (err) {
-      // Show browser notification anyway for testing
       if (Notification.permission === 'granted') {
         new Notification('Test Notification', {
           body: 'This is a test notification from Marty Trust Services',
@@ -242,6 +232,8 @@ const NotificationPreferences = () => {
       } else {
         setError('Please enable notifications first');
       }
+    } catch (err) {
+      setError(err.message);
     } finally {
       setTestSending(false);
     }

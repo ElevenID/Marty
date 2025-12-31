@@ -16,6 +16,14 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
+from oid4vc.store import (
+    record_presentation_request,
+    mark_presentation_submitted,
+    get_presentation_request,
+    list_presentation_requests,
+    clear_presentation_requests,
+)
+
 # Enhanced features imports
 try:
     from age_verification import AgeVerificationEngine
@@ -83,6 +91,22 @@ try:
 except ImportError as e:
     DEVICES_SERVICE_AVAILABLE = False
     logging.warning(f"Devices service not available: {e}")
+
+# Open Badges service imports
+try:
+    from open_badges.router import router as open_badges_router
+    OPEN_BADGES_AVAILABLE = True
+except ImportError as e:
+    OPEN_BADGES_AVAILABLE = False
+    logging.warning(f"Open Badges service not available: {e}")
+
+# Notifications API imports
+try:
+    from notifications.api import router as notifications_router
+    NOTIFICATIONS_API_AVAILABLE = True
+except ImportError as e:
+    NOTIFICATIONS_API_AVAILABLE = False
+    logging.warning(f"Notifications API not available: {e}")
 
 # Test helper service imports (only in test/dev environments)
 try:
@@ -184,8 +208,18 @@ if DEVICES_SERVICE_AVAILABLE:
     app.include_router(devices_router, tags=["Devices"])
     logger.info("Devices service router registered")
 
+# Open Badges endpoints
+if OPEN_BADGES_AVAILABLE:
+    app.include_router(open_badges_router, tags=["Open Badges"])
+    logger.info("Open Badges router registered")
+
+# Notifications API endpoints
+if NOTIFICATIONS_API_AVAILABLE:
+    app.include_router(notifications_router, tags=["Notifications"])
+    logger.info("Notifications API router registered")
+
 # Test helper endpoints (for E2E testing)
-if TEST_HELPERS_AVAILABLE:
+if TEST_HELPERS_AVAILABLE and os.environ.get("ENABLE_TEST_ENDPOINTS", "").lower() == "true":
     app.include_router(test_helpers_router, tags=["Test Helpers"])
     logger.info("Test helpers router registered")
 
@@ -335,6 +369,13 @@ class VerifyPresentationRequest(BaseModel):
     presentation_jwt: str = Field(..., description="JWT presentation to verify")
     expected_audience: str = Field(..., description="Expected verifier")
     expected_nonce: str | None = None
+    request_id: str | None = None
+
+
+class CreatePresentationRequest(BaseModel):
+    """Request to create a presentation request."""
+    requested_credentials: list[str] = Field(default=["VerifiableCredential"])
+    verifier_id: str | None = Field(default=None)
 
 
 class GenerateKeyRequest(BaseModel):
@@ -492,6 +533,9 @@ async def verify_presentation(request: VerifyPresentationRequest):
             expected_audience=request.expected_audience,
             expected_nonce=request.expected_nonce,
         )
+
+        if request.request_id and result.valid:
+            mark_presentation_submitted(request.request_id, {"vp_jwt": request.presentation_jwt})
         
         return {
             "valid": result.valid,
@@ -505,28 +549,64 @@ async def verify_presentation(request: VerifyPresentationRequest):
 
 
 @app.post("/api/verifier/request")
-async def create_presentation_request():
+async def create_presentation_request(request: CreatePresentationRequest):
     """Create a presentation request for OID4VP."""
     _, _, _, verifier = _get_adapters()
     
-    verifier_id = os.getenv("VERIFIER_ID", "demo_verifier")
+    verifier_id = request.verifier_id or os.getenv("VERIFIER_ID", "demo_verifier")
     
     try:
-        request = verifier.create_presentation_request(
+        presentation_request = verifier.create_presentation_request(
             verifier_id=verifier_id,
-            requested_credentials=["VerifiableCredential"],
+            requested_credentials=request.requested_credentials or ["VerifiableCredential"],
+        )
+
+        record_presentation_request(
+            request_id=presentation_request.request_id,
+            verifier=presentation_request.verifier,
+            requested_credentials=presentation_request.requested_credentials,
+            nonce=presentation_request.nonce,
+            audience=presentation_request.audience,
+            request_uri=getattr(presentation_request, "request_uri", None),
         )
         
         return {
-            "request_id": request.request_id,
-            "verifier": request.verifier,
-            "requested_credentials": request.requested_credentials,
-            "nonce": request.nonce,
-            "audience": request.audience,
+            "request_id": presentation_request.request_id,
+            "verifier": presentation_request.verifier,
+            "requested_credentials": presentation_request.requested_credentials,
+            "nonce": presentation_request.nonce,
+            "audience": presentation_request.audience,
+            "request_uri": getattr(presentation_request, "request_uri", None),
         }
     except Exception as e:
         logger.error(f"Failed to create presentation request: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/verifier/requests")
+async def list_presentation_requests_api():
+    """List presentation requests (in-memory)."""
+    requests = list_presentation_requests()
+    return {"count": len(requests), "requests": requests}
+
+
+@app.get("/api/verifier/requests/{request_id}/status")
+async def get_presentation_request_status(request_id: str):
+    """Get presentation request status."""
+    record = get_presentation_request(request_id)
+    if not record:
+        raise HTTPException(status_code=404, detail="Presentation request not found")
+    return {
+        "status": record.get("status"),
+        "presentation": record.get("presentation"),
+    }
+
+
+@app.delete("/api/verifier/requests")
+async def clear_presentation_requests_api():
+    """Clear presentation requests (in-memory)."""
+    cleared = clear_presentation_requests()
+    return {"cleared": cleared, "message": f"Cleared {cleared} presentation requests"}
 
 
 @app.post("/api/wallet/store")

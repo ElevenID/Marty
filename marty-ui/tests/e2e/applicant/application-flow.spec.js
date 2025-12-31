@@ -69,6 +69,7 @@ test.describe.skip('Travel Document Application', () => {
   test.beforeEach(async ({ page }) => {
     auth = new AuthHelpers(page);
     pushNotifications = new PushNotificationHelpers(page);
+    pushNotifications.setUserId('test-user');
     emailHelper = new EmailTestHelpers(page);
     
     await page.goto('/');

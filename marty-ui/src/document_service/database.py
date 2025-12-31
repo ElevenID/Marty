@@ -8,9 +8,10 @@ from __future__ import annotations
 
 import logging
 import os
+from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, AsyncIterator
 from uuid import UUID
 
 import aiosqlite
@@ -99,17 +100,18 @@ async def init_document_db() -> None:
         logger.info("Document database initialized successfully")
 
 
-async def get_db_connection() -> aiosqlite.Connection:
+@asynccontextmanager
+async def get_db_connection() -> AsyncIterator[aiosqlite.Connection]:
     """
     Get a database connection.
-    
+
     Returns:
-        aiosqlite.Connection: Database connection
+        Async iterator yielding a database connection
     """
     os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
-    conn = await aiosqlite.connect(DB_PATH)
-    conn.row_factory = aiosqlite.Row
-    return conn
+    async with aiosqlite.connect(DB_PATH) as conn:
+        conn.row_factory = aiosqlite.Row
+        yield conn
 
 
 class DocumentRepository:
@@ -117,7 +119,7 @@ class DocumentRepository:
     
     async def create(self, document: dict[str, Any]) -> dict[str, Any]:
         """Create a new travel document."""
-        async with await get_db_connection() as db:
+        async with get_db_connection() as db:
             await db.execute(
                 """
                 INSERT INTO travel_documents (
@@ -157,7 +159,7 @@ class DocumentRepository:
     
     async def get_by_id(self, document_id: str) -> dict[str, Any] | None:
         """Get a document by ID."""
-        async with await get_db_connection() as db:
+        async with get_db_connection() as db:
             cursor = await db.execute(
                 "SELECT * FROM travel_documents WHERE id = ?",
                 (document_id,),
@@ -169,7 +171,7 @@ class DocumentRepository:
     
     async def get_by_number(self, document_number: str) -> dict[str, Any] | None:
         """Get a document by document number."""
-        async with await get_db_connection() as db:
+        async with get_db_connection() as db:
             cursor = await db.execute(
                 "SELECT * FROM travel_documents WHERE document_number = ?",
                 (document_number,),
@@ -189,7 +191,7 @@ class DocumentRepository:
         offset: int = 0,
     ) -> tuple[list[dict[str, Any]], int]:
         """List documents with optional filters."""
-        async with await get_db_connection() as db:
+        async with get_db_connection() as db:
             # Build query dynamically
             conditions = []
             params = []
@@ -231,7 +233,7 @@ class DocumentRepository:
     
     async def update(self, document_id: str, updates: dict[str, Any]) -> dict[str, Any] | None:
         """Update a document."""
-        async with await get_db_connection() as db:
+        async with get_db_connection() as db:
             # Build update query
             set_clauses = []
             params = []
@@ -264,7 +266,7 @@ class DocumentRepository:
     
     async def delete(self, document_id: str) -> bool:
         """Delete a document (soft delete by changing status)."""
-        async with await get_db_connection() as db:
+        async with get_db_connection() as db:
             cursor = await db.execute(
                 "DELETE FROM travel_documents WHERE id = ?",
                 (document_id,),
@@ -274,7 +276,7 @@ class DocumentRepository:
     
     async def get_stats(self) -> dict[str, Any]:
         """Get document statistics."""
-        async with await get_db_connection() as db:
+        async with get_db_connection() as db:
             # Total documents
             cursor = await db.execute("SELECT COUNT(*) FROM travel_documents")
             total = (await cursor.fetchone())[0]
@@ -332,7 +334,7 @@ class AuditRepository:
     
     async def create(self, entry: dict[str, Any]) -> dict[str, Any]:
         """Create a new audit log entry."""
-        async with await get_db_connection() as db:
+        async with get_db_connection() as db:
             await db.execute(
                 """
                 INSERT INTO document_audit_log (
@@ -363,7 +365,7 @@ class AuditRepository:
         offset: int = 0,
     ) -> tuple[list[dict[str, Any]], int]:
         """Get audit log entries for a document."""
-        async with await get_db_connection() as db:
+        async with get_db_connection() as db:
             # Get total count
             count_cursor = await db.execute(
                 "SELECT COUNT(*) FROM document_audit_log WHERE document_id = ?",
@@ -392,7 +394,7 @@ class AuditRepository:
         offset: int = 0,
     ) -> tuple[list[dict[str, Any]], int]:
         """Get all audit log entries with optional filters."""
-        async with await get_db_connection() as db:
+        async with get_db_connection() as db:
             conditions = []
             params = []
             

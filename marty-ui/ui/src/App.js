@@ -33,7 +33,7 @@ import ProfilePage from './components/ProfilePage';
 import WalletSetup from './components/WalletSetup';
 import NotificationPreferences from './components/NotificationPreferences';
 import { VendorDashboard, APIKeyManager, CredentialConfigManager, MDocConfigManager, InviteApplicants } from './components/vendor';
-import { ApplicationForm } from './components/applicant';
+import { ApplicationForm, CredentialCatalog } from './components/applicant';
 import InviteAcceptPage from './components/InviteAcceptPage';
 
 const theme = createTheme({
@@ -72,7 +72,14 @@ function App() {
                 <Route path="/" element={<LandingPage />} />
                 <Route path="/login" element={<LoginPage />} />
                 <Route path="/auth/callback" element={<AuthCallback />} />
-                <Route path="/onboarding" element={<OnboardingPage />} />
+                <Route
+                  path="/onboarding"
+                  element={
+                    <ProtectedRoute>
+                      <OnboardingPage />
+                    </ProtectedRoute>
+                  }
+                />
 
                 {/* Admin Dashboard (the original Home component) */}
                 <Route
@@ -236,6 +243,14 @@ function App() {
                 <Route path="/invite/accept" element={<InviteAcceptPage />} />
 
                 {/* Applicant-Only Routes */}
+                <Route
+                  path="/credentials"
+                  element={
+                    <ApplicantRoute>
+                      <CredentialCatalog />
+                    </ApplicantRoute>
+                  }
+                />
                 <Route
                   path="/my-applications"
                   element={

@@ -11,6 +11,7 @@ Production-grade applicant vetting workflow with:
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import secrets
 import string
@@ -39,11 +40,17 @@ from .models import (
     VettingCheckStatus,
     VettingCheckType,
     BiometricType,
+    BiometricPurpose,
     KYCFieldType,
+    KYCVerificationStatus,
     AuditEventType,
 )
 
 logger = logging.getLogger(__name__)
+
+# Utilities
+def _enum_value(value: Any) -> Any:
+    return value.value if hasattr(value, "value") else value
 
 
 # Default vetting requirements by document type
@@ -73,6 +80,26 @@ DEFAULT_VETTING_REQUIREMENTS: dict[str, list[dict[str, Any]]] = {
             "required": True,
             "order": 4,
             "config": {"verify_birth_certificate": True, "verify_citizenship": True},
+        },
+    ],
+    "MDL": [
+        {
+            "type": VettingCheckType.IDENTITY_VERIFICATION,
+            "required": True,
+            "order": 1,
+            "config": {"min_documents": 1, "require_photo_id": True},
+        },
+        {
+            "type": VettingCheckType.BIOMETRIC_ENROLLMENT,
+            "required": True,
+            "order": 2,
+            "config": {"types": ["FACIAL"], "live_capture": True},
+        },
+        {
+            "type": VettingCheckType.DOCUMENT_VERIFICATION,
+            "required": True,
+            "order": 3,
+            "config": {"verify_driver_license": True},
         },
     ],
     "TRAVEL_PERMIT": [
@@ -159,6 +186,68 @@ DEFAULT_VETTING_REQUIREMENTS: dict[str, list[dict[str, Any]]] = {
             "config": {"verify_government_employment": True},
         },
     ],
+    "ACCESS_BADGE": [
+        {
+            "type": VettingCheckType.IDENTITY_VERIFICATION,
+            "required": True,
+            "order": 1,
+            "config": {"min_documents": 1, "require_photo_id": True},
+        },
+        {
+            "type": VettingCheckType.BIOMETRIC_ENROLLMENT,
+            "required": True,
+            "order": 2,
+            "config": {"types": ["FACIAL"], "live_capture": True},
+        },
+    ],
+    "NATIONAL_ID": [
+        {
+            "type": VettingCheckType.IDENTITY_VERIFICATION,
+            "required": True,
+            "order": 1,
+            "config": {"min_documents": 2, "require_photo_id": True},
+        },
+        {
+            "type": VettingCheckType.BIOMETRIC_ENROLLMENT,
+            "required": True,
+            "order": 2,
+            "config": {"types": ["FACIAL"], "live_capture": True},
+        },
+        {
+            "type": VettingCheckType.DOCUMENT_VERIFICATION,
+            "required": True,
+            "order": 3,
+            "config": {"verify_birth_certificate": True},
+        },
+    ],
+    "DTC": [
+        {
+            "type": VettingCheckType.IDENTITY_VERIFICATION,
+            "required": True,
+            "order": 1,
+            "config": {"min_documents": 2, "require_photo_id": True},
+        },
+        {
+            "type": VettingCheckType.BIOMETRIC_ENROLLMENT,
+            "required": True,
+            "order": 2,
+            "config": {"types": ["FACIAL"], "live_capture": True},
+        },
+        {
+            "type": VettingCheckType.DOCUMENT_VERIFICATION,
+            "required": True,
+            "order": 3,
+            "config": {"verify_passport": True},
+        },
+    ],
+    "OPEN_BADGE": [
+        {
+            "type": VettingCheckType.IDENTITY_VERIFICATION,
+            "required": True,
+            "order": 1,
+            "config": {"min_documents": 1, "require_photo_id": False},
+        },
+    ],
 }
 
 
@@ -230,24 +319,24 @@ class ApplicantService:
         if existing_email:
             raise ValueError(f"Applicant already exists with email {email}")
 
-        now = datetime.utcnow()
+        address_data = address or {}
+        dob_value = date_of_birth.date() if isinstance(date_of_birth, datetime) else date_of_birth
+
         applicant = ApplicantRecord(
-            id=uuid4(),
-            user_id=user_id,
-            given_name=given_name,
-            family_name=family_name,
-            full_name=f"{given_name} {family_name}",
+            account_id=user_id,
             email=email,
-            phone_number=phone_number,
-            date_of_birth=date_of_birth,
+            phone=phone_number,
+            surname=family_name,
+            given_names=given_name,
+            date_of_birth=dob_value,
             nationality=nationality,
-            address=address or {},
-            identity_documents=identity_documents or [],
-            is_active=True,
-            is_email_verified=False,
-            is_phone_verified=False,
-            created_at=now,
-            updated_at=now,
+            address_line1=address_data.get("street_line1"),
+            address_line2=address_data.get("street_line2"),
+            city=address_data.get("city"),
+            state_province=address_data.get("state_province"),
+            postal_code=address_data.get("postal_code"),
+            country=address_data.get("country"),
+            extra_data={"identity_documents": identity_documents} if identity_documents else None,
         )
 
         created = await self._repo.create(applicant)
@@ -277,11 +366,21 @@ class ApplicantService:
 
     async def verify_email(self, applicant_id: UUID) -> ApplicantRecord | None:
         """Mark email as verified."""
-        return await self._repo.update(applicant_id, {"is_email_verified": True})
+        applicant = await self._repo.get_by_id(applicant_id)
+        if not applicant:
+            return None
+        extra = applicant.extra_data or {}
+        extra["email_verified"] = True
+        return await self._repo.update(applicant_id, {"extra_data": extra})
 
     async def verify_phone(self, applicant_id: UUID) -> ApplicantRecord | None:
         """Mark phone as verified."""
-        return await self._repo.update(applicant_id, {"is_phone_verified": True})
+        applicant = await self._repo.get_by_id(applicant_id)
+        if not applicant:
+            return None
+        extra = applicant.extra_data or {}
+        extra["phone_verified"] = True
+        return await self._repo.update(applicant_id, {"extra_data": extra})
 
     async def enroll_biometric(
         self,
@@ -323,19 +422,23 @@ class ApplicantService:
 
         now = datetime.utcnow()
         enrollment = BiometricEnrollmentRecord(
-            id=uuid4(),
-            applicant_id=applicant_id,
-            biometric_type=biometric_type,
-            template_data=template_data,
-            image_data=image_data,
+            id=str(uuid4()),
+            applicant_id=str(applicant_id),
+            biometric_type=_enum_value(biometric_type),
+            purpose=BiometricPurpose.ACCOUNT_ENROLLMENT.value
+            if is_live_capture
+            else BiometricPurpose.ISSUANCE_ENROLLMENT.value,
             template_format="ISO_19794",
-            capture_quality_score=capture_quality_score,
-            capture_device_id=capture_device_id,
-            is_live_capture=is_live_capture,
+            template_data=template_data,
+            quality_score=capture_quality_score,
+            capture_device=capture_device_id,
+            liveness_check_performed=is_live_capture,
             captured_at=now,
-            is_verified=False,
-            is_active=True,
-            metadata=metadata or {},
+            active=True,
+            extra_data={
+                "metadata": metadata or {},
+                "image_bytes_length": len(image_data) if image_data else 0,
+            },
             created_at=now,
             updated_at=now,
         )
@@ -402,6 +505,9 @@ class ApplicationService:
         self,
         applicant_id: UUID,
         document_type: str,
+        credential_configuration_id: str | None = None,
+        credential_type: str | None = None,
+        organization_id: str | None = None,
         issuing_authority: str,
         requested_validity_years: int = 10,
         travel_purpose: str | None = None,
@@ -436,20 +542,40 @@ class ApplicationService:
 
         now = datetime.utcnow()
         reference = generate_reference_number()
+        metadata_payload = metadata or {}
+        extra_data = {
+            "issuing_authority": issuing_authority,
+            "travel_purpose": travel_purpose,
+            "destination_countries": destination_countries or [],
+            "is_expedited": expedited,
+            "metadata": metadata_payload,
+            "credential_configuration_id": credential_configuration_id,
+            "credential_type": credential_type,
+            "credential_display_name": metadata_payload.get("credential_display_name"),
+            "vetting_config": self._get_vetting_config(document_type),
+        }
+        issuing_country = metadata_payload.get("issuing_country") or applicant.nationality or "USA"
+        holder_given = applicant.given_names
+        holder_family = applicant.surname
+        holder_name = f"{holder_given} {holder_family}".strip()
 
         application = ApplicationRecord(
-            id=uuid4(),
-            reference_number=reference,
-            applicant_id=applicant_id,
+            application_number=reference,
+            applicant_id=str(applicant.id),
             document_type=document_type,
-            status=ApplicationStatus.DRAFT,
-            issuing_authority=issuing_authority,
+            document_subtype=metadata_payload.get("document_subtype"),
+            credential_configuration_id=credential_configuration_id,
+            credential_type=credential_type,
+            organization_id=organization_id,
+            status=ApplicationStatus.DRAFT.value,
+            holder_name=holder_name,
+            holder_given_name=holder_given,
+            holder_family_name=holder_family,
+            holder_dob=applicant.date_of_birth,
+            nationality=applicant.nationality,
+            issuing_country=issuing_country,
             requested_validity_years=requested_validity_years,
-            travel_purpose=travel_purpose,
-            destination_countries=destination_countries or [],
-            is_expedited=expedited,
-            vetting_config=self._get_vetting_config(document_type),
-            metadata=metadata or {},
+            extra_data=extra_data,
             created_at=now,
             updated_at=now,
         )
@@ -459,7 +585,7 @@ class ApplicationService:
         # Log creation
         await self._audit_repo.log_event(
             application_id=created.id,
-            event_type=AuditEventType.APPLICATION_CREATED,
+            event_type=AuditEventType.CREATED,
             actor_id=actor_id,
             details={"document_type": document_type, "reference": reference},
             ip_address=ip_address,
@@ -509,9 +635,9 @@ class ApplicationService:
         if not application:
             raise ValueError(f"Application not found: {application_id}")
 
-        if application.status != ApplicationStatus.DRAFT:
+        if application.status != ApplicationStatus.DRAFT.value:
             raise ValueError(
-                f"Cannot submit application in status {application.status.value}"
+                f"Cannot submit application in status {application.status}"
             )
 
         # Create vetting checks based on config
@@ -525,7 +651,7 @@ class ApplicationService:
         if application:
             # Update submitted_at manually since update_status doesn't handle it
             async with self._db.session_scope() as session:
-                app = await session.get(ApplicationRecord, application_id)
+                app = await session.get(ApplicationRecord, str(application_id))
                 if app:
                     app.submitted_at = now
                     await session.flush()
@@ -535,17 +661,17 @@ class ApplicationService:
         # Log submission
         await self._audit_repo.log_event(
             application_id=application_id,
-            event_type=AuditEventType.APPLICATION_SUBMITTED,
+            event_type=AuditEventType.SUBMITTED,
             actor_id=actor_id,
             ip_address=ip_address,
         )
 
-        logger.info(f"Submitted application {application.reference_number}")
+        logger.info(f"Submitted application {application.application_number}")
         return application
 
     async def _create_vetting_checks(self, application: ApplicationRecord) -> None:
         """Create vetting check records from configuration."""
-        config = application.vetting_config or {}
+        config = (application.extra_data or {}).get("vetting_config", {})
         requirements = config.get("requirements", [])
 
         now = datetime.utcnow()
@@ -553,10 +679,10 @@ class ApplicationService:
 
         for req in requirements:
             check = VettingCheckRecord(
-                id=uuid4(),
+                id=str(uuid4()),
                 application_id=application.id,
-                check_type=VettingCheckType(req["type"]),
-                status=VettingCheckStatus.PENDING,
+                check_type=_enum_value(req["type"]),
+                status=VettingCheckStatus.PENDING.value,
                 is_required=req.get("required", True),
                 order=req.get("order", 0),
                 config=req.get("config", {}),
@@ -662,9 +788,9 @@ class VettingService:
         if check:
             await self._audit_repo.log_event(
                 application_id=check.application_id,
-                event_type=AuditEventType.CHECK_STARTED,
+                event_type=AuditEventType.VETTING_STARTED,
                 actor_id=actor_id,
-                details={"check_id": str(check_id), "check_type": check.check_type.value},
+                details={"check_id": str(check_id), "check_type": _enum_value(check.check_type)},
             )
             await self._update_application_status(check.application_id)
         return check
@@ -698,16 +824,13 @@ class VettingService:
         if check:
             await self._audit_repo.log_event(
                 application_id=check.application_id,
-                event_type=(
-                    AuditEventType.CHECK_PASSED
-                    if passed
-                    else AuditEventType.CHECK_FAILED
-                ),
+                event_type=AuditEventType.VETTING_CHECK_COMPLETED,
                 actor_id=performed_by or "system",
                 details={
                     "check_id": str(check_id),
-                    "check_type": check.check_type.value,
+                    "check_type": _enum_value(check.check_type),
                     "result": result,
+                    "passed": passed,
                 },
             )
             await self._update_application_status(check.application_id)
@@ -730,11 +853,11 @@ class VettingService:
         if check:
             await self._audit_repo.log_event(
                 application_id=check.application_id,
-                event_type=AuditEventType.MANUAL_REVIEW_REQUESTED,
+                event_type=AuditEventType.STATUS_CHANGED,
                 actor_id=actor_id,
                 details={
                     "check_id": str(check_id),
-                    "check_type": check.check_type.value,
+                    "check_type": _enum_value(check.check_type),
                     "reason": reason,
                 },
             )
@@ -750,18 +873,22 @@ class VettingService:
         required_checks = [c for c in checks if c.is_required]
         
         # Check for any failures
-        failed = [c for c in required_checks if c.status == VettingCheckStatus.FAILED]
+        failed = [
+            c for c in required_checks if c.status == VettingCheckStatus.FAILED.value
+        ]
         if failed:
             await self._app_repo.update_status(
                 application_id,
                 ApplicationStatus.REJECTED,
-                rejection_reason=f"Failed vetting check: {failed[0].check_type.value}",
+                rejection_reason=f"Failed vetting check: {_enum_value(failed[0].check_type)}",
             )
             return
 
         # Check for manual review needed
         manual_review = [
-            c for c in checks if c.status == VettingCheckStatus.REQUIRES_MANUAL_REVIEW
+            c
+            for c in checks
+            if c.status == VettingCheckStatus.REQUIRES_MANUAL_REVIEW.value
         ]
         if manual_review:
             # Status stays at current review stage
@@ -769,7 +896,7 @@ class VettingService:
 
         # Check if all required checks passed
         all_passed = all(
-            c.status == VettingCheckStatus.PASSED for c in required_checks
+            c.status == VettingCheckStatus.PASSED.value for c in required_checks
         )
         if all_passed:
             await self._app_repo.update_status(
@@ -779,11 +906,11 @@ class VettingService:
 
         # Check if any checks are in progress
         in_progress = [
-            c for c in checks if c.status == VettingCheckStatus.IN_PROGRESS
+            c for c in checks if c.status == VettingCheckStatus.IN_PROGRESS.value
         ]
         if in_progress:
             await self._app_repo.update_status(
-                application_id, ApplicationStatus.UNDER_REVIEW
+                application_id, ApplicationStatus.VETTING_IN_PROGRESS
             )
 
     async def get_pending_checks(
@@ -834,16 +961,16 @@ class ApprovalService:
         if not application:
             raise ValueError(f"Application not found: {application_id}")
 
-        if application.status != ApplicationStatus.PENDING_APPROVAL:
+        if application.status != ApplicationStatus.PENDING_APPROVAL.value:
             raise ValueError(
-                f"Cannot approve application in status {application.status.value}"
+                f"Cannot approve application in status {application.status}"
             )
 
         # Verify all required checks passed
         checks = await self._check_repo.get_for_application(application_id)
         required_checks = [c for c in checks if c.is_required]
         all_passed = all(
-            c.status == VettingCheckStatus.PASSED for c in required_checks
+            c.status == VettingCheckStatus.PASSED.value for c in required_checks
         )
         if not all_passed:
             raise ValueError("Cannot approve: not all required checks passed")
@@ -856,13 +983,13 @@ class ApprovalService:
         if application:
             await self._audit_repo.log_event(
                 application_id=application_id,
-                event_type=AuditEventType.APPLICATION_APPROVED,
+                event_type=AuditEventType.APPROVED,
                 actor_id=approved_by,
                 details={"notes": notes} if notes else {},
                 ip_address=ip_address,
             )
             logger.info(
-                f"Approved application {application.reference_number} by {approved_by}"
+                f"Approved application {application.application_number} by {approved_by}"
             )
 
         return application
@@ -891,12 +1018,12 @@ class ApprovalService:
             raise ValueError(f"Application not found: {application_id}")
 
         if application.status in [
-            ApplicationStatus.APPROVED,
-            ApplicationStatus.ISSUED,
-            ApplicationStatus.REJECTED,
+            ApplicationStatus.APPROVED.value,
+            ApplicationStatus.ISSUED.value,
+            ApplicationStatus.REJECTED.value,
         ]:
             raise ValueError(
-                f"Cannot reject application in status {application.status.value}"
+                f"Cannot reject application in status {application.status}"
             )
 
         application = await self._app_repo.update_status(
@@ -909,13 +1036,13 @@ class ApprovalService:
         if application:
             await self._audit_repo.log_event(
                 application_id=application_id,
-                event_type=AuditEventType.APPLICATION_REJECTED,
+                event_type=AuditEventType.REJECTED,
                 actor_id=rejected_by,
                 details={"reason": reason},
                 ip_address=ip_address,
             )
             logger.info(
-                f"Rejected application {application.reference_number}: {reason}"
+                f"Rejected application {application.application_number}: {reason}"
             )
 
         return application
@@ -941,16 +1068,16 @@ class ApprovalService:
         if not application:
             raise ValueError(f"Application not found: {application_id}")
 
-        if application.status != ApplicationStatus.APPROVED:
+        if application.status != ApplicationStatus.APPROVED.value:
             raise ValueError(
-                f"Cannot issue for application in status {application.status.value}"
+                f"Cannot issue for application in status {application.status}"
             )
 
         # Update to issued and store document ID in metadata
         async with self._db.session_scope() as session:
-            app = await session.get(ApplicationRecord, application_id)
+            app = await session.get(ApplicationRecord, str(application_id))
             if app:
-                app.status = ApplicationStatus.ISSUED
+                app.status = ApplicationStatus.ISSUED.value
                 app.issued_at = datetime.utcnow()
                 app.issued_document_id = document_id
                 app.updated_at = datetime.utcnow()
@@ -960,13 +1087,13 @@ class ApprovalService:
 
         await self._audit_repo.log_event(
             application_id=application_id,
-            event_type=AuditEventType.DOCUMENT_ISSUED,
+            event_type=AuditEventType.ISSUED,
             actor_id=issued_by,
             details={"document_id": document_id},
         )
 
         logger.info(
-            f"Marked application {application.reference_number} as issued: {document_id}"
+            f"Marked application {application.application_number} as issued: {document_id}"
         )
         return application
 
@@ -993,6 +1120,7 @@ class KYCService:
     def __init__(self, db_manager: ApplicantDatabaseManager | None = None) -> None:
         self._db = db_manager or get_db_manager()
         self._kyc_repo = KYCSubmissionRepository(self._db)
+        self._app_repo = ApplicationRepository(self._db)
         self._audit_repo = ApplicationAuditRepository(self._db)
 
     async def submit_kyc_document(
@@ -1026,22 +1154,47 @@ class KYCService:
         Returns:
             Created KYCSubmissionRecord
         """
+        application = await self._app_repo.get_by_id(application_id)
+        if not application:
+            raise ValueError(f"Application not found: {application_id}")
+
         now = datetime.utcnow()
+        issue_date_value = (
+            issue_date.date() if isinstance(issue_date, datetime) else issue_date
+        )
+        expiry_date_value = (
+            expiry_date.date() if isinstance(expiry_date, datetime) else expiry_date
+        )
+        document_type_value = document_type or field_type.value
+        document_hash = (
+            hashlib.sha256(document_data).hexdigest() if document_data else None
+        )
+        document_reference = None
+        if metadata:
+            document_reference = metadata.get("document_reference") or metadata.get(
+                "document_storage_id"
+            )
+
+        extra_data = {
+            "field_type": field_type.value,
+            "field_value": field_value,
+            "metadata": metadata or {},
+            "document_bytes_length": len(document_data) if document_data else 0,
+        }
 
         submission = KYCSubmissionRecord(
-            id=uuid4(),
-            application_id=application_id,
-            field_type=field_type,
-            field_value=field_value,
-            document_data=document_data,
-            document_type=document_type,
+            id=str(uuid4()),
+            applicant_id=str(application.applicant_id),
+            application_id=str(application_id),
+            document_type=document_type_value,
             document_number=document_number,
             issuing_country=issuing_country,
-            issue_date=issue_date,
-            expiry_date=expiry_date,
-            is_verified=False,
-            submitted_at=now,
-            metadata=metadata or {},
+            issue_date=issue_date_value,
+            expiry_date=expiry_date_value,
+            document_reference=document_reference,
+            document_hash=document_hash,
+            status=KYCVerificationStatus.PENDING.value,
+            extra_data=extra_data,
             created_at=now,
             updated_at=now,
         )

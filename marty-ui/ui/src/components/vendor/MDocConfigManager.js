@@ -47,7 +47,7 @@ import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import DragIndicatorIcon from '@mui/icons-material/DragIndicator';
 import { useAuth } from '../../hooks/useAuth';
 
-const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
+const API_URL = process.env.REACT_APP_API_URL || '';
 
 // mDoc credential types
 const MDOC_TYPES = {

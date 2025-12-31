@@ -93,11 +93,15 @@ class VettingCheckStatus(str, Enum):
     NOT_STARTED = "not_started"
     PENDING = "pending"
     IN_PROGRESS = "in_progress"
+    PASSED = "passed"
+    FAILED = "failed"
+    REQUIRES_MANUAL_REVIEW = "requires_manual_review"
     COMPLETED_PASSED = "completed_passed"
     COMPLETED_FAILED = "completed_failed"
     COMPLETED_CONDITIONAL = "completed_conditional"
     EXPIRED = "expired"
     WAIVED = "waived"
+    SKIPPED = "skipped"
 
 
 class BiometricType(str, Enum):
@@ -288,6 +292,11 @@ class ApplicationRecord(Base):
     # Document type requested
     document_type: Mapped[str] = mapped_column(String(50), nullable=False)  # eMRTD, DTC, mDL, etc.
     document_subtype: Mapped[str | None] = mapped_column(String(50), nullable=True)
+
+    # Credential configuration linkage
+    credential_configuration_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    credential_type: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    organization_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     
     # Application status
     status: Mapped[str] = mapped_column(String(50), default=ApplicationStatus.DRAFT.value)
@@ -380,10 +389,11 @@ class VettingCheckRecord(Base):
     check_type: Mapped[str] = mapped_column(String(50), nullable=False)
     check_subtype: Mapped[str | None] = mapped_column(String(50), nullable=True)
     status: Mapped[str] = mapped_column(String(50), default=VettingCheckStatus.NOT_STARTED.value)
-    
+
     # Check configuration
-    is_mandatory: Mapped[bool] = mapped_column(Boolean, default=True)
-    priority: Mapped[int] = mapped_column(Integer, default=0)
+    is_required: Mapped[bool] = mapped_column(Boolean, default=True)
+    order: Mapped[int] = mapped_column(Integer, default=0)
+    config: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     
     # External reference (for third-party vetting services)
     external_reference: Mapped[str | None] = mapped_column(String(100), nullable=True)
@@ -403,6 +413,8 @@ class VettingCheckRecord(Base):
     validity_period_days: Mapped[int] = mapped_column(Integer, default=365)
     
     # Results
+    result: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     result_passed: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     result_score: Mapped[float | None] = mapped_column(Float, nullable=True)
     result_summary: Mapped[str | None] = mapped_column(Text, nullable=True)

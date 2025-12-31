@@ -293,6 +293,9 @@ class CredentialTypeConfiguration(Base):
         required_fields: JSON list of required field names
         optional_fields: JSON list of optional field names
         validity_days: How long credentials are valid (default 365)
+        issuer_key_id: Identifier for the issuer signing key
+        issuer_did: DID for the issuer signing key
+        issuer_jwk: JSON Web Key for signing (private key material)
         is_active: Whether this configuration is active
     """
 
@@ -311,6 +314,11 @@ class CredentialTypeConfiguration(Base):
     
     # Validity
     validity_days = Column(Integer, default=365, nullable=False)
+
+    # Issuer signing key metadata
+    issuer_key_id = Column(String(255), nullable=True)
+    issuer_did = Column(String(255), nullable=True)
+    issuer_jwk = Column(JSON, nullable=True)
     
     # Status
     is_active = Column(Boolean, default=True, nullable=False)

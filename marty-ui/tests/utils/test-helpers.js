@@ -294,7 +294,16 @@ class AuthHelpers {
     if (!user) {
       throw new Error(`Unknown seeded user type: ${userType}`);
     }
-    return this.login(user.email, user.password);
+    await this.login(user.email, user.password);
+    if (userType === 'vendor') {
+      const { updated } = await this.ensureVendorOrganization({
+        organizationName: user.organization,
+      });
+      if (updated) {
+        await this.page.goto('/');
+        await this.page.waitForLoadState('networkidle');
+      }
+    }
   }
 
   /**
@@ -338,6 +347,109 @@ class AuthHelpers {
     // Wait for redirect back to app
     await this.page.waitForURL(url => !url.toString().includes('realms'), { timeout: 15000 });
     await this.page.waitForLoadState('networkidle');
+  }
+
+  async ensureVendorOrganization(options = {}) {
+    const organizationName = options.organizationName
+      || SEEDED_USERS.vendor.organization
+      || 'Demo Vendor Org';
+    const isDiscoverable = options.isDiscoverable ?? true;
+    const membershipMode = options.membershipMode || 'open';
+
+    let organizationId = null;
+    let organizationDisplayName = null;
+    let updated = false;
+
+    const meResponse = await this.page.request.get('/auth/me');
+    if (meResponse.ok()) {
+      const meData = await meResponse.json();
+      organizationId = meData?.user?.organization_id || null;
+      organizationDisplayName = meData?.user?.organization_name || null;
+    }
+
+    if (organizationId) {
+      return {
+        organizationId,
+        organizationName: organizationDisplayName || organizationName,
+        updated,
+      };
+    }
+
+    let existingOrgId = null;
+    const listResponse = await this.page.request.get('/api/onboarding/organizations');
+    if (listResponse.ok()) {
+      const listData = await listResponse.json();
+      const orgs = listData?.organizations || [];
+      const match = orgs.find((org) => org.name === organizationName);
+      if (match) {
+        existingOrgId = match.id;
+      }
+    }
+
+    const onboardingPayload = existingOrgId ? {
+      user_type: 'vendor',
+      organization_id: existingOrgId,
+      is_discoverable: isDiscoverable,
+      membership_mode: membershipMode,
+    } : {
+      user_type: 'vendor',
+      organization_name: organizationName,
+      is_discoverable: isDiscoverable,
+      membership_mode: membershipMode,
+    };
+
+    let completeResponse = await this.page.request.post('/api/onboarding/complete', {
+      data: onboardingPayload,
+    });
+    if (!completeResponse.ok() && !existingOrgId) {
+      const fallbackName = `${organizationName} ${Date.now()}`;
+      completeResponse = await this.page.request.post('/api/onboarding/complete', {
+        data: {
+          user_type: 'vendor',
+          organization_name: fallbackName,
+          is_discoverable: isDiscoverable,
+          membership_mode: membershipMode,
+        },
+      });
+      if (!completeResponse.ok()) {
+        const errorText = await completeResponse.text().catch(() => '');
+        throw new Error(`Failed to complete vendor onboarding for organization: ${completeResponse.status()} ${errorText}`);
+      }
+      const fallbackData = await completeResponse.json();
+      return {
+        organizationId: fallbackData.organization_id,
+        organizationName: fallbackData.organization_name || fallbackName,
+        updated: true,
+      };
+    }
+    if (!completeResponse.ok()) {
+      const errorText = await completeResponse.text().catch(() => '');
+      throw new Error(`Failed to complete vendor onboarding for organization: ${completeResponse.status()} ${errorText}`);
+    }
+
+    const completeData = await completeResponse.json();
+    organizationId = completeData.organization_id || existingOrgId;
+    organizationDisplayName = completeData.organization_name || organizationName;
+    updated = true;
+
+    if (!organizationId) {
+      const refreshed = await this.page.request.get('/auth/me');
+      if (refreshed.ok()) {
+        const refreshedData = await refreshed.json();
+        organizationId = refreshedData?.user?.organization_id || null;
+        organizationDisplayName = refreshedData?.user?.organization_name || organizationDisplayName;
+      }
+    }
+
+    if (!organizationId) {
+      throw new Error('Vendor organization ID not found after onboarding');
+    }
+
+    return {
+      organizationId,
+      organizationName: organizationDisplayName || organizationName,
+      updated,
+    };
   }
 
   /**
@@ -531,6 +643,8 @@ class WalletBridge {
     await this._waitForMessage('WALLET_READY', timeout);
     this._isReady = true;
 
+    await this.enableAccessibility();
+
     console.log('WalletBridge: Wallet ready');
     return true;
   }
@@ -553,13 +667,34 @@ class WalletBridge {
       this._messageQueue.push({ type, payload, timestamp: Date.now() });
     });
 
-    await this.page.evaluate(() => {
+    await this.page.addInitScript(() => {
+      if (window.__walletBridgeListenerInstalled) {
+        return;
+      }
+      window.__walletBridgeListenerInstalled = true;
       window.addEventListener('message', (event) => {
         if (event.data?.source === 'marty-wallet') {
           window._walletBridgeReceive(event.data);
         }
       });
     });
+  }
+
+  /**
+   * Enable Flutter web accessibility if the prompt is present.
+   */
+  async enableAccessibility(timeout = 2000) {
+    try {
+      const button = this.page.getByRole('button', {
+        name: 'Enable accessibility',
+      });
+      if (await button.isVisible({ timeout })) {
+        await button.click();
+        await this.page.waitForTimeout(500);
+      }
+    } catch (error) {
+      // Ignore if the accessibility prompt is not present.
+    }
   }
 
   /**
@@ -585,12 +720,13 @@ class WalletBridge {
    * Send a message to the wallet and optionally wait for response
    */
   async sendMessage(type, payload = {}, waitForResponse = null) {
+    const responsePromise = waitForResponse ? this._waitForMessage(waitForResponse) : null;
     await this.page.evaluate(({ type, payload }) => {
       window.postMessage({ type, payload }, '*');
     }, { type, payload });
 
-    if (waitForResponse) {
-      return this._waitForMessage(waitForResponse);
+    if (responsePromise) {
+      return responsePromise;
     }
   }
 
@@ -636,6 +772,18 @@ class WalletBridge {
   }
 
   /**
+   * Get display credentials from the wallet UI state
+   */
+  async getDisplayCredentials() {
+    const response = await this.sendMessage(
+      'GET_DISPLAY_CREDENTIALS',
+      {},
+      'DISPLAY_CREDENTIALS'
+    );
+    return response?.credentials || [];
+  }
+
+  /**
    * Clear all wallet data (for test cleanup)
    */
   async clearData() {
@@ -657,6 +805,24 @@ class WalletBridge {
       await this.page.waitForTimeout(500);
     }
     throw new Error(`Timeout waiting for ${count} credentials`);
+  }
+
+  /**
+   * Wait for a display credential matching a predicate
+   * @param {function} matchFn - Predicate to match a display credential
+   * @param {number} timeout - Timeout in ms
+   */
+  async waitForDisplayCredential(matchFn, timeout = 10000) {
+    const startTime = Date.now();
+    while (Date.now() - startTime < timeout) {
+      const credentials = await this.getDisplayCredentials();
+      const match = credentials.find(matchFn);
+      if (match) {
+        return match;
+      }
+      await this.page.waitForTimeout(500);
+    }
+    throw new Error('Timeout waiting for display credential');
   }
 
   /**
@@ -738,7 +904,7 @@ class WalletBridge {
     while (Date.now() - startTime < timeout) {
       try {
         const response = await this.page.request.get(
-          `${this.apiUrl}/api/test/request-presentation/${requestId}/status`
+          `${this.apiUrl}/api/verifier/requests/${requestId}/status`
         );
         if (response.ok()) {
           const data = await response.json();
@@ -828,8 +994,15 @@ class PushNotificationHelpers {
    * @param {number} limit - Max notifications to retrieve
    */
   async getAllNotifications(limit = 50) {
+    const headers = {};
+    const params = new URLSearchParams();
+    if (this.userId) {
+      headers['X-User-ID'] = this.userId;
+      params.append('user_id', this.userId);
+    }
     const response = await this.page.request.get(
-      `${this.apiUrl}/api/test/notifications?limit=${limit}`
+      `${this.apiUrl}/api/notifications?${params.toString()}`,
+      { headers }
     );
     const data = await response.json();
     return data.notifications || [];
@@ -840,11 +1013,21 @@ class PushNotificationHelpers {
    * @param {string} eventType - Event type to filter by
    */
   async getNotificationsByEventType(eventType) {
+    const headers = {};
+    const params = new URLSearchParams();
+    if (this.userId) {
+      headers['X-User-ID'] = this.userId;
+      params.append('user_id', this.userId);
+    }
     const response = await this.page.request.get(
-      `${this.apiUrl}/api/test/notifications?event_type=${encodeURIComponent(eventType)}`
+      `${this.apiUrl}/api/notifications?${params.toString()}`,
+      { headers }
     );
     const data = await response.json();
-    return data.notifications || [];
+    const notifications = data.notifications || [];
+    return notifications.filter(
+      (notification) => notification.event_type === eventType || notification.type === eventType
+    );
   }
 
   /**
@@ -915,7 +1098,16 @@ class PushNotificationHelpers {
    * Clear all mock notifications (test cleanup)
    */
   async clearAllNotifications() {
-    await this.page.request.delete(`${this.apiUrl}/api/test/notifications`);
+    const headers = {};
+    const params = new URLSearchParams();
+    if (this.userId) {
+      headers['X-User-ID'] = this.userId;
+      params.append('user_id', this.userId);
+    }
+    await this.page.request.delete(
+      `${this.apiUrl}/api/notifications?${params.toString()}`,
+      { headers }
+    );
   }
 
   /**
@@ -1800,6 +1992,34 @@ function generateTestEmail(prefix = 'test') {
   return `${prefix}-${timestamp}-${random}@test.marty.demo`;
 }
 
+async function getVendorOrganizationId(browser) {
+  const baseURL = process.env.BASE_URL || 'http://localhost:9080';
+  const context = await browser.newContext({ baseURL });
+  const page = await context.newPage();
+  const auth = new AuthHelpers(page);
+
+  try {
+    await page.goto('/');
+    await auth.loginAsSeededUser('vendor');
+
+    const meResponse = await page.request.get('/auth/me');
+    if (!meResponse.ok()) {
+      throw new Error('Failed to read vendor session');
+    }
+    const meData = await meResponse.json();
+    const organizationId = meData?.user?.organization_id || null;
+    const organizationName = meData?.user?.organization_name || null;
+
+    if (!organizationId) {
+      throw new Error('Vendor organization ID not found');
+    }
+
+    return { organizationId, organizationName };
+  } finally {
+    await context.close();
+  }
+}
+
 module.exports = {
   DemoTestHelpers,
   AuthHelpers,
@@ -1818,6 +2038,7 @@ module.exports = {
   loginAs,
   waitForElement,
   generateTestEmail,
+  getVendorOrganizationId,
   // RSA signing utilities
   generateTestKeypair,
   signChallenge,

@@ -64,6 +64,9 @@ function MyDocuments() {
     });
   };
 
+  const getIssueDate = (doc) => doc.issue_date || doc.issued_at;
+  const getExpiryDate = (doc) => doc.expiry_date || doc.expires_at;
+
   const isExpiringSoon = (expiryDate) => {
     if (!expiryDate) return false;
     const expiry = new Date(expiryDate);
@@ -78,10 +81,11 @@ function MyDocuments() {
   };
 
   const getStatusChip = (doc) => {
-    if (isExpired(doc.expiry_date)) {
+    const expiryDate = getExpiryDate(doc);
+    if (isExpired(expiryDate)) {
       return <Chip icon={<WarningIcon />} label="Expired" color="error" size="small" />;
     }
-    if (isExpiringSoon(doc.expiry_date)) {
+    if (isExpiringSoon(expiryDate)) {
       return <Chip icon={<WarningIcon />} label="Expiring Soon" color="warning" size="small" />;
     }
     return <Chip icon={<VerifiedIcon />} label="Valid" color="success" size="small" />;
@@ -139,11 +143,11 @@ function MyDocuments() {
                 <Grid item xs={12} md={6} key={doc.id}>
                   <Card
                     data-testid={`document-card-${doc.id}`}
-                    data-document-type={doc.document_type || 'Passport'}
-                    data-document-status={isExpired(doc.expiry_date) ? 'expired' : isExpiringSoon(doc.expiry_date) ? 'expiring' : 'valid'}
+                    data-document-type={doc.metadata?.credential_display_name || doc.document_type || 'Credential'}
+                    data-document-status={isExpired(getExpiryDate(doc)) ? 'expired' : isExpiringSoon(getExpiryDate(doc)) ? 'expiring' : 'valid'}
                     sx={{
                       height: '100%',
-                      border: isExpired(doc.expiry_date) ? '2px solid' : 'none',
+                      border: isExpired(getExpiryDate(doc)) ? '2px solid' : 'none',
                       borderColor: 'error.main',
                     }}
                   >
@@ -156,7 +160,9 @@ function MyDocuments() {
                           mb: 2,
                         }}
                       >
-                        <Typography variant="h6" data-testid="document-type">{doc.document_type || 'Passport'}</Typography>
+                        <Typography variant="h6" data-testid="document-type">
+                          {doc.metadata?.credential_display_name || doc.document_type || 'Credential'}
+                        </Typography>
                         {getStatusChip(doc)}
                       </Box>
 
@@ -181,7 +187,7 @@ function MyDocuments() {
                           <Typography variant="caption" color="textSecondary">
                             Issue Date
                           </Typography>
-                          <Typography variant="body2" data-testid="document-issue-date">{formatDate(doc.issue_date)}</Typography>
+                          <Typography variant="body2" data-testid="document-issue-date">{formatDate(getIssueDate(doc))}</Typography>
                         </Grid>
 
                         <Grid item xs={6}>
@@ -190,10 +196,10 @@ function MyDocuments() {
                           </Typography>
                           <Typography
                             variant="body2"
-                            color={isExpired(doc.expiry_date) ? 'error' : 'inherit'}
+                            color={isExpired(getExpiryDate(doc)) ? 'error' : 'inherit'}
                             data-testid="document-expiry-date"
                           >
-                            {formatDate(doc.expiry_date)}
+                            {formatDate(getExpiryDate(doc))}
                           </Typography>
                         </Grid>
                       </Grid>
@@ -202,7 +208,7 @@ function MyDocuments() {
                         <Button size="small" variant="outlined" data-testid="view-details-btn">
                           View Details
                         </Button>
-                        {isExpiringSoon(doc.expiry_date) && !isExpired(doc.expiry_date) && (
+                        {isExpiringSoon(getExpiryDate(doc)) && !isExpired(getExpiryDate(doc)) && (
                           <Button size="small" variant="contained" sx={{ ml: 1 }} data-testid="renew-btn">
                             Renew
                           </Button>

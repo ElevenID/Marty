@@ -37,11 +37,23 @@ from .models import (
     VettingCheckType,
     BiometricType,
     AuditEventType,
+    ActorType,
+    KYCVerificationStatus,
 )
 
 logger = logging.getLogger(__name__)
 
 T = TypeVar("T")
+
+
+def _normalize_id(value: UUID | str | None) -> str | None:
+    if value is None:
+        return None
+    return str(value) if isinstance(value, UUID) else value
+
+
+def _enum_value(value: Any) -> Any:
+    return value.value if hasattr(value, "value") else value
 
 
 @dataclass(slots=True)
@@ -220,6 +232,7 @@ class ApplicantRepository:
 
     async def get_by_id(self, applicant_id: UUID) -> ApplicantRecord | None:
         """Get applicant by ID."""
+        applicant_id = _normalize_id(applicant_id)
         async with self._db.session_scope() as session:
             return await session.get(ApplicantRecord, applicant_id)
 
@@ -227,7 +240,7 @@ class ApplicantRepository:
         """Get applicant by user account ID."""
         async with self._db.session_scope() as session:
             result = await session.execute(
-                select(ApplicantRecord).where(ApplicantRecord.user_id == user_id)
+                select(ApplicantRecord).where(ApplicantRecord.account_id == user_id)
             )
             return result.scalar_one_or_none()
 
@@ -243,6 +256,7 @@ class ApplicantRepository:
         self, applicant_id: UUID, updates: dict[str, Any]
     ) -> ApplicantRecord | None:
         """Update an applicant record."""
+        applicant_id = _normalize_id(applicant_id)
         async with self._db.session_scope() as session:
             applicant = await session.get(ApplicantRecord, applicant_id)
             if applicant:
@@ -266,8 +280,8 @@ class ApplicantRepository:
             count_query = select(func.count(ApplicantRecord.id))
             
             if is_active is not None:
-                query = query.where(ApplicantRecord.is_active == is_active)
-                count_query = count_query.where(ApplicantRecord.is_active == is_active)
+                query = query.where(ApplicantRecord.active == is_active)
+                count_query = count_query.where(ApplicantRecord.active == is_active)
             
             # Get total count
             count_result = await session.execute(count_query)
@@ -297,6 +311,7 @@ class ApplicationRepository:
 
     async def get_by_id(self, application_id: UUID) -> ApplicationRecord | None:
         """Get application by ID."""
+        application_id = _normalize_id(application_id)
         async with self._db.session_scope() as session:
             return await session.get(ApplicationRecord, application_id)
 
@@ -305,7 +320,7 @@ class ApplicationRepository:
         async with self._db.session_scope() as session:
             result = await session.execute(
                 select(ApplicationRecord).where(
-                    ApplicationRecord.reference_number == reference_number
+                    ApplicationRecord.application_number == reference_number
                 )
             )
             return result.scalar_one_or_none()
@@ -316,12 +331,13 @@ class ApplicationRepository:
         status: ApplicationStatus | None = None,
     ) -> list[ApplicationRecord]:
         """Get all applications for an applicant."""
+        applicant_id = _normalize_id(applicant_id)
         async with self._db.session_scope() as session:
             query = select(ApplicationRecord).where(
                 ApplicationRecord.applicant_id == applicant_id
             )
             if status:
-                query = query.where(ApplicationRecord.status == status)
+                query = query.where(ApplicationRecord.status == _enum_value(status))
             query = query.order_by(desc(ApplicationRecord.created_at))
             result = await session.execute(query)
             return list(result.scalars().all())
@@ -334,18 +350,25 @@ class ApplicationRepository:
         rejection_reason: str | None = None,
     ) -> ApplicationRecord | None:
         """Update application status."""
+        application_id = _normalize_id(application_id)
         async with self._db.session_scope() as session:
             application = await session.get(ApplicationRecord, application_id)
             if application:
-                application.status = new_status
+                status_value = _enum_value(new_status)
+                application.status = status_value
+                application.status_changed_at = datetime.utcnow()
+                application.status_changed_by = updated_by
                 application.updated_at = datetime.utcnow()
                 
-                if new_status == ApplicationStatus.APPROVED:
+                if status_value == ApplicationStatus.APPROVED.value:
                     application.approved_at = datetime.utcnow()
                     application.approved_by = updated_by
-                elif new_status == ApplicationStatus.REJECTED:
+                elif status_value == ApplicationStatus.REJECTED.value:
+                    application.rejected_at = datetime.utcnow()
+                    application.rejected_by = updated_by
                     application.rejection_reason = rejection_reason
-                elif new_status == ApplicationStatus.ISSUED:
+                    application.status_reason = rejection_reason
+                elif status_value == ApplicationStatus.ISSUED.value:
                     application.issued_at = datetime.utcnow()
                 
                 await session.flush()
@@ -366,7 +389,7 @@ class ApplicationRepository:
             
             conditions = []
             if status:
-                conditions.append(ApplicationRecord.status == status)
+                conditions.append(ApplicationRecord.status == _enum_value(status))
             if document_type:
                 conditions.append(ApplicationRecord.document_type == document_type)
             
@@ -390,9 +413,8 @@ class ApplicationRepository:
                 select(ApplicationRecord)
                 .where(
                     ApplicationRecord.status.in_([
-                        ApplicationStatus.SUBMITTED,
-                        ApplicationStatus.UNDER_REVIEW,
-                        ApplicationStatus.PENDING_APPROVAL,
+                        ApplicationStatus.SUBMITTED.value,
+                        ApplicationStatus.PENDING_APPROVAL.value,
                     ])
                 )
                 .order_by(ApplicationRecord.submitted_at)
@@ -426,6 +448,7 @@ class VettingCheckRepository:
 
     async def get_by_id(self, check_id: UUID) -> VettingCheckRecord | None:
         """Get vetting check by ID."""
+        check_id = _normalize_id(check_id)
         async with self._db.session_scope() as session:
             return await session.get(VettingCheckRecord, check_id)
 
@@ -433,6 +456,7 @@ class VettingCheckRepository:
         self, application_id: UUID
     ) -> list[VettingCheckRecord]:
         """Get all vetting checks for an application."""
+        application_id = _normalize_id(application_id)
         async with self._db.session_scope() as session:
             result = await session.execute(
                 select(VettingCheckRecord)
@@ -450,25 +474,31 @@ class VettingCheckRepository:
         performed_by: str | None = None,
     ) -> VettingCheckRecord | None:
         """Update vetting check status."""
+        check_id = _normalize_id(check_id)
         async with self._db.session_scope() as session:
             check = await session.get(VettingCheckRecord, check_id)
             if check:
-                check.status = new_status
+                status_value = _enum_value(new_status)
+                check.status = status_value
                 check.updated_at = datetime.utcnow()
                 
-                if new_status == VettingCheckStatus.IN_PROGRESS:
+                if status_value == VettingCheckStatus.IN_PROGRESS.value:
                     check.started_at = datetime.utcnow()
-                elif new_status in [
-                    VettingCheckStatus.PASSED,
-                    VettingCheckStatus.FAILED,
-                    VettingCheckStatus.REQUIRES_MANUAL_REVIEW,
+                elif status_value in [
+                    VettingCheckStatus.PASSED.value,
+                    VettingCheckStatus.FAILED.value,
+                    VettingCheckStatus.REQUIRES_MANUAL_REVIEW.value,
                 ]:
                     check.completed_at = datetime.utcnow()
-                    check.performed_by = performed_by
                 
-                if result:
+                if performed_by:
+                    extra = check.extra_data or {}
+                    extra["performed_by"] = performed_by
+                    check.extra_data = extra
+
+                if result is not None:
                     check.result = result
-                if notes:
+                if notes is not None:
                     check.notes = notes
                 
                 await session.flush()
@@ -481,10 +511,12 @@ class VettingCheckRepository:
         """Get pending vetting checks."""
         async with self._db.session_scope() as session:
             query = select(VettingCheckRecord).where(
-                VettingCheckRecord.status == VettingCheckStatus.PENDING
+                VettingCheckRecord.status == VettingCheckStatus.PENDING.value
             )
             if check_type:
-                query = query.where(VettingCheckRecord.check_type == check_type)
+                query = query.where(
+                    VettingCheckRecord.check_type == _enum_value(check_type)
+                )
             query = query.order_by(VettingCheckRecord.created_at).limit(limit)
             result = await session.execute(query)
             return list(result.scalars().all())
@@ -508,6 +540,7 @@ class BiometricEnrollmentRepository:
 
     async def get_by_id(self, enrollment_id: UUID) -> BiometricEnrollmentRecord | None:
         """Get biometric enrollment by ID."""
+        enrollment_id = _normalize_id(enrollment_id)
         async with self._db.session_scope() as session:
             return await session.get(BiometricEnrollmentRecord, enrollment_id)
 
@@ -518,16 +551,17 @@ class BiometricEnrollmentRepository:
         is_active: bool = True,
     ) -> list[BiometricEnrollmentRecord]:
         """Get biometric enrollments for an applicant."""
+        applicant_id = _normalize_id(applicant_id)
         async with self._db.session_scope() as session:
             query = select(BiometricEnrollmentRecord).where(
                 and_(
                     BiometricEnrollmentRecord.applicant_id == applicant_id,
-                    BiometricEnrollmentRecord.is_active == is_active,
+                    BiometricEnrollmentRecord.active == is_active,
                 )
             )
             if biometric_type:
                 query = query.where(
-                    BiometricEnrollmentRecord.biometric_type == biometric_type
+                    BiometricEnrollmentRecord.biometric_type == _enum_value(biometric_type)
                 )
             query = query.order_by(desc(BiometricEnrollmentRecord.captured_at))
             result = await session.execute(query)
@@ -535,10 +569,11 @@ class BiometricEnrollmentRepository:
 
     async def deactivate(self, enrollment_id: UUID) -> BiometricEnrollmentRecord | None:
         """Deactivate a biometric enrollment."""
+        enrollment_id = _normalize_id(enrollment_id)
         async with self._db.session_scope() as session:
             enrollment = await session.get(BiometricEnrollmentRecord, enrollment_id)
             if enrollment:
-                enrollment.is_active = False
+                enrollment.active = False
                 enrollment.updated_at = datetime.utcnow()
                 await session.flush()
                 await session.refresh(enrollment)
@@ -551,12 +586,17 @@ class BiometricEnrollmentRepository:
         score: float | None = None,
     ) -> BiometricEnrollmentRecord | None:
         """Update biometric verification status."""
+        enrollment_id = _normalize_id(enrollment_id)
         async with self._db.session_scope() as session:
             enrollment = await session.get(BiometricEnrollmentRecord, enrollment_id)
             if enrollment:
-                enrollment.is_verified = verified
-                enrollment.verification_score = score
+                enrollment.last_verification_result = verified
                 enrollment.last_verified_at = datetime.utcnow()
+                if score is not None:
+                    extra = enrollment.extra_data or {}
+                    extra["verification_score"] = score
+                    enrollment.extra_data = extra
+                enrollment.verification_attempts += 1
                 enrollment.updated_at = datetime.utcnow()
                 await session.flush()
                 await session.refresh(enrollment)
@@ -579,6 +619,7 @@ class KYCSubmissionRepository:
 
     async def get_by_id(self, submission_id: UUID) -> KYCSubmissionRecord | None:
         """Get KYC submission by ID."""
+        submission_id = _normalize_id(submission_id)
         async with self._db.session_scope() as session:
             return await session.get(KYCSubmissionRecord, submission_id)
 
@@ -586,11 +627,12 @@ class KYCSubmissionRepository:
         self, application_id: UUID
     ) -> list[KYCSubmissionRecord]:
         """Get all KYC submissions for an application."""
+        application_id = _normalize_id(application_id)
         async with self._db.session_scope() as session:
             result = await session.execute(
                 select(KYCSubmissionRecord)
                 .where(KYCSubmissionRecord.application_id == application_id)
-                .order_by(desc(KYCSubmissionRecord.submitted_at))
+                .order_by(desc(KYCSubmissionRecord.created_at))
             )
             return list(result.scalars().all())
 
@@ -602,15 +644,27 @@ class KYCSubmissionRepository:
         notes: str | None = None,
     ) -> KYCSubmissionRecord | None:
         """Update KYC verification status."""
+        submission_id = _normalize_id(submission_id)
         async with self._db.session_scope() as session:
             submission = await session.get(KYCSubmissionRecord, submission_id)
             if submission:
-                submission.is_verified = verified
-                submission.verified_by = verified_by
-                submission.verified_at = datetime.utcnow()
-                if notes:
-                    submission.verification_notes = notes
-                submission.updated_at = datetime.utcnow()
+                now = datetime.utcnow()
+                submission.status = (
+                    KYCVerificationStatus.VERIFIED.value
+                    if verified
+                    else KYCVerificationStatus.REJECTED.value
+                )
+                if verified:
+                    submission.verified_by = verified_by
+                    submission.verified_at = now
+                    if notes is not None:
+                        submission.verification_notes = notes
+                else:
+                    submission.rejected_by = verified_by
+                    submission.rejected_at = now
+                    if notes is not None:
+                        submission.rejection_reason = notes
+                submission.updated_at = now
                 await session.flush()
                 await session.refresh(submission)
             return submission
@@ -635,24 +689,37 @@ class ApplicationAuditRepository:
         application_id: UUID,
         event_type: AuditEventType,
         actor_id: str,
-        actor_type: str = "user",
+        actor_type: str | ActorType = ActorType.API.value,
+        actor_role: str | None = None,
+        event_description: str | None = None,
         details: dict[str, Any] | None = None,
+        previous_status: str | None = None,
+        new_status: str | None = None,
         ip_address: str | None = None,
         user_agent: str | None = None,
+        request_id: str | None = None,
+        session_id: str | None = None,
     ) -> ApplicationAuditLog:
         """Create an audit log entry with simplified interface."""
         from uuid import uuid4
-        
+        application_id = _normalize_id(application_id)
+
         audit_log = ApplicationAuditLog(
-            id=uuid4(),
+            id=str(uuid4()),
             application_id=application_id,
-            event_type=event_type,
+            event_type=_enum_value(event_type),
+            event_description=event_description,
             actor_id=actor_id,
-            actor_type=actor_type,
+            actor_type=_enum_value(actor_type),
+            actor_role=actor_role,
+            previous_status=previous_status,
+            new_status=new_status,
+            changes=details or None,
             timestamp=datetime.utcnow(),
-            details=details or {},
             ip_address=ip_address,
             user_agent=user_agent,
+            request_id=request_id,
+            session_id=session_id,
         )
         return await self.create(audit_log)
 
@@ -660,6 +727,7 @@ class ApplicationAuditRepository:
         self, application_id: UUID, limit: int = 100
     ) -> list[ApplicationAuditLog]:
         """Get audit logs for an application."""
+        application_id = _normalize_id(application_id)
         async with self._db.session_scope() as session:
             result = await session.execute(
                 select(ApplicationAuditLog)

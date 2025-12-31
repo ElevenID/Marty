@@ -53,52 +53,58 @@ import {
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
 
+const API_URL = process.env.REACT_APP_API_URL || '';
+
 // Credential types configuration
 const CREDENTIAL_TYPES = {
-  PASSPORT: {
-    id: 'passport',
-    name: 'Digital Passport',
+  passport: {
     description: 'ICAO 9303 compliant digital travel credential with NFC capability',
     icon: PassportIcon,
     category: 'travel',
     processingTime: '5-10 business days',
     requirements: ['Government-issued ID', 'Proof of citizenship', 'Biometric photo']
   },
-  MDL: {
-    id: 'mdl',
-    name: 'Mobile Driver\'s License',
+  drivers_license: {
     description: 'ISO/IEC 18013-5 compliant mobile driving license',
     icon: DLIcon,
     category: 'identity',
     processingTime: '3-5 business days',
     requirements: ['Current driver\'s license', 'Proof of residence', 'Biometric photo']
   },
-  MDOC: {
-    id: 'mdoc',
-    name: 'Mobile Document (mDoc)',
-    description: 'Generic mobile document credential for various use cases',
-    icon: BadgeIcon,
-    category: 'identity',
-    processingTime: '1-3 business days',
-    requirements: ['Valid government ID', 'Supporting documents']
+  travel_visa: {
+    description: 'Digitally issued travel visa credential for approved applicants',
+    icon: PassportIcon,
+    category: 'travel',
+    processingTime: '5-10 business days',
+    requirements: ['Valid passport', 'Proof of travel intent']
   },
-  EMPLOYEE_BADGE: {
-    id: 'employee_badge',
-    name: 'Employee Badge',
-    description: 'Corporate employee identification credential',
+  access_badge: {
+    description: 'Corporate access badge credential for authorized personnel',
     icon: BadgeIcon,
     category: 'enterprise',
     processingTime: '1-2 business days',
     requirements: ['Employment verification', 'Photo ID']
   },
-  ACCESS_CREDENTIAL: {
-    id: 'access_credential',
-    name: 'Access Credential',
-    description: 'Physical and digital access control credential',
+  national_id: {
+    description: 'National identity credential for verified applicants',
     icon: CredentialIcon,
+    category: 'identity',
+    processingTime: '5-10 business days',
+    requirements: ['Government-issued ID', 'Biometric photo']
+  },
+  dtc: {
+    description: 'Digital Travel Credential per ICAO DTC specification',
+    icon: PassportIcon,
+    category: 'travel',
+    processingTime: '3-5 business days',
+    requirements: ['Valid passport', 'Biometric photo']
+  },
+  open_badge: {
+    description: 'Open Badge credential aligned with the Open Badges standard',
+    icon: BadgeIcon,
     category: 'enterprise',
-    processingTime: 'Same day',
-    requirements: ['Authorization from sponsor', 'Photo ID']
+    processingTime: '1-2 business days',
+    requirements: ['Issuer approval']
   }
 };
 
@@ -111,7 +117,7 @@ const CATEGORIES = [
 
 const CredentialCatalog = () => {
   const navigate = useNavigate();
-  const { organizationId, organizationName } = useAuth();
+  const { organizationId, organizationName, user } = useAuth();
   
   // State
   const [credentials, setCredentials] = useState([]);
@@ -133,26 +139,40 @@ const CredentialCatalog = () => {
   const fetchAvailableCredentials = async () => {
     setLoading(true);
     try {
-      const response = await fetch(`/api/applicant/credentials?orgId=${organizationId}`);
+      const response = await fetch(
+        `${API_URL}/api/organizations/${organizationId}/credential-types`,
+        { credentials: 'include' }
+      );
       if (response.ok) {
         const data = await response.json();
-        setCredentials(data);
+        const configs = data.credential_types || [];
+        const mapped = configs.map((config) => {
+          const meta = CREDENTIAL_TYPES[config.credential_type] || {};
+          return {
+            id: config.id,
+            credentialType: config.credential_type,
+            name: config.display_name,
+            description: meta.description || config.display_name,
+            icon: meta.icon || CredentialIcon,
+            category: meta.category || 'identity',
+            processingTime: meta.processingTime || '3-5 business days',
+            requirements: meta.requirements || [],
+            requiredFields: config.required_fields || [],
+            optionalFields: config.optional_fields || [],
+            processingFee: 0,
+            available: config.is_active,
+            vendorName: organizationName || 'Issuer',
+          };
+        });
+        setCredentials(mapped.filter((item) => item.available));
       } else {
         // Fallback to showing default credentials based on organization config
         console.warn('Credentials API not available, using defaults');
-        setCredentials(
-          Object.values(CREDENTIAL_TYPES).map(type => ({
-            ...type,
-            available: true,
-            processingFee: Math.floor(Math.random() * 30) + 5, // Random fee for demo
-            vendorName: organizationName || 'Demo Vendor'
-          }))
-        );
+        setCredentials([]);
       }
     } catch (error) {
       console.error('Failed to fetch credentials:', error);
-      // Show all credential types as fallback
-      setCredentials(Object.values(CREDENTIAL_TYPES));
+      setCredentials([]);
     } finally {
       setLoading(false);
     }
@@ -163,11 +183,28 @@ const CredentialCatalog = () => {
    */
   const fetchExistingApplications = async () => {
     try {
-      const response = await fetch('/api/applicant/applications');
-      if (response.ok) {
-        const data = await response.json();
-        setExistingApplications(data.map(app => app.credentialId));
+      if (!organizationId || !user?.user_id) {
+        return;
       }
+      const applicantResponse = await fetch(`${API_URL}/api/applicants/by-user/${user?.user_id}`, {
+        credentials: 'include',
+      });
+      if (!applicantResponse.ok) {
+        return;
+      }
+      const applicant = await applicantResponse.json();
+      if (!applicant?.id) {
+        return;
+      }
+      const response = await fetch(`${API_URL}/api/applicants/${applicant.id}/applications`, {
+        credentials: 'include',
+      });
+      if (!response.ok) {
+        return;
+      }
+      const data = await response.json();
+      const apps = Array.isArray(data) ? data : (data.applications || []);
+      setExistingApplications(apps.map(app => app.credential_configuration_id).filter(Boolean));
     } catch (error) {
       console.error('Failed to fetch applications:', error);
     }
@@ -192,7 +229,6 @@ const CredentialCatalog = () => {
     navigate(`/apply/${credential.id}`, {
       state: {
         credential,
-        processingFee: credential.processingFee
       }
     });
   };

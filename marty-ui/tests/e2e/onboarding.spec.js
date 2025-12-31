@@ -8,7 +8,8 @@ const { test, expect } = require('@playwright/test');
 
 // Test configuration
 const APP_URL = process.env.BASE_URL || 'http://localhost:9080';
-const API_URL = process.env.API_URL || 'http://localhost:9080/api';
+const API_BASE = (process.env.API_URL || 'http://localhost:8000').replace(/\/$/, '');
+const API_URL = API_BASE.endsWith('/api') ? API_BASE : `${API_BASE}/api`;
 
 /**
  * Onboarding Test Helpers
@@ -130,7 +131,7 @@ class OnboardingTestHelpers {
 }
 
 
-test.describe('Onboarding Page Structure', () => {
+test.describe('Onboarding Page Structure @slow', () => {
   let helpers;
 
   test.beforeEach(async ({ page }) => {
@@ -181,7 +182,7 @@ test.describe('Onboarding Page Structure', () => {
 });
 
 
-test.describe('Role Selection Step', () => {
+test.describe('Role Selection Step @slow', () => {
   let helpers;
 
   test.beforeEach(async ({ page }) => {
@@ -319,7 +320,7 @@ test.describe('Role Selection Step', () => {
 });
 
 
-test.describe('Applicant Join Organization Step', () => {
+test.describe('Applicant Join Organization Step @slow', () => {
   let helpers;
 
   test.beforeEach(async ({ page }) => {
@@ -444,7 +445,7 @@ test.describe('Applicant Join Organization Step', () => {
 });
 
 
-test.describe('Vendor Create Organization Step', () => {
+test.describe('Vendor Create Organization Step @slow', () => {
   let helpers;
 
   test.beforeEach(async ({ page }) => {
@@ -595,7 +596,7 @@ test.describe('Vendor Create Organization Step', () => {
 });
 
 
-test.describe('Onboarding API Integration', () => {
+test.describe('Onboarding API Integration @slow', () => {
   test('onboarding status endpoint should return proper structure', async ({ page }) => {
     // Test the API endpoint directly
     const response = await page.request.get(`${API_URL}/onboarding/status`, {
@@ -633,7 +634,7 @@ test.describe('Onboarding API Integration', () => {
 });
 
 
-test.describe('Onboarding Accessibility', () => {
+test.describe('Onboarding Accessibility @slow', () => {
   let helpers;
 
   test.beforeEach(async ({ page }) => {
@@ -694,7 +695,7 @@ test.describe('Onboarding Accessibility', () => {
 });
 
 
-test.describe('Onboarding Error Handling', () => {
+test.describe('Onboarding Error Handling @slow', () => {
   let helpers;
 
   test.beforeEach(async ({ page }) => {
@@ -759,7 +760,7 @@ test.describe('Onboarding Error Handling', () => {
 });
 
 
-test.describe('Onboarding Responsive Design', () => {
+test.describe('Onboarding Responsive Design @slow', () => {
   test('should render correctly on mobile viewport', async ({ page }) => {
     await page.setViewportSize({ width: 375, height: 667 });
     await page.goto('/onboarding');

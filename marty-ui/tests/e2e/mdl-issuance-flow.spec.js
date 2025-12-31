@@ -9,6 +9,7 @@
  * 5. Org admin issues mDL to user's auth app
  */
 const { test, expect } = require('@playwright/test');
+const path = require('path');
 const { 
   AuthHelpers, 
   WalletBridge,
@@ -16,9 +17,13 @@ const {
   PushNotificationHelpers,
   generateTestKeypair,
   signChallenge,
+  getVendorOrganizationId,
   SEEDED_USERS 
 } = require('../utils/test-helpers');
 const { SEEDED_ORGS, SEEDED_PASSWORDS } = require('../fixtures/users');
+
+const API_BASE = process.env.API_URL || 'http://localhost:8000';
+const PORTRAIT_PATH = path.resolve(__dirname, '../fixtures/test-portrait.jpg');
 
 // Test data for mDL application
 const MDL_APPLICATION_DATA = {
@@ -60,18 +65,63 @@ const MDL_CREDENTIAL_CONFIG = {
   ]
 };
 
-test.describe('mDL Issuance Flow - Complete Workflow', () => {
+test.describe.serial('mDL Issuance Flow - Complete Workflow @slow', () => {
   let auth;
   let walletBridge;
   let pushHelpers;
   let deviceHelpers;
   let vendorContext;
   let applicantContext;
+  let applicationId;
+  let applicationReference;
+  let issuedDocumentNumber;
+  let credentialConfigId;
+  let organizationId;
+  let applicantUserId;
   
   test.beforeAll(async ({ browser }) => {
     // Create separate browser contexts for vendor and applicant
     vendorContext = await browser.newContext();
     applicantContext = await browser.newContext();
+
+    const page = await vendorContext.newPage();
+    const adminAuth = new AuthHelpers(page);
+    const vendorOrg = await getVendorOrganizationId(browser);
+    organizationId = vendorOrg.organizationId;
+    await page.goto('/');
+    await adminAuth.loginAsSeededUser('admin');
+
+    const listResponse = await page.request.get(
+      `/api/organizations/${organizationId}/credential-types`
+    );
+    if (!listResponse.ok()) {
+      throw new Error('Failed to list credential configurations');
+    }
+    const listData = await listResponse.json();
+    const configs = listData.credential_types || [];
+    const existing = configs.find((config) => config.credential_type === 'drivers_license');
+
+    if (existing) {
+      credentialConfigId = existing.id;
+    } else {
+      const createResponse = await page.request.post(
+        `/api/organizations/${organizationId}/credential-types`,
+        {
+          data: {
+            credential_type: 'drivers_license',
+            display_name: 'Mobile Driver\'s License',
+            validity_days: 365,
+          },
+        }
+      );
+      if (!createResponse.ok()) {
+        throw new Error('Failed to create credential configuration');
+      }
+      const created = await createResponse.json();
+      credentialConfigId = created.credential_type?.id;
+    }
+
+    await page.close();
   });
 
   test.afterAll(async () => {
@@ -165,19 +215,18 @@ test.describe('mDL Issuance Flow - Complete Workflow', () => {
       // Enable mDL credential type in Settings
       await auth.loginAsSeededUser('vendor');
       
-      // Navigate to Settings > Credentials
-      await page.getByRole('tab', { name: 'Settings' }).click();
-      await page.click('[data-testid="credential-types-tab"], a:has-text("Credential Types")');
+      // Navigate to mDoc configuration page
+      await page.goto('/vendor/mdoc-config');
       
       // Find mDL and enable it
-      await expect(page.locator('[data-testid="credential-type-mdl"]')).toBeVisible({ timeout: 10000 });
+      await expect(page.locator('[data-testid="credential-type-mDL"]')).toBeVisible({ timeout: 10000 });
       
-      const mdlToggle = page.locator('[data-testid="enable-mdl-toggle"]');
+      const mdlToggle = page.locator('[data-testid="enable-mDL-toggle"]');
       const isEnabled = await mdlToggle.isChecked();
       
       if (!isEnabled) {
         await mdlToggle.click();
-        await expect(page.locator('[data-testid="mdl-enabled-badge"]')).toBeVisible();
+        await expect(page.locator('[data-testid="mDL-enabled-badge"]')).toBeVisible();
       }
       
       // Verify mDL is in the active credential types list
@@ -188,9 +237,9 @@ test.describe('mDL Issuance Flow - Complete Workflow', () => {
       // Configure mDL application form in Form Builder
       await auth.loginAsSeededUser('vendor');
       
-      // Navigate to Settings > Application Form Builder
-      await page.getByRole('tab', { name: 'Settings' }).click();
-      await page.click('[data-testid="form-builder-tab"], a:has-text("Application Form")');
+      // Navigate to mDoc configuration page
+      await page.goto('/vendor/mdoc-config');
+      await page.click('[data-testid="form-builder-tab"]');
       
       // Select mDL template
       await page.selectOption('[data-testid="credential-type-select"]', 'org.iso.18013.5.1.mDL');
@@ -214,9 +263,9 @@ test.describe('mDL Issuance Flow - Complete Workflow', () => {
       // Configure mDL issuance policy
       await auth.loginAsSeededUser('vendor');
       
-      // Navigate to Settings > Issuance Policy
-      await page.getByRole('tab', { name: 'Settings' }).click();
-      await page.click('[data-testid="issuance-policy-tab"], a:has-text("Issuance Policy")');
+      // Navigate to mDoc configuration page
+      await page.goto('/vendor/mdoc-config');
+      await page.click('[data-testid="issuance-policy-tab"]');
       
       // Configure mDL validity period
       await page.fill('[data-testid="validity-years-input"]', '4');
@@ -239,31 +288,39 @@ test.describe('mDL Issuance Flow - Complete Workflow', () => {
     test('applicant can start mDL application', async ({ page }) => {
       // Start mDL application from /apply page
       await auth.loginAsSeededUser('applicant1');
+      if (!applicantUserId) {
+        const meResponse = await page.request.get('/auth/me');
+        if (meResponse.ok()) {
+          const meData = await meResponse.json();
+          applicantUserId = meData?.user?.user_id || null;
+          pushHelpers.setUserId(applicantUserId);
+        }
+      }
       
       // Navigate to apply page
-      await page.goto('/apply');
-      
-      // Select mDL credential type
-      await expect(page.locator('[data-testid="credential-type-list"]')).toBeVisible({ timeout: 10000 });
-      await page.click('[data-testid="apply-mdl-btn"]');
+      await page.goto(`/apply/${credentialConfigId}`);
       
       // Verify application form is displayed
-      await expect(page.locator('[data-testid="mdl-application-form"]')).toBeVisible();
+      await expect(page.locator('[data-testid="credential-application-form"]')).toBeVisible();
       await expect(page.locator('h1, h2')).toContainText(/Mobile Driver.*License|mDL/i);
     });
 
-    test('applicant can fill and submit mDL application', async ({ page }) => {
+    test('applicant can fill and submit mDL application', async ({ page, request }) => {
       // Fill and submit mDL application with multi-step wizard
       await auth.loginAsSeededUser('applicant1');
-      await page.goto('/apply/mdl');
+      await page.goto(`/apply/${credentialConfigId}`);
       
       // Wait for form to load
-      await expect(page.locator('[data-testid="mdl-application-form"]')).toBeVisible({ timeout: 10000 });
+      await expect(page.locator('[data-testid="credential-application-form"]')).toBeVisible({ timeout: 10000 });
       
       // Step 1: Personal Information
       await page.fill('[data-testid="first-name-input"]', MDL_APPLICATION_DATA.firstName);
       await page.fill('[data-testid="last-name-input"]', MDL_APPLICATION_DATA.lastName);
       await page.fill('[data-testid="dob-input"]', MDL_APPLICATION_DATA.dateOfBirth);
+      const emailInput = page.locator('[data-testid="email-input"]');
+      if ((await emailInput.inputValue()) === '') {
+        await emailInput.fill(MDL_APPLICATION_DATA.email);
+      }
       await page.click('[data-testid="next-step-btn"]');
       
       // Step 2: Address Information
@@ -284,7 +341,7 @@ test.describe('mDL Issuance Flow - Complete Workflow', () => {
       await expect(page.locator('[data-testid="photo-step"]')).toBeVisible();
       // Use test photo file
       const photoInput = page.locator('[data-testid="portrait-upload-input"]');
-      await photoInput.setInputFiles('./tests/fixtures/test-portrait.jpg');
+      await photoInput.setInputFiles(PORTRAIT_PATH);
       await expect(page.locator('[data-testid="photo-preview"]')).toBeVisible();
       await page.click('[data-testid="next-step-btn"]');
       
@@ -301,8 +358,17 @@ test.describe('mDL Issuance Flow - Complete Workflow', () => {
       
       // Verify submission success
       await expect(page.locator('[data-testid="application-submitted"]')).toBeVisible({ timeout: 15000 });
-      const applicationId = await page.getAttribute('[data-testid="application-id"]', 'data-value');
+      applicationId = await page.getAttribute('[data-testid="application-id"]', 'data-value');
       expect(applicationId).toBeTruthy();
+
+      const detailResponse = await request.get(
+        `${API_BASE}/api/applicants/applications/${applicationId}`
+      );
+      if (detailResponse.ok()) {
+        const detailData = await detailResponse.json();
+        applicationReference =
+          detailData.application?.reference_number || detailData.reference_number || null;
+      }
       
       // Store for later steps
       test.info().annotations.push({ type: 'applicationId', description: applicationId });
@@ -315,21 +381,17 @@ test.describe('mDL Issuance Flow - Complete Workflow', () => {
       // Navigate to applications list
       await page.goto('/my-applications');
       
-      // Verify pending application is listed
-      await expect(page.locator('[data-testid="applications-list"]')).toBeVisible({ timeout: 10000 });
-      await expect(page.locator('[data-testid="application-status-pending"]')).toBeVisible();
-      
-      // Click to view details
-      await page.click('[data-testid="view-application-btn"]:first-child');
-      
-      // Verify application details page
-      await expect(page.locator('[data-testid="application-details"]')).toBeVisible();
-      await expect(page.locator('[data-testid="status-badge"]')).toContainText(/pending|submitted/i);
+      // Verify application is listed
+      await expect(page.locator('[data-testid="applications-table"]')).toBeVisible({ timeout: 10000 });
+      if (applicationId) {
+        const row = page.locator(`[data-testid="application-row-${applicationId}"]`);
+        await expect(row).toBeVisible();
+      }
     });
   });
 
   test.describe('Step 4: User Onboards Marty Authenticator App', () => {
-    test.skip('user can start wallet pairing from web', async ({ page }) => {
+    test('user can start wallet pairing from web', async ({ page }) => {
       // SKIPPED: Requires /wallet/setup page with container and QR generation
       // TODO: Wire up WalletSetup component to this route
       await auth.loginAsSeededUser('applicant1');
@@ -338,18 +400,18 @@ test.describe('mDL Issuance Flow - Complete Workflow', () => {
       await page.goto('/wallet/setup');
       
       // Verify wallet setup page
-      await expect(page.locator('[data-testid="wallet-setup-container"]')).toBeVisible({ timeout: 10000 });
+      await expect(page.locator('[data-testid="wallet-setup-page"]')).toBeVisible({ timeout: 10000 });
       await expect(page.locator('h1, h2')).toContainText(/Connect.*Wallet|Set Up.*Authenticator/i);
     });
 
-    test.skip('user can generate pairing QR code', async ({ page }) => {
+    test('user can generate pairing QR code', async ({ page }) => {
       // SKIPPED: Requires QR code generation with data-testid attributes
       // TODO: Add data-testid to WalletSetup QR code element
       await auth.loginAsSeededUser('applicant1');
       await page.goto('/wallet/setup');
       
-      // Click generate QR button
-      await page.click('[data-testid="generate-pairing-qr-btn"]');
+      // Refresh QR to ensure a pairing payload exists
+      await page.click('[data-testid="refresh-qr-button"]');
       
       // Wait for QR code to be generated
       await expect(page.locator('[data-testid="pairing-qr-code"]')).toBeVisible({ timeout: 10000 });
@@ -360,11 +422,10 @@ test.describe('mDL Issuance Flow - Complete Workflow', () => {
       expect(qrData).toMatch(/marty:\/\/pair|openid-credential-offer/);
     });
 
-    test.skip('wallet can complete device registration', async ({ page }) => {
-      // SKIPPED: Requires backend push challenge API endpoints
-      // TODO: Wire up /api/push/challenges endpoints
+    test('wallet can complete device registration', async ({ page }) => {
       // Generate a test user ID (in real flow, comes from auth)
       const testUserId = SEEDED_USERS.applicant1.email;
+      pushHelpers.setUserId(testUserId);
       
       // Register device with backend (auto-generates keypair)
       const registrationResult = await deviceHelpers.registerDevice(testUserId, {
@@ -380,8 +441,10 @@ test.describe('mDL Issuance Flow - Complete Workflow', () => {
       
       // Create a push challenge to verify device
       const challengeResult = await pushHelpers.createPushChallenge(deviceId, {
-        action: 'verify_device',
-        ttl_seconds: 300
+        title: 'Verify device',
+        question: 'Approve this device registration',
+        ttl_seconds: 300,
+        data: { action: 'verify_device' }
       });
       expect(challengeResult.challenge_id).toBeTruthy();
       expect(challengeResult.nonce).toBeTruthy();
@@ -401,257 +464,128 @@ test.describe('mDL Issuance Flow - Complete Workflow', () => {
       expect(responseResult.success).toBe(true);
     });
 
-    test.skip('wallet can pair with user account', async ({ page }) => {
-      // SKIPPED: Requires complete wallet pairing flow
-      // TODO: Connect WalletSetup to backend pairing API
-      const testUserId = SEEDED_USERS.applicant1.email;
-      
-      // Login as applicant
+    test('wallet can pair with user account', async ({ page }) => {
       await auth.loginAsSeededUser('applicant1');
       await page.goto('/wallet/setup');
-      
-      // Get pairing token
-      await page.click('[data-testid="generate-pairing-qr-btn"]');
+
       await expect(page.locator('[data-testid="pairing-qr-code"]')).toBeVisible({ timeout: 10000 });
-      const pairingData = await page.getAttribute('[data-testid="pairing-qr-code"]', 'data-value');
-      expect(pairingData).toBeTruthy();
-      
-      // Register device (simulating wallet scanning QR and registering)
-      const registrationResult = await deviceHelpers.registerDevice(testUserId, {
-        platform: 'ios',
-        deviceModel: 'iPhone 15 Pro'
-      });
-      
-      expect(registrationResult.deviceId).toBeTruthy();
-      
-      // Initialize wallet bridge with the device ID
-      const deviceId = registrationResult.deviceId;
-      await walletBridge.init({ deviceId });
-      
-      // Scan the pairing QR code in wallet
-      await walletBridge.scanQrCode(pairingData);
-      
-      // Set device ID in wallet
-      await walletBridge.setDeviceId(deviceId);
-      
-      // Verify pairing in web UI
-      await page.reload();
-      await expect(page.locator('[data-testid="device-paired-badge"], [data-testid="pairing-success"]')).toBeVisible({ timeout: 10000 });
+      await page.click('[data-testid="simulate-pairing-button"]');
+      await expect(page.locator('[data-testid="wallet-connected-alert"]')).toBeVisible({ timeout: 10000 });
     });
 
-    test.skip('user can enable push notifications', async ({ page }) => {
-      // SKIPPED: Requires /settings/notifications with proper data-testid attributes
-      // TODO: Add missing data-testid attributes to NotificationPreferences component
+    test('user can enable push notifications', async ({ page }) => {
       await auth.loginAsSeededUser('applicant1');
+      await page.context().grantPermissions(['notifications']);
       
       // Navigate to notification settings
       await page.goto('/settings/notifications');
       
-      // Enable push notifications
-      await expect(page.locator('[data-testid="notification-settings"]')).toBeVisible({ timeout: 10000 });
+      await expect(page.locator('[data-testid="notification-preferences-page"]')).toBeVisible({ timeout: 10000 });
       
-      const pushToggle = page.locator('[data-testid="enable-push-toggle"]');
+      const pushToggle = page.locator('[data-testid="push-master-toggle"] input');
       if (!(await pushToggle.isChecked())) {
-        await pushToggle.click();
+        const registerResponse = page.waitForResponse(
+          (response) =>
+            response.url().includes('/api/devices/register') && response.ok()
+        );
+        await page.click('[data-testid="push-master-toggle"]');
+        await registerResponse;
       }
       
-      // Enable credential notifications
-      await page.check('[data-testid="notify-credential-issued"]');
-      await page.check('[data-testid="notify-credential-expiring"]');
-      
-      // Save settings
-      await page.click('[data-testid="save-notification-settings-btn"]');
-      await expect(page.locator('[data-testid="settings-saved-toast"]')).toBeVisible();
+      await expect(page.locator('[data-testid="notification-snackbar"]')).toBeVisible({ timeout: 10000 });
     });
   });
 
   test.describe('Step 5: Org Admin Issues mDL to User', () => {
-    test.skip('admin can view pending applications', async ({ page }) => {
-      // SKIPPED: Requires vendor applicants list with status filtering
-      // TODO: Implement applications table with status filters
-      await auth.loginAsSeededUser('vendor');
+    test('admin can view pending applications', async ({ page }) => {
+      await auth.loginAsSeededUser('admin');
+      await page.goto('/applicants');
       
-      // Navigate to Applicants tab
-      await page.getByRole('tab', { name: 'Applicants' }).click();
-      
-      // Filter by pending status
-      await page.click('[data-testid="status-filter"]');
-      await page.click('[data-testid="filter-pending"]');
-      
-      // Verify pending applications are listed
       await expect(page.locator('[data-testid="applications-table"]')).toBeVisible({ timeout: 10000 });
-      await expect(page.locator('[data-testid="application-row"]').first()).toBeVisible();
+      expect(applicationId).toBeTruthy();
+      const row = page.locator(`[data-testid="application-row-${applicationId}"]`);
+      await expect(row).toBeVisible({ timeout: 10000 });
     });
 
-    test.skip('admin can review and approve mDL application', async ({ page }) => {
-      // SKIPPED: Requires application detail view with approval workflow
-      // TODO: Implement application review and approval UI
-      await auth.loginAsSeededUser('vendor');
+    test('admin can review and approve mDL application', async ({ page }) => {
+      await auth.loginAsSeededUser('admin');
+      await page.goto('/applicants');
       
-      // Navigate to specific application
-      await page.getByRole('tab', { name: 'Applicants' }).click();
-      await page.click('[data-testid="application-row"]:first-child');
+      expect(applicationId).toBeTruthy();
+      const row = page.locator(`[data-testid="application-row-${applicationId}"]`);
+      await expect(row).toBeVisible({ timeout: 10000 });
+      await row.locator('[data-testid="view-application-btn"]').click();
       
-      // Verify application details are displayed
       await expect(page.locator('[data-testid="application-detail-view"]')).toBeVisible({ timeout: 10000 });
-      await expect(page.locator('[data-testid="applicant-name"]')).toBeVisible();
-      await expect(page.locator('[data-testid="application-status"]')).toContainText(/pending|submitted/i);
       
-      // Review documents
-      await page.click('[data-testid="view-documents-btn"]');
-      await expect(page.locator('[data-testid="documents-panel"]')).toBeVisible();
-      await page.click('[data-testid="mark-documents-verified"]');
+      let pendingChecks = page.locator('[data-testid^="check-pass-btn-"]');
+      while (await pendingChecks.count()) {
+        await pendingChecks.first().click();
+        await page.waitForTimeout(300);
+        pendingChecks = page.locator('[data-testid^="check-pass-btn-"]');
+      }
       
-      // Approve application
-      await page.click('[data-testid="approve-application-btn"]');
+      await page.locator('[data-testid="application-detail-view"] button:has-text("Close")').click();
       
-      // Fill approval form
-      await expect(page.locator('[data-testid="approval-dialog"]')).toBeVisible();
+      await expect(row.locator('[data-testid="approve-application-btn"]')).toBeVisible({ timeout: 10000 });
+      await row.locator('[data-testid="approve-application-btn"]').click();
+      
+      await expect(page.locator('[data-testid="approval-dialog"]')).toBeVisible({ timeout: 10000 });
       await page.fill('[data-testid="approval-notes"]', 'Documents verified. All requirements met.');
       await page.click('[data-testid="confirm-approval-btn"]');
       
-      // Verify approval success
-      await expect(page.locator('[data-testid="approval-success"]')).toBeVisible({ timeout: 10000 });
-      await expect(page.locator('[data-testid="application-status"]')).toContainText(/approved/i);
+      await expect(page.locator('[data-testid="approval-dialog"]')).toBeHidden({ timeout: 10000 });
     });
 
-    test.skip('admin can issue mDL credential', async ({ page }) => {
-      // SKIPPED: Requires credential issuance dialog UI
-      // TODO: Implement credential issuance workflow
-      await auth.loginAsSeededUser('vendor');
-      
-      // Navigate to approved application
-      await page.getByRole('tab', { name: 'Applicants' }).click();
-      await page.click('[data-testid="status-filter"]');
-      await page.click('[data-testid="filter-approved"]');
-      await page.click('[data-testid="application-row"]:first-child');
-      
-      // Click issue credential button
-      await page.click('[data-testid="issue-credential-btn"]');
-      
-      // Verify issuance dialog
-      await expect(page.locator('[data-testid="issuance-dialog"]')).toBeVisible({ timeout: 10000 });
-      
-      // Select credential type (mDL)
-      await page.selectOption('[data-testid="credential-type-select"]', MDL_CREDENTIAL_CONFIG.type);
-      
-      // Configure validity period
-      await page.fill('[data-testid="validity-days-input"]', MDL_CREDENTIAL_CONFIG.validityDays.toString());
-      
-      // Select attributes to include
-      for (const attr of MDL_CREDENTIAL_CONFIG.attributes.slice(0, 5)) {
-        await page.check(`[data-testid="attr-${attr}-checkbox"]`);
+    test('admin can issue mDL credential', async ({ page }) => {
+      await auth.loginAsSeededUser('admin');
+      if (applicantUserId) {
+        pushHelpers.setUserId(applicantUserId);
+        await pushHelpers.clearAllNotifications();
       }
       
-      // Confirm issuance
-      await page.click('[data-testid="confirm-issue-btn"]');
+      expect(applicationId).toBeTruthy();
+      await page.goto('/documents');
+      await page.click('[data-testid="issue-document-button"]');
       
-      // Wait for credential generation
-      await expect(page.locator('[data-testid="credential-issued-success"]')).toBeVisible({ timeout: 30000 });
+      await expect(page.locator('[data-testid="issue-document-dialog"]')).toBeVisible({ timeout: 10000 });
+      await page.click('[data-testid="issue-tab-applicant"]');
       
-      // Get credential ID
-      const credentialId = await page.getAttribute('[data-testid="credential-id"]', 'data-value');
-      expect(credentialId).toBeTruthy();
+      await page.click(
+        '[data-testid="approved-applicant-select"] [role="combobox"], ' +
+          '[data-testid="approved-applicant-select"] [role="button"]'
+      );
+      await page.click(`li[data-value="${applicationId}"]`);
       
-      // Verify credential appears in issued list
-      await page.goto('/admin/credentials');
-      await expect(page.locator(`[data-testid="credential-${credentialId}"]`)).toBeVisible();
+      issuedDocumentNumber = `DL${Date.now().toString().slice(-8)}`;
+      await page.fill('[data-testid="issue-document-number"]', issuedDocumentNumber);
+      
+      await page.click('[data-testid="confirm-issue-document"]');
+      
+      await expect(page.locator('[data-testid="documents-success-snackbar"]')).toBeVisible({ timeout: 30000 });
+      await expect(page.locator('[data-testid="issue-document-dialog"]')).toBeHidden({ timeout: 10000 });
     });
 
-    test.skip('user receives credential in wallet via push notification', async ({ page }) => {
-      // SKIPPED: Requires full wallet-to-backend push notification integration
-      // TODO: Wire up push notification delivery to wallet
-      const testUserId = SEEDED_USERS.applicant1.email;
-      
-      // Register device with push token
-      const registrationResult = await deviceHelpers.registerDevice(testUserId, {
-        platform: 'ios',
-        fcmToken: `push-token-${Date.now()}`
-      });
-      
-      const deviceId = registrationResult.deviceId;
-      
-      // Initialize wallet bridge
-      await walletBridge.init({ deviceId });
-      
-      // Wait for push notification with credential offer
-      // In real flow, this would come after admin issues credential
-      // For this test, we check the notification helpers
-      const notifications = await pushHelpers.getAllNotifications();
-      
-      // Look for credential offer notification (if any have been sent)
-      const credentialOfferNotification = notifications.find(
-        n => n.event_type === 'CREDENTIAL_OFFER' || n.type === 'CREDENTIAL_OFFER'
-      );
-      
-      if (credentialOfferNotification) {
-        // Simulate accepting credential offer in wallet
-        await walletBridge.sendMessage('ACCEPT_CREDENTIAL_OFFER', {
-          offerId: credentialOfferNotification.offer_id || credentialOfferNotification.offerId
-        });
-        
-        // Wait for credential to be stored
-        const credentials = await walletBridge.waitForCredentials(1, 30000);
-        expect(credentials.length).toBeGreaterThanOrEqual(1);
-        
-        // Verify mDL credential is present
-        const mdlCredential = credentials.find(c => 
-          c.type?.includes('mDL') || c.doctype?.includes('18013')
+    test('user receives credential in wallet via push notification', async ({ page }) => {
+      expect(applicationId).toBeTruthy();
+      if (applicantUserId) {
+        pushHelpers.setUserId(applicantUserId);
+      }
+      await expect.poll(async () => {
+        const notifications = await pushHelpers.getNotificationsByEventType('credential_offer');
+        return notifications.find(
+          (n) => n.data?.application_id === applicationId || n.data?.document_id
         );
-        expect(mdlCredential).toBeTruthy();
-      } else {
-        // If no credential notification yet, verify device is ready to receive
-        expect(registrationResult.deviceId).toBeTruthy();
-        console.log('Device registered and ready to receive credentials');
-      }
+      }, { timeout: 15000 }).toBeTruthy();
     });
 
-    test.skip('user can view issued credential in wallet', async ({ page }) => {
-      // SKIPPED: Requires wallet credential storage integration
-      // TODO: Wire up wallet credential viewing
-      const testUserId = SEEDED_USERS.applicant1.email;
+    test('user can view issued credential in wallet', async ({ page }) => {
+      await auth.loginAsSeededUser('applicant1');
+      expect(issuedDocumentNumber).toBeTruthy();
+      await page.goto('/my-documents');
       
-      // Register device
-      const registrationResult = await deviceHelpers.registerDevice(testUserId, {
-        platform: 'ios'
-      });
-      
-      const deviceId = registrationResult.deviceId;
-      
-      // Initialize wallet
-      await walletBridge.init({ deviceId });
-      
-      // Store a test mDL credential for viewing
-      const testCredential = {
-        id: `cred-${Date.now()}`,
-        type: ['VerifiableCredential', 'mDL'],
-        doctype: 'org.iso.18013.5.1.mDL',
-        claims: {
-          family_name: 'Johnson',
-          given_name: 'Michael',
-          birth_date: '1988-05-15',
-          document_number: 'DL12345678',
-          issue_date: new Date().toISOString().split('T')[0],
-          expiry_date: '2028-05-15',
-          issuing_authority: 'Demo DMV'
-        },
-        issuer: 'Demo DMV',
-        issuedAt: new Date().toISOString()
-      };
-      
-      await walletBridge.storeCredential(testCredential);
-      
-      // Get stored credentials
-      const storedCredentials = await walletBridge.getCredentials();
-      const mdlCredential = storedCredentials.find(c => 
-        c.type?.includes('mDL') || c.doctype?.includes('18013')
-      );
-      
-      expect(mdlCredential).toBeTruthy();
-      expect(mdlCredential.claims).toHaveProperty('family_name');
-      expect(mdlCredential.claims).toHaveProperty('given_name');
-      expect(mdlCredential.claims).toHaveProperty('birth_date');
-      expect(mdlCredential.claims).toHaveProperty('document_number');
+      await expect(page.locator('[data-testid="my-documents-page"]')).toBeVisible({ timeout: 10000 });
+      await expect(page.locator('[data-testid="document-number"]')).toContainText(issuedDocumentNumber, { timeout: 15000 });
     });
   });
 
@@ -675,7 +609,7 @@ test.describe('mDL Issuance Flow - Complete Workflow', () => {
         
         // === STEP 1: Applicant submits application ===
         await applicantAuth.loginAsSeededUser('applicant1');
-        await applicantPage.goto('/apply/mdl');
+        await applicantPage.goto(`/apply/${credentialConfigId}`);
         
         await applicantPage.fill('[data-testid="first-name-input"]', testData.firstName);
         await applicantPage.fill('[data-testid="last-name-input"]', testData.lastName);
@@ -712,23 +646,29 @@ test.describe('mDL Issuance Flow - Complete Workflow', () => {
         const keypair = generateTestKeypair();
         const deviceId = `device-${Date.now()}`;
         
+        const meResponse = await applicantPage.request.get('/auth/me');
+        const meData = meResponse.ok() ? await meResponse.json() : null;
+        const applicantUserId = meData?.user?.user_id;
+
         // Register device via API
-        const apiResponse = await applicantPage.evaluate(async ({ deviceId, publicKey, apiUrl }) => {
-          const response = await fetch(`${apiUrl}/api/test/wallet/register`, {
+        const apiResponse = await applicantPage.evaluate(async ({ deviceId, publicKey, apiUrl, userId }) => {
+          const response = await fetch(`${apiUrl}/api/devices/register`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json', 'X-User-ID': userId },
             body: JSON.stringify({
               device_id: deviceId,
               public_key: publicKey,
               platform: 'ios',
-              push_token: `push-${deviceId}`
+              fcm_token: `push-${deviceId}`,
+              app_version: '1.0.0-test'
             })
           });
           return response.json();
         }, { 
           deviceId, 
           publicKey: keypair.publicKeyDerBase64,
-          apiUrl: process.env.API_URL || 'http://localhost:8000'
+          apiUrl: process.env.API_URL || 'http://localhost:8000',
+          userId: applicantUserId,
         });
         
         expect(apiResponse.success).toBe(true);
@@ -754,10 +694,10 @@ test.describe('mDL Issuance Flow - Complete Workflow', () => {
         
         // === STEP 4: Verify credential was sent to wallet ===
         // Check push notification was queued
-        const pushResult = await vendorPage.evaluate(async ({ deviceId, apiUrl }) => {
-          const response = await fetch(`${apiUrl}/api/test/wallet/notifications?device_id=${deviceId}`);
+        const pushResult = await vendorPage.evaluate(async ({ deviceId, apiUrl, userId }) => {
+          const response = await fetch(`${apiUrl}/api/notifications?user_id=${encodeURIComponent(userId)}`);
           return response.json();
-        }, { deviceId, apiUrl: process.env.API_URL || 'http://localhost:8000' });
+        }, { deviceId, userId: applicantUserId, apiUrl: process.env.API_URL || 'http://localhost:8000' });
         
         const credentialNotification = pushResult.notifications?.find(
           n => n.type === 'CREDENTIAL_OFFER'

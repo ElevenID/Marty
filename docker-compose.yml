@@ -26,6 +26,7 @@
 # =============================================================================
 x-test-env: &test-env
   CI: "true"
+  PW_FAST: ${PW_FAST:-}
   TEST_PROVIDER: mailhog
   MAILHOG_URL: http://mailhog:8025
   # Browser-accessible URLs via host.docker.internal
@@ -33,6 +34,7 @@ x-test-env: &test-env
   API_URL: http://host.docker.internal:8000
   KEYCLOAK_URL: http://host.docker.internal:8180
   OIDC_ISSUER_URL: http://host.docker.internal:8180/realms/marty
+  WALLET_URL: http://host.docker.internal:9081
 
 x-keycloak-env: &keycloak-env
   KEYCLOAK_ADMIN: admin
@@ -471,6 +473,7 @@ services:
     volumes:
       - ./marty-ui/tests/test-results:/tests/test-results
       - ./marty-ui/tests/playwright-report:/tests/playwright-report
+      - ./marty-ui/tests/playwright.config.js:/tests/playwright.config.js:ro
     depends_on:
       ui-test:
         condition: service_healthy
@@ -499,6 +502,7 @@ services:
       - ./marty-ui/tests/playwright-report:/tests/playwright-report
       - ./marty-ui/tests/e2e:/tests/e2e:ro  # Mount test files for live updates
       - ./marty-ui/tests/utils:/tests/utils:ro  # Mount test helpers
+      - ./marty-ui/tests/playwright.config.js:/tests/playwright.config.js:ro
     depends_on:
       ui-test:
         condition: service_healthy

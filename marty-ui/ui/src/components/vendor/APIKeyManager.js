@@ -229,9 +229,34 @@ export default function APIKeyManager() {
     }
   };
 
-  const handleCopyKey = (key) => {
-    navigator.clipboard.writeText(key);
-    setSnackbar({ open: true, message: 'API key copied to clipboard', severity: 'success' });
+  const handleCopyKey = async (key) => {
+    try {
+      if (navigator?.clipboard?.writeText) {
+        await navigator.clipboard.writeText(key);
+        setSnackbar({ open: true, message: 'API key copied to clipboard', severity: 'success' });
+        return;
+      }
+
+      // Fallback for insecure contexts without navigator.clipboard.
+      const textArea = document.createElement('textarea');
+      textArea.value = key;
+      textArea.setAttribute('readonly', '');
+      textArea.style.position = 'absolute';
+      textArea.style.left = '-9999px';
+      document.body.appendChild(textArea);
+      textArea.select();
+      const success = document.execCommand('copy');
+      document.body.removeChild(textArea);
+
+      if (success) {
+        setSnackbar({ open: true, message: 'API key copied to clipboard', severity: 'success' });
+      } else {
+        setSnackbar({ open: true, message: 'Copy not supported in this browser', severity: 'warning' });
+      }
+    } catch (error) {
+      console.error('Failed to copy API key:', error);
+      setSnackbar({ open: true, message: 'Failed to copy API key', severity: 'error' });
+    }
   };
 
   const handleScopeChange = (scopeId) => {

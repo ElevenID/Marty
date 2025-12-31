@@ -111,6 +111,136 @@ async def list_documents(
     )
 
 
+# ==================== Applicant Integration Endpoints ====================
+
+@router.get("/approved-applicants")
+async def get_approved_applicants(
+    limit: int = Query(50, ge=1, le=200, description="Maximum number of results"),
+) -> list[dict]:
+    """
+    Get approved applicants ready for document issuance.
+
+    Returns applications that have passed vetting and are ready
+    for travel document issuance.
+
+    Args:
+        limit: Maximum number of results
+
+    Returns:
+        List of approved applications with applicant details
+    """
+    try:
+        from integration import get_applicant_document_integration
+        integration = get_applicant_document_integration()
+        return await integration.get_approved_applications_for_issuance(limit)
+    except ImportError:
+        logger.warning("Applicant integration not available")
+        return []
+
+
+@router.post("/issue-from-application", status_code=201)
+async def issue_from_application(
+    application_id: str = Query(..., description="UUID of the approved application"),
+    document_number: str = Query(..., description="Document number to assign"),
+    request: Request = None,
+) -> dict:
+    """
+    Issue a document from an approved application.
+
+    This endpoint issues a travel document using holder information
+    from a vetted and approved application. The applicant must have:
+    - Completed all required vetting checks
+    - Application in APPROVED status
+    - Biometrics enrolled
+
+    Args:
+        application_id: UUID of the approved application
+        document_number: Document number to assign
+
+    Returns:
+        Issued document details
+
+    Raises:
+        400: Application not approved or validation failed
+        404: Application not found
+    """
+    try:
+        from uuid import UUID as UUIDType
+        from integration import get_applicant_document_integration, IssueFromApplicationRequest
+
+        integration = get_applicant_document_integration()
+
+        client_host = request.client.host if request and request.client else None
+        actor_id = request.headers.get("X-Actor-ID", "api_user") if request else "api_user"
+
+        issue_request = IssueFromApplicationRequest(
+            application_id=UUIDType(application_id),
+            document_number=document_number,
+        )
+
+        result = await integration.issue_document_from_application(
+            request=issue_request,
+            actor_id=actor_id,
+            ip_address=client_host,
+        )
+
+        return result
+
+    except ImportError:
+        raise HTTPException(status_code=501, detail="Applicant integration not available")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/verify-biometrics")
+async def verify_biometrics_at_issuance(
+    application_id: str = Query(..., description="UUID of the application"),
+    biometric_type: str = Query("FACIAL", description="Type of biometric"),
+    request: Request = None,
+) -> dict:
+    """
+    Verify applicant biometrics at document issuance time.
+
+    Compares newly captured biometric data against the enrolled template
+    to ensure the person collecting the document matches the applicant.
+
+    Args:
+        application_id: UUID of the application
+        biometric_type: Type of biometric (FACIAL, FINGERPRINT, IRIS)
+
+    Returns:
+        Verification result with match status and score
+    """
+    try:
+        from uuid import UUID as UUIDType
+        from integration import get_applicant_document_integration
+
+        integration = get_applicant_document_integration()
+
+        # In production, biometric data would come from request body
+        # For now, use mock data for the demo
+        mock_biometric_data = b"mock_biometric_template"
+
+        match_result, score = await integration.verify_biometrics_at_issuance(
+            application_id=UUIDType(application_id),
+            captured_biometric_data=mock_biometric_data,
+            biometric_type=biometric_type,
+        )
+
+        return {
+            "application_id": application_id,
+            "biometric_type": biometric_type,
+            "match": match_result,
+            "score": score,
+            "threshold": 0.8,
+        }
+
+    except ImportError:
+        raise HTTPException(status_code=501, detail="Applicant integration not available")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
 @router.get("/{document_id}", response_model=DocumentResponse)
 async def get_document(
     document_id: str,
@@ -301,136 +431,6 @@ async def get_document_audit_log(
     )
 
 
-# ==================== Applicant Integration Endpoints ====================
-
-@router.get("/approved-applicants")
-async def get_approved_applicants(
-    limit: int = Query(50, ge=1, le=200, description="Maximum number of results"),
-) -> list[dict]:
-    """
-    Get approved applicants ready for document issuance.
-    
-    Returns applications that have passed vetting and are ready
-    for travel document issuance.
-    
-    Args:
-        limit: Maximum number of results
-        
-    Returns:
-        List of approved applications with applicant details
-    """
-    try:
-        from ..integration import get_applicant_document_integration
-        integration = get_applicant_document_integration()
-        return await integration.get_approved_applications_for_issuance(limit)
-    except ImportError:
-        logger.warning("Applicant integration not available")
-        return []
-
-
-@router.post("/issue-from-application", status_code=201)
-async def issue_from_application(
-    application_id: str = Query(..., description="UUID of the approved application"),
-    document_number: str = Query(..., description="Document number to assign"),
-    request: Request = None,
-) -> dict:
-    """
-    Issue a document from an approved application.
-    
-    This endpoint issues a travel document using holder information
-    from a vetted and approved application. The applicant must have:
-    - Completed all required vetting checks
-    - Application in APPROVED status
-    - Biometrics enrolled
-    
-    Args:
-        application_id: UUID of the approved application
-        document_number: Document number to assign
-        
-    Returns:
-        Issued document details
-        
-    Raises:
-        400: Application not approved or validation failed
-        404: Application not found
-    """
-    try:
-        from uuid import UUID as UUIDType
-        from ..integration import get_applicant_document_integration, IssueFromApplicationRequest
-        
-        integration = get_applicant_document_integration()
-        
-        client_host = request.client.host if request and request.client else None
-        actor_id = request.headers.get("X-Actor-ID", "api_user") if request else "api_user"
-        
-        issue_request = IssueFromApplicationRequest(
-            application_id=UUIDType(application_id),
-            document_number=document_number,
-        )
-        
-        result = await integration.issue_document_from_application(
-            request=issue_request,
-            actor_id=actor_id,
-            ip_address=client_host,
-        )
-        
-        return result
-        
-    except ImportError:
-        raise HTTPException(status_code=501, detail="Applicant integration not available")
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-
-
-@router.post("/verify-biometrics")
-async def verify_biometrics_at_issuance(
-    application_id: str = Query(..., description="UUID of the application"),
-    biometric_type: str = Query("FACIAL", description="Type of biometric"),
-    request: Request = None,
-) -> dict:
-    """
-    Verify applicant biometrics at document issuance time.
-    
-    Compares newly captured biometric data against the enrolled template
-    to ensure the person collecting the document matches the applicant.
-    
-    Args:
-        application_id: UUID of the application
-        biometric_type: Type of biometric (FACIAL, FINGERPRINT, IRIS)
-        
-    Returns:
-        Verification result with match status and score
-    """
-    try:
-        from uuid import UUID as UUIDType
-        from ..integration import get_applicant_document_integration
-        
-        integration = get_applicant_document_integration()
-        
-        # In production, biometric data would come from request body
-        # For now, use mock data for the demo
-        mock_biometric_data = b"mock_biometric_template"
-        
-        match_result, score = await integration.verify_biometrics_at_issuance(
-            application_id=UUIDType(application_id),
-            captured_biometric_data=mock_biometric_data,
-            biometric_type=biometric_type,
-        )
-        
-        return {
-            "application_id": application_id,
-            "biometric_type": biometric_type,
-            "match": match_result,
-            "score": score,
-            "threshold": 0.8,
-        }
-        
-    except ImportError:
-        raise HTTPException(status_code=501, detail="Applicant integration not available")
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-
-
 # ==================== Helper Functions ====================
 
 def _get_type_description(doc_type: DocumentType) -> str:
@@ -444,4 +444,3 @@ def _get_type_description(doc_type: DocumentType) -> str:
         DocumentType.RESIDENCE_PERMIT: "Residence Permit Document",
     }
     return descriptions.get(doc_type, "")
-

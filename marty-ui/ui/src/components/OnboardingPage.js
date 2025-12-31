@@ -25,6 +25,7 @@ import FlightTakeoffIcon from '@mui/icons-material/FlightTakeoff';
 import ArrowForwardIcon from '@mui/icons-material/ArrowForward';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
+import { useAuth } from '../hooks/useAuth';
 
 import {
   RoleSelectionStep,
@@ -35,7 +36,8 @@ import {
   WalletPairingStep,
 } from './onboarding';
 
-const API_BASE_URL = process.env.REACT_APP_API_URL || '/api';
+const API_BASE_URL = process.env.REACT_APP_API_URL || '';
+const ONBOARDING_API_BASE = `${API_BASE_URL}/api/onboarding`;
 
 const STEPS_APPLICANT = ['Choose Your Role', 'Join Organization', 'Connect Wallet', 'Complete'];
 const STEPS_VENDOR = ['Choose Your Role', 'Create Organization', 'Complete'];
@@ -45,6 +47,7 @@ const STEPS_VENDOR = ['Choose Your Role', 'Create Organization', 'Complete'];
  */
 const OnboardingPage = () => {
   const navigate = useNavigate();
+  const { user } = useAuth();
 
   // State
   const [activeStep, setActiveStep] = useState(0);
@@ -55,6 +58,8 @@ const OnboardingPage = () => {
   // User selections
   const [userType, setUserType] = useState(null);
   const [organizations, setOrganizations] = useState([]);
+  const [existingOrganization, setExistingOrganization] = useState(null);
+  const [roleLocked, setRoleLocked] = useState(false);
   
   // Applicant join options
   const [joinMethod, setJoinMethod] = useState('code'); // 'code', 'browse', 'skip'
@@ -86,9 +91,15 @@ const OnboardingPage = () => {
     checkOnboardingStatus();
   }, []);
 
+  useEffect(() => {
+    if (roleLocked && userType && activeStep === 0) {
+      setActiveStep(1);
+    }
+  }, [roleLocked, userType, activeStep]);
+
   const checkOnboardingStatus = async () => {
     try {
-      const response = await fetch(`${API_BASE_URL}/onboarding/status`, {
+      const response = await fetch(`${ONBOARDING_API_BASE}/status`, {
         credentials: 'include',
       });
 
@@ -101,16 +112,36 @@ const OnboardingPage = () => {
 
       if (!data.needs_onboarding) {
         if (data.user_type === 'vendor') {
-          navigate('/vendor/dashboard');
+          navigate('/vendor');
         } else if (data.user_type === 'administrator') {
           navigate('/admin');
         } else {
-          navigate('/dashboard');
+          navigate('/credentials');
         }
         return;
       }
 
-      await loadOrganizations();
+      const resolvedUserType = data.user_type || user?.user_type || null;
+      if (resolvedUserType) {
+        setUserType(resolvedUserType);
+      }
+
+      if (resolvedUserType === 'vendor') {
+        setRoleLocked(true);
+        if (data.organization_id) {
+          const existing = {
+            id: data.organization_id,
+            name: data.organization_name || '',
+          };
+          setExistingOrganization(existing);
+          if (existing.name) {
+            setNewOrgName(existing.name);
+          }
+          await loadOrgSettings();
+        }
+      } else {
+        await loadOrganizations();
+      }
       setLoading(false);
     } catch (err) {
       console.error('Error checking onboarding status:', err);
@@ -121,7 +152,7 @@ const OnboardingPage = () => {
 
   const loadOrganizations = async () => {
     try {
-      const response = await fetch(`${API_BASE_URL}/onboarding/organizations`, {
+      const response = await fetch(`${ONBOARDING_API_BASE}/organizations`, {
         credentials: 'include',
       });
 
@@ -131,6 +162,31 @@ const OnboardingPage = () => {
       }
     } catch (err) {
       console.error('Error loading organizations:', err);
+    }
+  };
+
+  const loadOrgSettings = async () => {
+    try {
+      const response = await fetch(`${ONBOARDING_API_BASE}/org-settings`, {
+        credentials: 'include',
+      });
+
+      if (!response.ok) {
+        return;
+      }
+
+      const data = await response.json();
+      if (typeof data.is_discoverable === 'boolean') {
+        setIsDiscoverable(data.is_discoverable);
+      }
+      if (data.membership_mode) {
+        setMembershipMode(data.membership_mode);
+      }
+      if (data.organization_name && !newOrgName) {
+        setNewOrgName(data.organization_name);
+      }
+    } catch (err) {
+      console.error('Error loading organization settings:', err);
     }
   };
 
@@ -148,6 +204,13 @@ const OnboardingPage = () => {
     setActiveStep((prev) => prev - 1);
   };
 
+  const handleRoleSelect = (role) => {
+    if (roleLocked) {
+      return;
+    }
+    setUserType(role);
+  };
+
   const handleJoinWithCode = async () => {
     if (!inviteCode.trim()) {
       setError('Please enter an invite code');
@@ -158,7 +221,7 @@ const OnboardingPage = () => {
     setError(null);
 
     try {
-      const response = await fetch(`${API_BASE_URL}/onboarding/join-with-code`, {
+      const response = await fetch(`${ONBOARDING_API_BASE}/join-with-code`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -199,7 +262,7 @@ const OnboardingPage = () => {
     const org = selectedOrgForConfirm;
 
     try {
-      const response = await fetch(`${API_BASE_URL}/onboarding/complete`, {
+      const response = await fetch(`${ONBOARDING_API_BASE}/complete`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -238,7 +301,7 @@ const OnboardingPage = () => {
     setError(null);
 
     try {
-      const response = await fetch(`${API_BASE_URL}/onboarding/complete`, {
+      const response = await fetch(`${ONBOARDING_API_BASE}/complete`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -262,7 +325,7 @@ const OnboardingPage = () => {
 
       // Redirect after showing completion
       setTimeout(() => {
-        navigate('/dashboard');
+        navigate('/credentials');
       }, 3000);
     } catch (err) {
       setError(err.message);
@@ -271,7 +334,9 @@ const OnboardingPage = () => {
   };
 
   const handleCompleteVendor = async () => {
-    if (!newOrgName.trim()) {
+    const isExistingOrg = Boolean(existingOrganization?.id);
+
+    if (!isExistingOrg && !newOrgName.trim()) {
       setError('Please enter an organization name');
       return;
     }
@@ -280,25 +345,35 @@ const OnboardingPage = () => {
     setError(null);
 
     try {
-      const response = await fetch(`${API_BASE_URL}/onboarding/complete`, {
+      const payload = {
+        user_type: 'vendor',
+        is_discoverable: isDiscoverable,
+        membership_mode: membershipMode,
+      };
+
+      if (isExistingOrg) {
+        payload.organization_id = existingOrganization.id;
+      } else {
+        payload.organization_name = newOrgName.trim();
+        payload.organization_description = newOrgDescription.trim() || null;
+        payload.organization_type = newOrgType || null;
+        payload.jurisdiction = jurisdiction.trim() || null;
+      }
+
+      const response = await fetch(`${ONBOARDING_API_BASE}/complete`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({
-          user_type: 'vendor',
-          organization_name: newOrgName.trim(),
-          organization_description: newOrgDescription.trim() || null,
-          organization_type: newOrgType || null,
-          jurisdiction: jurisdiction.trim() || null,
-          is_discoverable: isDiscoverable,
-          membership_mode: membershipMode,
-        }),
+        body: JSON.stringify(payload),
       });
 
       const data = await response.json();
 
       if (!response.ok) {
-        throw new Error(data.detail || 'Failed to create organization');
+        const fallbackMessage = isExistingOrg
+          ? 'Failed to save organization settings'
+          : 'Failed to create organization';
+        throw new Error(data.detail || fallbackMessage);
       }
 
       setResultOrgName(data.organization_name);
@@ -307,7 +382,7 @@ const OnboardingPage = () => {
       setActiveStep(2);
 
       setTimeout(() => {
-        navigate('/vendor/dashboard');
+        navigate('/vendor');
       }, 5000);
     } catch (err) {
       setError(err.message);
@@ -333,7 +408,10 @@ const OnboardingPage = () => {
     );
   }
 
-  const steps = userType === 'vendor' ? STEPS_VENDOR : STEPS_APPLICANT;
+  const vendorSteps = existingOrganization
+    ? ['Choose Your Role', 'Organization Settings', 'Complete']
+    : STEPS_VENDOR;
+  const steps = userType === 'vendor' ? vendorSteps : STEPS_APPLICANT;
 
   return (
     <Box
@@ -380,7 +458,7 @@ const OnboardingPage = () => {
           {activeStep === 0 && (
             <RoleSelectionStep
               userType={userType}
-              onSelectRole={setUserType}
+              onSelectRole={handleRoleSelect}
             />
           )}
 
@@ -414,6 +492,7 @@ const OnboardingPage = () => {
               onDiscoverableChange={setIsDiscoverable}
               membershipMode={membershipMode}
               onMembershipModeChange={setMembershipMode}
+              orgDetailsLocked={Boolean(existingOrganization)}
             />
           )}
 
@@ -440,6 +519,7 @@ const OnboardingPage = () => {
               membershipStatus={membershipStatus}
               walletPaired={walletPaired}
               pairedDeviceId={pairedDeviceId}
+              existingOrganization={Boolean(existingOrganization)}
             />
           )}
 
@@ -457,7 +537,7 @@ const OnboardingPage = () => {
               data-testid="onboarding-nav-buttons"
             >
               <Button
-                disabled={activeStep === 0}
+                disabled={activeStep === 0 || (roleLocked && activeStep === 1)}
                 onClick={handleBack}
                 startIcon={<ArrowBackIcon />}
                 data-testid="onboarding-back-btn"
@@ -481,11 +561,15 @@ const OnboardingPage = () => {
                 <Button
                   variant="contained"
                   onClick={handleCompleteVendor}
-                  disabled={submitting || !newOrgName.trim()}
+                  disabled={submitting || (!existingOrganization && !newOrgName.trim())}
                   endIcon={submitting ? <CircularProgress size={16} /> : <CheckCircleIcon />}
                   data-testid="onboarding-create-org-btn"
                 >
-                  {submitting ? 'Creating...' : 'Create Organization'}
+                  {submitting
+                    ? 'Saving...'
+                    : existingOrganization
+                      ? 'Save Settings'
+                      : 'Create Organization'}
                 </Button>
               )}
             </Box>

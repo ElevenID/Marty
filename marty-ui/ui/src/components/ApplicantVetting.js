@@ -290,6 +290,28 @@ const CHECK_TYPE_ICONS = {
   FINANCIAL_CHECK: ApplicationIcon,
 };
 
+const normalizeEnumValue = (value) => (
+  value ? value.toString().replace(/-/g, '_').toUpperCase() : ''
+);
+
+const normalizeCheckStatus = (value) => {
+  const normalized = normalizeEnumValue(value);
+  if (normalized === 'COMPLETED_PASSED') return 'PASSED';
+  if (normalized === 'COMPLETED_FAILED') return 'FAILED';
+  if (normalized === 'COMPLETED_CONDITIONAL') return 'REQUIRES_MANUAL_REVIEW';
+  return normalized;
+};
+
+const formatStatusLabel = (value) => (
+  value
+    ? value
+        .toLowerCase()
+        .split('_')
+        .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+        .join(' ')
+    : 'Unknown'
+);
+
 const DOCUMENT_TYPES = [
   { value: 'PASSPORT', label: 'Passport', description: 'Standard passport' },
   { value: 'PASSPORT_RENEWAL', label: 'Passport Renewal', description: 'Renew existing passport' },
@@ -1065,6 +1087,10 @@ export function VettingDashboard() {
   const [approvalNotes, setApprovalNotes] = useState('');
   const [rejectionReason, setRejectionReason] = useState('');
 
+  const detailStatus = applicationDetails
+    ? normalizeEnumValue(applicationDetails.application.status)
+    : '';
+
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
@@ -1156,7 +1182,8 @@ export function VettingDashboard() {
   };
 
   const getStatusIcon = (status) => {
-    switch (status) {
+    const normalized = normalizeCheckStatus(status);
+    switch (normalized) {
       case 'PASSED':
         return <PassedIcon color="success" />;
       case 'FAILED':
@@ -1193,7 +1220,7 @@ export function VettingDashboard() {
             <CardContent>
               <Typography color="textSecondary" gutterBottom>Pending Review</Typography>
               <Typography variant="h4">
-                {applications.filter(a => a.status === 'PENDING_APPROVAL').length}
+                {applications.filter(a => normalizeEnumValue(a.status) === 'PENDING_APPROVAL').length}
               </Typography>
             </CardContent>
           </Card>
@@ -1203,7 +1230,7 @@ export function VettingDashboard() {
             <CardContent>
               <Typography color="textSecondary" gutterBottom>Under Review</Typography>
               <Typography variant="h4">
-                {applications.filter(a => a.status === 'UNDER_REVIEW').length}
+                {applications.filter(a => normalizeEnumValue(a.status) === 'UNDER_REVIEW').length}
               </Typography>
             </CardContent>
           </Card>
@@ -1222,7 +1249,7 @@ export function VettingDashboard() {
               <Typography color="textSecondary" gutterBottom>Approved Today</Typography>
               <Typography variant="h4" color="success.main">
                 {applications.filter(a => 
-                  a.status === 'APPROVED' && 
+                  normalizeEnumValue(a.status) === 'APPROVED' && 
                   new Date(a.approved_at).toDateString() === new Date().toDateString()
                 ).length}
               </Typography>
@@ -1241,7 +1268,7 @@ export function VettingDashboard() {
       {/* Applications Table */}
       {loading && <LinearProgress sx={{ mb: 2 }} />}
 
-      <TableContainer component={Paper}>
+      <TableContainer component={Paper} data-testid="applications-table">
         <Table>
           <TableHead>
             <TableRow>
@@ -1255,26 +1282,32 @@ export function VettingDashboard() {
           <TableBody>
             {applications
               .filter(app => {
-                if (tabValue === 1) return app.status === 'PENDING_APPROVAL';
+                if (tabValue === 1) return normalizeEnumValue(app.status) === 'PENDING_APPROVAL';
                 return true;
               })
-              .map(app => (
-                <TableRow key={app.id}>
+              .map(app => {
+                const normalizedStatus = normalizeEnumValue(app.status);
+                return (
+                <TableRow key={app.id} data-testid={`application-row-${app.id}`}>
                   <TableCell>{app.reference_number}</TableCell>
                   <TableCell>{app.document_type}</TableCell>
                   <TableCell>
                     <Chip
-                      label={app.status}
-                      color={STATUS_COLORS[app.status] || 'default'}
+                      label={formatStatusLabel(normalizedStatus)}
+                      color={STATUS_COLORS[normalizedStatus] || 'default'}
                       size="small"
                     />
                   </TableCell>
                   <TableCell>{formatDate(app.submitted_at)}</TableCell>
                   <TableCell>
-                    <IconButton size="small" onClick={() => handleViewDetails(app)}>
+                    <IconButton
+                      size="small"
+                      onClick={() => handleViewDetails(app)}
+                      data-testid="view-application-btn"
+                    >
                       <ViewIcon />
                     </IconButton>
-                    {app.status === 'PENDING_APPROVAL' && (
+                    {normalizedStatus === 'PENDING_APPROVAL' && (
                       <>
                         <IconButton
                           size="small"
@@ -1283,6 +1316,7 @@ export function VettingDashboard() {
                             setSelectedApplication(app);
                             setApproveDialogOpen(true);
                           }}
+                          data-testid="approve-application-btn"
                         >
                           <CheckIcon />
                         </IconButton>
@@ -1293,6 +1327,7 @@ export function VettingDashboard() {
                             setSelectedApplication(app);
                             setRejectDialogOpen(true);
                           }}
+                          data-testid="reject-application-btn"
                         >
                           <CancelIcon />
                         </IconButton>
@@ -1300,13 +1335,20 @@ export function VettingDashboard() {
                     )}
                   </TableCell>
                 </TableRow>
-              ))}
+              );
+              })}
           </TableBody>
         </Table>
       </TableContainer>
 
       {/* Application Details Dialog */}
-      <Dialog open={detailDialogOpen} onClose={() => setDetailDialogOpen(false)} maxWidth="md" fullWidth>
+      <Dialog
+        open={detailDialogOpen}
+        onClose={() => setDetailDialogOpen(false)}
+        maxWidth="md"
+        fullWidth
+        data-testid="application-detail-view"
+      >
         <DialogTitle>Application Details</DialogTitle>
         <DialogContent>
           {applicationDetails && (
@@ -1319,8 +1361,8 @@ export function VettingDashboard() {
                 <Grid item xs={6}>
                   <Typography variant="body2" color="textSecondary">Status</Typography>
                   <Chip
-                    label={applicationDetails.application.status}
-                    color={STATUS_COLORS[applicationDetails.application.status]}
+                    label={formatStatusLabel(detailStatus)}
+                    color={STATUS_COLORS[detailStatus] || 'default'}
                     size="small"
                   />
                 </Grid>
@@ -1337,28 +1379,31 @@ export function VettingDashboard() {
               <Typography variant="h6" gutterBottom>Vetting Checks</Typography>
               <List>
                 {applicationDetails.vetting_checks?.map(check => {
-                  const IconComponent = CHECK_TYPE_ICONS[check.check_type] || SecurityIcon;
+                  const normalizedCheckType = normalizeEnumValue(check.check_type);
+                  const normalizedCheckStatus = normalizeCheckStatus(check.status);
+                  const IconComponent = CHECK_TYPE_ICONS[normalizedCheckType] || SecurityIcon;
                   return (
                     <ListItem key={check.id} divider>
                       <ListItemIcon>
                         <IconComponent />
                       </ListItemIcon>
                       <ListItemText
-                        primary={check.check_type.replace(/_/g, ' ')}
-                        secondary={check.notes || (check.is_required ? 'Required' : 'Optional')}
+                        primary={formatStatusLabel(normalizedCheckType)}
+                        secondary={check.notes || ((check.is_required ?? check.is_mandatory) ? 'Required' : 'Optional')}
                       />
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                         <Chip
-                          label={check.status}
-                          color={CHECK_STATUS_COLORS[check.status]}
+                          label={formatStatusLabel(normalizedCheckStatus)}
+                          color={CHECK_STATUS_COLORS[normalizedCheckStatus]}
                           size="small"
                         />
-                        {check.status === 'PENDING' && (
+                        {normalizedCheckStatus === 'PENDING' && (
                           <>
                             <IconButton
                               size="small"
                               color="success"
                               onClick={() => handleCompleteCheck(check.id, true)}
+                              data-testid={`check-pass-btn-${check.id}`}
                             >
                               <PassedIcon />
                             </IconButton>
@@ -1366,6 +1411,7 @@ export function VettingDashboard() {
                               size="small"
                               color="error"
                               onClick={() => handleCompleteCheck(check.id, false)}
+                              data-testid={`check-fail-btn-${check.id}`}
                             >
                               <FailedIcon />
                             </IconButton>
@@ -1385,7 +1431,11 @@ export function VettingDashboard() {
       </Dialog>
 
       {/* Approve Dialog */}
-      <Dialog open={approveDialogOpen} onClose={() => setApproveDialogOpen(false)}>
+      <Dialog
+        open={approveDialogOpen}
+        onClose={() => setApproveDialogOpen(false)}
+        data-testid="approval-dialog"
+      >
         <DialogTitle>Approve Application</DialogTitle>
         <DialogContent>
           <Typography sx={{ mb: 2 }}>
@@ -1398,18 +1448,29 @@ export function VettingDashboard() {
             label="Notes (optional)"
             value={approvalNotes}
             onChange={(e) => setApprovalNotes(e.target.value)}
+            data-testid="approval-notes"
           />
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setApproveDialogOpen(false)}>Cancel</Button>
-          <Button variant="contained" color="success" onClick={handleApprove} disabled={loading}>
+          <Button
+            variant="contained"
+            color="success"
+            onClick={handleApprove}
+            disabled={loading}
+            data-testid="confirm-approval-btn"
+          >
             Approve
           </Button>
         </DialogActions>
       </Dialog>
 
       {/* Reject Dialog */}
-      <Dialog open={rejectDialogOpen} onClose={() => setRejectDialogOpen(false)}>
+      <Dialog
+        open={rejectDialogOpen}
+        onClose={() => setRejectDialogOpen(false)}
+        data-testid="rejection-dialog"
+      >
         <DialogTitle>Reject Application</DialogTitle>
         <DialogContent>
           <Typography sx={{ mb: 2 }}>
@@ -1423,6 +1484,7 @@ export function VettingDashboard() {
             label="Reason"
             value={rejectionReason}
             onChange={(e) => setRejectionReason(e.target.value)}
+            data-testid="rejection-reason"
           />
         </DialogContent>
         <DialogActions>
@@ -1432,6 +1494,7 @@ export function VettingDashboard() {
             color="error"
             onClick={handleReject}
             disabled={loading || !rejectionReason}
+            data-testid="confirm-reject-btn"
           >
             Reject
           </Button>
@@ -1516,10 +1579,4 @@ export function ApprovedApplicantSelector({ onSelect, disabled }) {
   );
 }
 
-export default {
-  BiometricCapture,
-  ApplicantRegistration,
-  ApplicationWizard,
-  VettingDashboard,
-  ApprovedApplicantSelector,
-};
+export default VettingDashboard;

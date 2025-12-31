@@ -9,13 +9,13 @@ from __future__ import annotations
 
 import base64
 import logging
-from datetime import datetime
+from datetime import date, datetime, timezone
 from typing import Any
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, Query, Request, UploadFile, File, Form
+from fastapi import APIRouter, HTTPException, Query, Request, UploadFile, File, Form, Depends
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, Field, EmailStr
+from pydantic import BaseModel, Field, EmailStr, field_validator
 
 from .database import init_database, get_db_manager
 from .models import (
@@ -24,6 +24,7 @@ from .models import (
     VettingCheckStatus,
     BiometricType,
     KYCFieldType,
+    KYCVerificationStatus,
 )
 from .service import (
     ApplicantService,
@@ -32,6 +33,13 @@ from .service import (
     ApprovalService,
     KYCService,
 )
+from auth.router import get_current_user, AuthStatusResponse
+from document_service.models import DocumentListResponse
+from credentials.types import credential_to_application_type
+from subscription.database import get_db_session as get_subscription_session
+from subscription.models import CredentialTypeConfiguration
+from sqlalchemy import select as sql_select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/applicants", tags=["Applicants"])
@@ -155,6 +163,13 @@ class BiometricEnrollRequest(BaseModel):
     is_live_capture: bool = True
     metadata: dict[str, Any] | None = None
 
+    @field_validator("biometric_type", mode="before")
+    @classmethod
+    def normalize_biometric_type(cls, value: Any) -> Any:
+        if isinstance(value, str):
+            return value.lower()
+        return value
+
 
 class BiometricEnrollmentResponse(BaseModel):
     """Response containing a biometric enrollment."""
@@ -178,7 +193,7 @@ class BiometricEnrollmentResponse(BaseModel):
 class CreateApplicationRequest(BaseModel):
     """Request to create a new application."""
     applicant_id: UUID
-    document_type: str = Field(..., description="Type of document: PASSPORT, VISA, TRAVEL_PERMIT, etc.")
+    credential_configuration_id: str = Field(..., description="Credential configuration ID")
     issuing_authority: str
     requested_validity_years: int = Field(10, ge=1, le=20)
     travel_purpose: str | None = Field(None, description="Purpose of travel (for visas)")
@@ -193,6 +208,10 @@ class ApplicationResponse(BaseModel):
     reference_number: str
     applicant_id: UUID
     document_type: str
+    credential_configuration_id: str | None = None
+    credential_type: str | None = None
+    credential_display_name: str | None = None
+    organization_id: str | None = None
     status: ApplicationStatus
     issuing_authority: str
     requested_validity_years: int
@@ -308,6 +327,9 @@ class ApprovedApplicantResponse(BaseModel):
     applicant_id: UUID
     applicant_name: str
     document_type: str
+    credential_configuration_id: str | None = None
+    credential_type: str | None = None
+    credential_display_name: str | None = None
     approved_at: datetime
     approved_by: str | None
 
@@ -325,6 +347,171 @@ def get_actor_id(request: Request) -> str:
     """Extract actor ID from request headers or return default."""
     # In production, this would come from JWT token or session
     return request.headers.get("X-Actor-ID", "api_user")
+
+
+def _to_uuid(value: Any) -> UUID:
+    if isinstance(value, UUID):
+        return value
+    return UUID(str(value))
+
+
+def _date_to_datetime(value: date | datetime | None) -> datetime | None:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value
+    return datetime.combine(value, datetime.min.time(), tzinfo=timezone.utc)
+
+
+def _build_address(applicant: Any) -> dict[str, Any]:
+    return {
+        "street_line1": getattr(applicant, "address_line1", None),
+        "street_line2": getattr(applicant, "address_line2", None),
+        "city": getattr(applicant, "city", None),
+        "state_province": getattr(applicant, "state_province", None),
+        "postal_code": getattr(applicant, "postal_code", None),
+        "country": getattr(applicant, "country", None),
+    }
+
+
+def build_applicant_response(applicant: Any) -> ApplicantResponse:
+    extra = applicant.extra_data or {}
+    given_name = applicant.given_names
+    family_name = applicant.surname
+    full_name = f"{given_name} {family_name}".strip()
+
+    return ApplicantResponse(
+        id=_to_uuid(applicant.id),
+        user_id=applicant.account_id or "",
+        given_name=given_name,
+        family_name=family_name,
+        full_name=full_name,
+        email=applicant.email,
+        phone_number=applicant.phone,
+        date_of_birth=_date_to_datetime(applicant.date_of_birth),
+        nationality=applicant.nationality,
+        address=_build_address(applicant),
+        is_active=applicant.active,
+        is_email_verified=bool(extra.get("email_verified", False)),
+        is_phone_verified=bool(extra.get("phone_verified", False)),
+        created_at=applicant.created_at,
+        updated_at=applicant.updated_at,
+    )
+
+
+def build_application_response(application: Any) -> ApplicationResponse:
+    extra = application.extra_data or {}
+    status_value = application.status
+    try:
+        status = ApplicationStatus(status_value)
+    except ValueError:
+        status = ApplicationStatus.DRAFT
+
+    return ApplicationResponse(
+        id=_to_uuid(application.id),
+        reference_number=application.application_number,
+        applicant_id=_to_uuid(application.applicant_id),
+        document_type=application.document_type,
+        credential_configuration_id=application.credential_configuration_id,
+        credential_type=application.credential_type,
+        credential_display_name=extra.get("credential_display_name"),
+        organization_id=application.organization_id,
+        status=status,
+        issuing_authority=extra.get("issuing_authority", ""),
+        requested_validity_years=application.requested_validity_years,
+        travel_purpose=extra.get("travel_purpose"),
+        destination_countries=extra.get("destination_countries") or [],
+        is_expedited=bool(extra.get("is_expedited", False)),
+        submitted_at=application.submitted_at,
+        approved_at=application.approved_at,
+        approved_by=application.approved_by,
+        issued_at=application.issued_at,
+        issued_document_id=application.issued_document_id,
+        rejection_reason=application.rejection_reason,
+        created_at=application.created_at,
+        updated_at=application.updated_at,
+    )
+
+
+def build_vetting_check_response(check: Any) -> VettingCheckResponse:
+    extra = check.extra_data or {}
+    try:
+        check_type = VettingCheckType(check.check_type)
+    except ValueError:
+        check_type = VettingCheckType.IDENTITY_VERIFICATION
+    try:
+        status = VettingCheckStatus(check.status)
+    except ValueError:
+        status = VettingCheckStatus.NOT_STARTED
+
+    return VettingCheckResponse(
+        id=_to_uuid(check.id),
+        application_id=_to_uuid(check.application_id),
+        check_type=check_type,
+        status=status,
+        is_required=check.is_required,
+        order=check.order,
+        result=check.result,
+        notes=check.notes,
+        started_at=check.started_at,
+        completed_at=check.completed_at,
+        performed_by=extra.get("performed_by") or check.check_authority or check.external_provider,
+        created_at=check.created_at,
+    )
+
+
+def build_biometric_response(enrollment: Any) -> BiometricEnrollmentResponse:
+    extra = enrollment.extra_data or {}
+    verification_score = extra.get("verification_score")
+    try:
+        biometric_type = BiometricType(enrollment.biometric_type)
+    except ValueError:
+        biometric_type = BiometricType.FACIAL
+
+    return BiometricEnrollmentResponse(
+        id=_to_uuid(enrollment.id),
+        applicant_id=_to_uuid(enrollment.applicant_id),
+        biometric_type=biometric_type,
+        template_format=enrollment.template_format,
+        capture_quality_score=enrollment.quality_score,
+        capture_device_id=enrollment.capture_device,
+        is_live_capture=bool(enrollment.liveness_check_performed),
+        captured_at=enrollment.captured_at,
+        is_verified=bool(enrollment.last_verification_result)
+        if enrollment.last_verification_result is not None
+        else False,
+        verification_score=verification_score,
+        is_active=enrollment.active,
+        created_at=enrollment.created_at,
+    )
+
+
+def build_kyc_submission_response(submission: Any) -> KYCSubmissionResponse:
+    extra = submission.extra_data or {}
+    field_type_value = extra.get("field_type")
+    try:
+        field_type = KYCFieldType(field_type_value) if field_type_value else KYCFieldType.OTHER
+    except ValueError:
+        field_type = KYCFieldType.OTHER
+
+    is_verified = submission.status == KYCVerificationStatus.VERIFIED.value
+
+    return KYCSubmissionResponse(
+        id=_to_uuid(submission.id),
+        application_id=_to_uuid(submission.application_id),
+        field_type=field_type,
+        field_value=extra.get("field_value", ""),
+        document_type=submission.document_type,
+        document_number=submission.document_number,
+        issuing_country=submission.issuing_country,
+        issue_date=_date_to_datetime(submission.issue_date),
+        expiry_date=_date_to_datetime(submission.expiry_date),
+        is_verified=is_verified,
+        verified_by=submission.verified_by,
+        verified_at=submission.verified_at,
+        submitted_at=submission.created_at,
+        created_at=submission.created_at,
+    )
 
 
 # ==================== Applicant Endpoints ====================
@@ -366,104 +553,11 @@ async def create_applicant(
             actor_id=actor_id,
             ip_address=ip_address,
         )
-        return ApplicantResponse.model_validate(applicant)
+        return build_applicant_response(applicant)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
 
-@router.get("/{applicant_id}", response_model=ApplicantResponse)
-async def get_applicant(applicant_id: UUID) -> ApplicantResponse:
-    """
-    Get an applicant by ID.
-    
-    Args:
-        applicant_id: UUID of the applicant
-        
-    Returns:
-        Applicant record
-        
-    Raises:
-        404: Applicant not found
-    """
-    service = get_applicant_service()
-    applicant = await service.get_applicant(applicant_id)
-    
-    if not applicant:
-        raise HTTPException(status_code=404, detail=f"Applicant {applicant_id} not found")
-    
-    return ApplicantResponse.model_validate(applicant)
-
-
-@router.get("/by-user/{user_id}", response_model=ApplicantResponse)
-async def get_applicant_by_user(user_id: str) -> ApplicantResponse:
-    """
-    Get an applicant by user account ID.
-    
-    Args:
-        user_id: User account ID
-        
-    Returns:
-        Applicant record
-        
-    Raises:
-        404: Applicant not found
-    """
-    service = get_applicant_service()
-    applicant = await service.get_applicant_by_user(user_id)
-    
-    if not applicant:
-        raise HTTPException(status_code=404, detail=f"No applicant found for user {user_id}")
-    
-    return ApplicantResponse.model_validate(applicant)
-
-
-@router.patch("/{applicant_id}", response_model=ApplicantResponse)
-async def update_applicant(
-    applicant_id: UUID,
-    req: UpdateApplicantRequest,
-    request: Request,
-) -> ApplicantResponse:
-    """
-    Update an applicant's profile.
-    
-    Args:
-        applicant_id: UUID of the applicant
-        req: Update request
-        
-    Returns:
-        Updated applicant record
-        
-    Raises:
-        404: Applicant not found
-    """
-    service = get_applicant_service()
-    actor_id = get_actor_id(request)
-
-    updates = {}
-    if req.given_name:
-        updates["given_name"] = req.given_name
-    if req.family_name:
-        updates["family_name"] = req.family_name
-    if req.phone_number:
-        updates["phone_number"] = req.phone_number
-    if req.address:
-        updates["address"] = req.address.model_dump()
-
-    if updates:
-        if "given_name" in updates or "family_name" in updates:
-            # Update full_name too
-            applicant = await service.get_applicant(applicant_id)
-            if applicant:
-                given = updates.get("given_name", applicant.given_name)
-                family = updates.get("family_name", applicant.family_name)
-                updates["full_name"] = f"{given} {family}"
-
-    applicant = await service.update_applicant(applicant_id, updates, actor_id)
-    
-    if not applicant:
-        raise HTTPException(status_code=404, detail=f"Applicant {applicant_id} not found")
-    
-    return ApplicantResponse.model_validate(applicant)
 
 
 # ==================== Biometric Endpoints ====================
@@ -515,7 +609,7 @@ async def enroll_biometric(
         metadata=req.metadata,
     )
 
-    return BiometricEnrollmentResponse.model_validate(enrollment)
+    return build_biometric_response(enrollment)
 
 
 @router.get("/{applicant_id}/biometrics", response_model=list[BiometricEnrollmentResponse])
@@ -535,7 +629,7 @@ async def get_applicant_biometrics(
     """
     service = get_applicant_service()
     enrollments = await service.get_applicant_biometrics(applicant_id, biometric_type)
-    return [BiometricEnrollmentResponse.model_validate(e) for e in enrollments]
+    return [build_biometric_response(e) for e in enrollments]
 
 
 # ==================== Application Endpoints ====================
@@ -544,6 +638,7 @@ async def get_applicant_biometrics(
 async def create_application(
     req: CreateApplicationRequest,
     request: Request,
+    subscription_db: AsyncSession = Depends(get_subscription_session),
 ) -> ApplicationResponse:
     """
     Create a new travel document application.
@@ -564,19 +659,45 @@ async def create_application(
     actor_id = get_actor_id(request)
 
     try:
+        if not req.credential_configuration_id:
+            raise HTTPException(status_code=400, detail="Credential configuration is required")
+
+        config_result = await subscription_db.execute(
+            sql_select(CredentialTypeConfiguration).where(
+                CredentialTypeConfiguration.id == req.credential_configuration_id,
+                CredentialTypeConfiguration.is_active == True,
+            )
+        )
+        config = config_result.scalar_one_or_none()
+        if not config:
+            raise HTTPException(status_code=404, detail="Credential configuration not found")
+
+        document_type = credential_to_application_type(config.credential_type)
+        metadata = req.metadata or {}
+        metadata.update(
+            {
+                "credential_configuration_id": config.id,
+                "credential_type": config.credential_type.value,
+                "credential_display_name": config.display_name,
+            }
+        )
+
         application = await service.create_application(
             applicant_id=req.applicant_id,
-            document_type=req.document_type,
+            document_type=document_type,
+            credential_configuration_id=config.id,
+            credential_type=config.credential_type.value,
+            organization_id=config.organization_id,
             issuing_authority=req.issuing_authority,
             requested_validity_years=req.requested_validity_years,
             travel_purpose=req.travel_purpose,
             destination_countries=req.destination_countries,
             expedited=req.is_expedited,
-            metadata=req.metadata,
+            metadata=metadata,
             actor_id=actor_id,
             ip_address=ip_address,
         )
-        return ApplicationResponse.model_validate(application)
+        return build_application_response(application)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -611,62 +732,9 @@ async def submit_application(
             actor_id=actor_id,
             ip_address=ip_address,
         )
-        return ApplicationResponse.model_validate(application)
+        return build_application_response(application)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
-
-
-@router.get("/applications/{application_id}", response_model=ApplicationDetailResponse)
-async def get_application(application_id: UUID) -> ApplicationDetailResponse:
-    """
-    Get detailed application information.
-    
-    Includes applicant, vetting checks, and KYC submissions.
-    
-    Args:
-        application_id: UUID of the application
-        
-    Returns:
-        Detailed application information
-        
-    Raises:
-        404: Application not found
-    """
-    service = get_application_service()
-    details = await service.get_application_with_details(application_id)
-    
-    if not details:
-        raise HTTPException(status_code=404, detail=f"Application {application_id} not found")
-    
-    return ApplicationDetailResponse(
-        application=ApplicationResponse.model_validate(details["application"]),
-        applicant=ApplicantResponse.model_validate(details["applicant"]) if details["applicant"] else None,
-        vetting_checks=[VettingCheckResponse.model_validate(c) for c in details["vetting_checks"]],
-        kyc_submissions=[KYCSubmissionResponse.model_validate(s) for s in details["kyc_submissions"]],
-    )
-
-
-@router.get("/applications/by-reference/{reference_number}", response_model=ApplicationResponse)
-async def get_application_by_reference(reference_number: str) -> ApplicationResponse:
-    """
-    Get application by reference number.
-    
-    Args:
-        reference_number: Application reference number (e.g., APP-20250101-ABC123)
-        
-    Returns:
-        Application record
-        
-    Raises:
-        404: Application not found
-    """
-    service = get_application_service()
-    application = await service.get_application_by_reference(reference_number)
-    
-    if not application:
-        raise HTTPException(status_code=404, detail=f"Application {reference_number} not found")
-    
-    return ApplicationResponse.model_validate(application)
 
 
 @router.get("/applications", response_model=ApplicationListResponse)
@@ -697,10 +765,107 @@ async def list_applications(
     )
     
     return ApplicationListResponse(
-        applications=[ApplicationResponse.model_validate(a) for a in applications],
+        applications=[build_application_response(a) for a in applications],
         total=total,
         limit=limit,
         offset=offset,
+    )
+
+
+@router.get("/applications/by-reference/{reference_number}", response_model=ApplicationResponse)
+async def get_application_by_reference(reference_number: str) -> ApplicationResponse:
+    """
+    Get application by reference number.
+
+    Args:
+        reference_number: Application reference number (e.g., APP-20250101-ABC123)
+
+    Returns:
+        Application record
+
+    Raises:
+        404: Application not found
+    """
+    service = get_application_service()
+    application = await service.get_application_by_reference(reference_number)
+
+    if not application:
+        raise HTTPException(status_code=404, detail=f"Application {reference_number} not found")
+
+    return build_application_response(application)
+
+
+@router.get("/applications/approved", response_model=list[ApprovedApplicantResponse])
+async def get_approved_applications(
+    limit: int = Query(50, ge=1, le=200),
+) -> list[ApprovedApplicantResponse]:
+    """
+    Get approved applications ready for document issuance.
+
+    These applications have passed all vetting and are ready
+    to have travel documents issued.
+
+    Args:
+        limit: Maximum results
+
+    Returns:
+        List of approved applications with applicant info
+    """
+    approval_service = get_approval_service()
+    applicant_service = get_applicant_service()
+
+    applications = await approval_service.get_approved_applications(limit)
+
+    result = []
+    for app in applications:
+        applicant = await applicant_service.get_applicant(app.applicant_id)
+        if applicant:
+            extra = app.extra_data or {}
+            result.append(
+                ApprovedApplicantResponse(
+                    application_id=_to_uuid(app.id),
+                    reference_number=app.application_number,
+                    applicant_id=_to_uuid(app.applicant_id),
+                    applicant_name=f"{applicant.given_names} {applicant.surname}".strip(),
+                    document_type=app.document_type,
+                    credential_configuration_id=app.credential_configuration_id,
+                    credential_type=app.credential_type,
+                    credential_display_name=extra.get("credential_display_name"),
+                    approved_at=app.approved_at,
+                    approved_by=app.approved_by,
+                )
+            )
+
+    return result
+
+
+@router.get("/applications/{application_id}", response_model=ApplicationDetailResponse)
+async def get_application(application_id: UUID) -> ApplicationDetailResponse:
+    """
+    Get detailed application information.
+
+    Includes applicant, vetting checks, and KYC submissions.
+
+    Args:
+        application_id: UUID of the application
+
+    Returns:
+        Detailed application information
+
+    Raises:
+        404: Application not found
+    """
+    service = get_application_service()
+    details = await service.get_application_with_details(application_id)
+
+    if not details:
+        raise HTTPException(status_code=404, detail=f"Application {application_id} not found")
+
+    return ApplicationDetailResponse(
+        application=build_application_response(details["application"]),
+        applicant=build_applicant_response(details["applicant"]) if details["applicant"] else None,
+        vetting_checks=[build_vetting_check_response(c) for c in details["vetting_checks"]],
+        kyc_submissions=[build_kyc_submission_response(s) for s in details["kyc_submissions"]],
     )
 
 
@@ -721,7 +886,39 @@ async def get_applicant_applications(
     """
     service = get_application_service()
     applications = await service.get_applicant_applications(applicant_id, status)
-    return [ApplicationResponse.model_validate(a) for a in applications]
+    return [build_application_response(a) for a in applications]
+
+
+@router.get("/me/documents", response_model=DocumentListResponse)
+async def get_my_documents(
+    current_user: AuthStatusResponse = Depends(get_current_user),
+) -> DocumentListResponse:
+    """
+    Get issued documents for the authenticated applicant.
+    """
+    if not current_user.authenticated or not current_user.user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
+    applicant_id = current_user.user.applicant_id
+    if not applicant_id:
+        applicant = await get_applicant_service().get_applicant_by_user(
+            current_user.user.user_id
+        )
+        if not applicant:
+            raise HTTPException(status_code=404, detail="Applicant profile not found")
+        applicant_id = applicant.id
+
+    from integration import get_applicant_document_integration
+
+    integration = get_applicant_document_integration()
+    documents = await integration.get_documents_for_applicant(applicant_id)
+
+    return DocumentListResponse(
+        documents=documents,
+        total=len(documents),
+        limit=len(documents),
+        offset=0,
+    )
 
 
 # ==================== Vetting Check Endpoints ====================
@@ -739,7 +936,7 @@ async def get_vetting_checks(application_id: UUID) -> list[VettingCheckResponse]
     """
     service = get_application_service()
     checks = await service.get_vetting_checks(application_id)
-    return [VettingCheckResponse.model_validate(c) for c in checks]
+    return [build_vetting_check_response(c) for c in checks]
 
 
 @router.post("/checks/{check_id}/start", response_model=VettingCheckResponse)
@@ -763,7 +960,7 @@ async def start_vetting_check(
     if not check:
         raise HTTPException(status_code=404, detail=f"Check {check_id} not found")
     
-    return VettingCheckResponse.model_validate(check)
+    return build_vetting_check_response(check)
 
 
 @router.post("/checks/{check_id}/complete", response_model=VettingCheckResponse)
@@ -794,7 +991,7 @@ async def complete_vetting_check(
     if not check:
         raise HTTPException(status_code=404, detail=f"Check {check_id} not found")
     
-    return VettingCheckResponse.model_validate(check)
+    return build_vetting_check_response(check)
 
 
 @router.post("/checks/{check_id}/manual-review", response_model=VettingCheckResponse)
@@ -820,7 +1017,7 @@ async def request_manual_review(
     if not check:
         raise HTTPException(status_code=404, detail=f"Check {check_id} not found")
     
-    return VettingCheckResponse.model_validate(check)
+    return build_vetting_check_response(check)
 
 
 @router.get("/checks/pending", response_model=list[VettingCheckResponse])
@@ -840,7 +1037,7 @@ async def get_pending_checks(
     """
     service = get_vetting_service()
     checks = await service.get_pending_checks(check_type, limit)
-    return [VettingCheckResponse.model_validate(c) for c in checks]
+    return [build_vetting_check_response(c) for c in checks]
 
 
 # ==================== KYC Endpoints ====================
@@ -884,7 +1081,7 @@ async def submit_kyc(
         metadata=req.metadata,
     )
 
-    return KYCSubmissionResponse.model_validate(submission)
+    return build_kyc_submission_response(submission)
 
 
 @router.get("/applications/{application_id}/kyc", response_model=list[KYCSubmissionResponse])
@@ -900,7 +1097,7 @@ async def get_kyc_submissions(application_id: UUID) -> list[KYCSubmissionRespons
     """
     service = get_kyc_service()
     submissions = await service.get_kyc_submissions(application_id)
-    return [KYCSubmissionResponse.model_validate(s) for s in submissions]
+    return [build_kyc_submission_response(s) for s in submissions]
 
 
 @router.post("/kyc/{submission_id}/verify", response_model=KYCSubmissionResponse)
@@ -934,7 +1131,7 @@ async def verify_kyc_submission(
     if not submission:
         raise HTTPException(status_code=404, detail=f"KYC submission {submission_id} not found")
     
-    return KYCSubmissionResponse.model_validate(submission)
+    return build_kyc_submission_response(submission)
 
 
 # ==================== Approval Endpoints ====================
@@ -970,7 +1167,7 @@ async def approve_application(
             notes=req.notes,
             ip_address=ip_address,
         )
-        return ApplicationResponse.model_validate(application)
+        return build_application_response(application)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -1004,7 +1201,7 @@ async def reject_application(
             reason=req.reason,
             ip_address=ip_address,
         )
-        return ApplicationResponse.model_validate(application)
+        return build_application_response(application)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -1039,47 +1236,9 @@ async def mark_application_issued(
             document_id=document_id,
             issued_by=actor_id,
         )
-        return ApplicationResponse.model_validate(application)
+        return build_application_response(application)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
-
-
-@router.get("/applications/approved", response_model=list[ApprovedApplicantResponse])
-async def get_approved_applications(
-    limit: int = Query(50, ge=1, le=200),
-) -> list[ApprovedApplicantResponse]:
-    """
-    Get approved applications ready for document issuance.
-    
-    These applications have passed all vetting and are ready
-    to have travel documents issued.
-    
-    Args:
-        limit: Maximum results
-        
-    Returns:
-        List of approved applications with applicant info
-    """
-    approval_service = get_approval_service()
-    applicant_service = get_applicant_service()
-    
-    applications = await approval_service.get_approved_applications(limit)
-    
-    result = []
-    for app in applications:
-        applicant = await applicant_service.get_applicant(app.applicant_id)
-        if applicant:
-            result.append(ApprovedApplicantResponse(
-                application_id=app.id,
-                reference_number=app.reference_number,
-                applicant_id=app.applicant_id,
-                applicant_name=applicant.full_name,
-                document_type=app.document_type,
-                approved_at=app.approved_at,
-                approved_by=app.approved_by,
-            ))
-    
-    return result
 
 
 # ==================== Document Type Configuration ====================
@@ -1108,3 +1267,101 @@ async def get_document_types() -> list[dict[str, Any]]:
         }
         for doc_type, requirements in DEFAULT_VETTING_REQUIREMENTS.items()
     ]
+
+
+# ==================== Applicant Lookup Endpoints ====================
+
+@router.get("/{applicant_id}", response_model=ApplicantResponse)
+async def get_applicant(applicant_id: UUID) -> ApplicantResponse:
+    """
+    Get an applicant by ID.
+    
+    Args:
+        applicant_id: UUID of the applicant
+        
+    Returns:
+        Applicant record
+        
+    Raises:
+        404: Applicant not found
+    """
+    service = get_applicant_service()
+    applicant = await service.get_applicant(applicant_id)
+    
+    if not applicant:
+        raise HTTPException(status_code=404, detail=f"Applicant {applicant_id} not found")
+    
+    return build_applicant_response(applicant)
+
+
+@router.get("/by-user/{user_id}", response_model=ApplicantResponse)
+async def get_applicant_by_user(user_id: str) -> ApplicantResponse:
+    """
+    Get an applicant by user account ID.
+    
+    Args:
+        user_id: User account ID
+        
+    Returns:
+        Applicant record
+        
+    Raises:
+        404: Applicant not found
+    """
+    service = get_applicant_service()
+    applicant = await service.get_applicant_by_user(user_id)
+    
+    if not applicant:
+        raise HTTPException(status_code=404, detail=f"No applicant found for user {user_id}")
+    
+    return build_applicant_response(applicant)
+
+
+@router.patch("/{applicant_id}", response_model=ApplicantResponse)
+async def update_applicant(
+    applicant_id: UUID,
+    req: UpdateApplicantRequest,
+    request: Request,
+) -> ApplicantResponse:
+    """
+    Update an applicant's profile.
+    
+    Args:
+        applicant_id: UUID of the applicant
+        req: Update request
+        
+    Returns:
+        Updated applicant record
+        
+    Raises:
+        404: Applicant not found
+    """
+    service = get_applicant_service()
+    actor_id = get_actor_id(request)
+
+    updates: dict[str, Any] = {}
+    if req.given_name:
+        updates["given_names"] = req.given_name
+    if req.family_name:
+        updates["surname"] = req.family_name
+    if req.phone_number:
+        updates["phone"] = req.phone_number
+    if req.address:
+        address = req.address.model_dump()
+        updates.update(
+            {
+                "address_line1": address.get("street_line1"),
+                "address_line2": address.get("street_line2"),
+                "city": address.get("city"),
+                "state_province": address.get("state_province"),
+                "postal_code": address.get("postal_code"),
+                "country": address.get("country"),
+            }
+        )
+
+    applicant = await service.update_applicant(applicant_id, updates, actor_id)
+    
+    if not applicant:
+        raise HTTPException(status_code=404, detail=f"Applicant {applicant_id} not found")
+    
+    return build_applicant_response(applicant)

@@ -38,6 +38,8 @@ import StorefrontIcon from '@mui/icons-material/Storefront';
 import PersonIcon from '@mui/icons-material/Person';
 import { useAuth } from '../hooks/useAuth';
 
+const API_BASE_URL = process.env.REACT_APP_API_URL || '';
+
 /**
  * Pricing tier configuration
  * Matches PLAN_LIMITS in PaymentContext
@@ -114,6 +116,7 @@ function LandingPage() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const [authError, setAuthError] = useState(null);
+  const [checkingOnboarding, setCheckingOnboarding] = useState(false);
 
   // Check for auth error in URL params
   useEffect(() => {
@@ -129,13 +132,50 @@ function LandingPage() {
   // Redirect authenticated users to appropriate dashboard
   useEffect(() => {
     if (isAuthenticated && !isLoading) {
-      if (isAdministrator) {
-        navigate('/dashboard', { replace: true });
-      } else if (isVendor) {
-        navigate('/vendor', { replace: true });
-      } else {
-        navigate('/credentials', { replace: true });
-      }
+      const checkOnboarding = async () => {
+        setCheckingOnboarding(true);
+        try {
+          const response = await fetch(`${API_BASE_URL}/api/onboarding/status`, {
+            credentials: 'include',
+          });
+
+          if (response.ok) {
+            const data = await response.json();
+            if (data.needs_onboarding) {
+              navigate('/onboarding', { replace: true });
+              return;
+            }
+
+            if (data.user_type === 'administrator' || isAdministrator) {
+              navigate('/dashboard', { replace: true });
+            } else if (data.user_type === 'vendor' || isVendor) {
+              navigate('/vendor', { replace: true });
+            } else {
+              navigate('/credentials', { replace: true });
+            }
+            return;
+          }
+
+          if (response.status === 401) {
+            setCheckingOnboarding(false);
+            return;
+          }
+        } catch (error) {
+          console.error('Error checking onboarding status:', error);
+        } finally {
+          setCheckingOnboarding(false);
+        }
+
+        if (isAdministrator) {
+          navigate('/dashboard', { replace: true });
+        } else if (isVendor) {
+          navigate('/vendor', { replace: true });
+        } else {
+          navigate('/credentials', { replace: true });
+        }
+      };
+
+      checkOnboarding();
     }
   }, [isAuthenticated, isLoading, isAdministrator, isVendor, navigate]);
 
@@ -144,7 +184,7 @@ function LandingPage() {
   };
 
   // Show nothing while checking auth to avoid flash
-  if (isLoading) {
+  if (isLoading || (isAuthenticated && checkingOnboarding)) {
     return null;
   }
 

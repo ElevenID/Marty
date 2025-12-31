@@ -1,6 +1,42 @@
 // @ts-check
 const { defineConfig, devices } = require('@playwright/test');
 
+const isCI = !!process.env.CI;
+const isFast = process.env.PW_FAST === '1' || process.env.PW_FAST === 'true';
+const timeouts = {
+  test: isFast ? 60_000 : isCI ? 120_000 : 90_000,
+  expect: isFast ? 5_000 : isCI ? 10_000 : 8_000,
+  action: isFast ? 10_000 : isCI ? 30_000 : 20_000,
+  navigation: isFast ? 15_000 : isCI ? 30_000 : 20_000,
+  webServer: isFast ? 60_000 : 120_000,
+};
+const chromiumProject = {
+  name: 'chromium',
+  use: { ...devices['Desktop Chrome'] },
+};
+const projects = isFast ? [
+  chromiumProject,
+] : [
+  chromiumProject,
+  {
+    name: 'firefox',
+    use: { ...devices['Desktop Firefox'] },
+  },
+  {
+    name: 'webkit',
+    use: { ...devices['Desktop Safari'] },
+  },
+  /* Test against mobile viewports. */
+  {
+    name: 'Mobile Chrome',
+    use: { ...devices['Pixel 5'] },
+  },
+  {
+    name: 'Mobile Safari',
+    use: { ...devices['iPhone 12'] },
+  },
+];
+
 /**
  * @see https://playwright.dev/docs/test-configuration
  */
@@ -8,12 +44,18 @@ module.exports = defineConfig({
   testDir: './e2e',
   /* Run tests in files in parallel */
   fullyParallel: true,
+  timeout: timeouts.test,
+  expect: {
+    timeout: timeouts.expect,
+  },
+  grepInvert: isFast ? /@slow/ : undefined,
+  maxFailures: isFast ? 1 : undefined,
   /* Fail the build on CI if you accidentally left test.only in the source code. */
-  forbidOnly: !!process.env.CI,
+  forbidOnly: isCI,
   /* Retry on CI only */
-  retries: process.env.CI ? 2 : 0,
+  retries: isCI ? 2 : 0,
   /* Opt out of parallel tests on CI. */
-  workers: process.env.CI ? 1 : undefined,
+  workers: isCI ? 1 : undefined,
   /* Reporter to use. See https://playwright.dev/docs/test-reporters */
   reporter: [
     ['html'],
@@ -23,7 +65,7 @@ module.exports = defineConfig({
   /* Shared settings for all the projects below. */
   use: {
     /* Base URL to use in actions like `await page.goto('/')`. */
-  baseURL: process.env.BASE_URL || 'http://localhost:9080',
+    baseURL: process.env.BASE_URL || 'http://localhost:9080',
     /* Collect trace when retrying the failed test. */
     trace: 'on-first-retry',
     /* Take screenshot on failure */
@@ -31,35 +73,13 @@ module.exports = defineConfig({
     /* Record video on failure */
     video: 'retain-on-failure',
     /* Global timeout for each action */
-    actionTimeout: 30000,
+    actionTimeout: timeouts.action,
     /* Global timeout for navigation */
-    navigationTimeout: 30000
+    navigationTimeout: timeouts.navigation
   },
 
   /* Configure projects for major browsers */
-  projects: [
-    {
-      name: 'chromium',
-      use: { ...devices['Desktop Chrome'] },
-    },
-    {
-      name: 'firefox',
-      use: { ...devices['Desktop Firefox'] },
-    },
-    {
-      name: 'webkit',
-      use: { ...devices['Desktop Safari'] },
-    },
-    /* Test against mobile viewports. */
-    {
-      name: 'Mobile Chrome',
-      use: { ...devices['Pixel 5'] },
-    },
-    {
-      name: 'Mobile Safari',
-      use: { ...devices['iPhone 12'] },
-    },
-  ],
+  projects,
 
   /* Global setup and teardown */
   globalSetup: require.resolve('./utils/global-setup.js'),
@@ -67,12 +87,12 @@ module.exports = defineConfig({
 
   /* Run your local dev server before starting the tests */
   // Skip webServer check when running in Docker (CI=true)
-  ...(process.env.CI ? {} : {
+  ...(isCI ? {} : {
     webServer: {
       command: 'echo "Demo should be running"',
       url: process.env.BASE_URL || 'http://localhost:9080',
       reuseExistingServer: true,
-      timeout: 120 * 1000,
+      timeout: timeouts.webServer,
     },
   }),
 });

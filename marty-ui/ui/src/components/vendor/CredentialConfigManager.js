@@ -43,18 +43,21 @@ import BadgeIcon from '@mui/icons-material/Badge';
 import DirectionsCarIcon from '@mui/icons-material/DirectionsCar';
 import CreditCardIcon from '@mui/icons-material/CreditCard';
 import RefreshIcon from '@mui/icons-material/Refresh';
+import EmojiEventsIcon from '@mui/icons-material/EmojiEvents';
 import { useAuth } from '../../hooks/useAuth';
 
 // API base URL
-const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
+const API_URL = process.env.REACT_APP_API_URL || '';
 
 // Available credential types with icons
 const CREDENTIAL_TYPES = [
-  { id: 'TRAVEL_VISA', label: 'Travel Visa', icon: <FlightIcon />, color: 'primary' },
-  { id: 'PASSPORT', label: 'Passport', icon: <BadgeIcon />, color: 'secondary' },
-  { id: 'DRIVERS_LICENSE', label: "Driver's License", icon: <DirectionsCarIcon />, color: 'info' },
-  { id: 'ACCESS_BADGE', label: 'Access Badge', icon: <CreditCardIcon />, color: 'warning' },
-  { id: 'NATIONAL_ID', label: 'National ID', icon: <VerifiedUserIcon />, color: 'success' },
+  { id: 'travel_visa', label: 'Travel Visa', icon: <FlightIcon />, color: 'primary' },
+  { id: 'passport', label: 'Passport', icon: <BadgeIcon />, color: 'secondary' },
+  { id: 'drivers_license', label: "Driver's License", icon: <DirectionsCarIcon />, color: 'info' },
+  { id: 'access_badge', label: 'Access Badge', icon: <CreditCardIcon />, color: 'warning' },
+  { id: 'national_id', label: 'National ID', icon: <VerifiedUserIcon />, color: 'success' },
+  { id: 'dtc', label: 'Digital Travel Credential', icon: <FlightIcon />, color: 'default' },
+  { id: 'open_badge', label: 'Open Badge', icon: <EmojiEventsIcon />, color: 'info' },
 ];
 
 /**
@@ -71,6 +74,11 @@ function getCredentialIcon(type) {
 function getCredentialColor(type) {
   const found = CREDENTIAL_TYPES.find(t => t.id === type);
   return found ? found.color : 'default';
+}
+
+function getCredentialLabel(type) {
+  const found = CREDENTIAL_TYPES.find(t => t.id === type);
+  return found ? found.label : type;
 }
 
 export default function CredentialConfigManager() {
@@ -120,7 +128,7 @@ export default function CredentialConfigManager() {
       }
 
       const data = await response.json();
-      setConfigs(data.configurations || []);
+      setConfigs(data.credential_types || []);
     } catch (err) {
       console.error('Error fetching credential configs:', err);
       setError(err.message);
@@ -145,15 +153,15 @@ export default function CredentialConfigManager() {
       if (response.ok) {
         const data = await response.json();
         setAvailableFields({
-          required: data.default_required_fields || [],
-          optional: data.default_optional_fields || [],
+          required: data.required_fields || [],
+          optional: data.optional_fields || [],
         });
         // Pre-select defaults
         setFormData(prev => ({
           ...prev,
-          required_fields: data.default_required_fields || [],
+          required_fields: data.required_fields || [],
           optional_fields: [],
-          display_name: prev.display_name || data.display_name || '',
+          display_name: prev.display_name || getCredentialLabel(credentialType),
         }));
       }
     } catch (err) {
@@ -330,10 +338,7 @@ export default function CredentialConfigManager() {
             'Content-Type': 'application/json',
           },
           credentials: 'include',
-          body: JSON.stringify({
-            ...config,
-            is_active: !config.is_active,
-          }),
+          body: JSON.stringify({ is_active: !config.is_active }),
         }
       );
 

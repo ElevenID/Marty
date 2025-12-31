@@ -47,6 +47,10 @@ class UserInfoResponse(BaseModel):
     user_type: str
     applicant_id: str | None = None
     roles: list[str] = []
+    organization_id: str | None = None
+    organization_name: str | None = None
+    organization: dict[str, Any] | None = None
+    onboarding_completed: str | None = None
 
 
 class AuthStatusResponse(BaseModel):
@@ -358,6 +362,11 @@ async def callback(
         user_type=provision_result.user_type,
         applicant_id=provision_result.applicant_id,
         roles=oidc_user.roles or [],
+        organization_id=provision_result.organization_id or oidc_user.organization_id,
+        organization_name=provision_result.organization_name or oidc_user.organization_name,
+        organization=oidc_user.organization,
+        onboarding_completed=user_claims.get("onboarding_completed")
+        or user_claims.get("attributes", {}).get("onboarding_completed", [None])[0],
         access_token_expires_at=(
             datetime.now(timezone.utc) + timedelta(seconds=expires_in)
         ).isoformat(),
@@ -372,27 +381,35 @@ async def callback(
     if id_token:
         await session_manager.store_id_token(session.session_id, id_token)
 
-    # Determine redirect destination
-    # For new self-registered users (defaulting to applicant), redirect to onboarding
-    # Users with explicit vendor/admin roles or returning users go to original_redirect
+    # Determine redirect destination based on user role + onboarding state
     final_redirect = original_redirect
-    
-    # Check if user needs onboarding:
-    # - New applicants who just registered (is_new_applicant)
-    # - Users with only the default applicant role who haven't completed onboarding
+    user_attrs = user_claims.get("attributes", {})
+    onboarding_completed = user_claims.get("onboarding_completed") or user_attrs.get(
+        "onboarding_completed"
+    )
+    org_id = (
+        user_claims.get("organization_id")
+        or user_attrs.get("organization_id")
+        or oidc_user.organization_id
+    )
+
     if provision_result.is_new_applicant:
-        # New user - redirect to onboarding
         final_redirect = "/onboarding"
         logger.info(f"New user {oidc_user.email} redirected to onboarding")
-    elif provision_result.user_type == "applicant":
-        # Check if they've completed onboarding by looking at user_claims
-        # Users who completed onboarding will have onboarding_completed attribute
-        user_attrs = user_claims.get("attributes", {})
-        if not user_attrs.get("onboarding_completed"):
-            # Also check for custom claim at top level (how Keycloak might expose it)
-            if not user_claims.get("onboarding_completed"):
-                final_redirect = "/onboarding"
-                logger.info(f"Returning user {oidc_user.email} needs onboarding")
+    elif provision_result.user_type == "administrator":
+        final_redirect = original_redirect or "/dashboard"
+    elif provision_result.user_type == "vendor":
+        if not onboarding_completed or not org_id:
+            final_redirect = "/onboarding"
+            logger.info(f"Vendor {oidc_user.email} needs onboarding")
+        else:
+            final_redirect = original_redirect or "/vendor"
+    else:
+        if not onboarding_completed:
+            final_redirect = "/onboarding"
+            logger.info(f"Returning user {oidc_user.email} needs onboarding")
+        else:
+            final_redirect = original_redirect or "/credentials"
 
     # Create response with session cookie
     response = RedirectResponse(url=final_redirect, status_code=302)
@@ -497,6 +514,10 @@ async def get_current_user(
         user_type=attrs.get("user_type", "applicant"),
         applicant_id=attrs.get("applicant_id"),
         roles=attrs.get("roles", []),
+        organization_id=attrs.get("organization_id"),
+        organization_name=attrs.get("organization_name"),
+        organization=attrs.get("organization"),
+        onboarding_completed=attrs.get("onboarding_completed"),
     )
 
     return AuthStatusResponse(authenticated=True, user=user)

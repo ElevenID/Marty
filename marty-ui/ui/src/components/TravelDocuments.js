@@ -142,10 +142,14 @@ async function fetchApprovedApplicants(documentType = null) {
 }
 
 async function issueDocumentForApplicant(applicationId, options = {}) {
-  const response = await fetch(`${API_BASE}/issue-for-applicant/${applicationId}`, {
+  const documentNumber = options.document_number || `DOC-${Date.now()}`;
+  const params = new URLSearchParams({
+    application_id: applicationId,
+    document_number: documentNumber,
+  });
+  const response = await fetch(`${API_BASE}/issue-from-application?${params}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(options),
   });
   if (!response.ok) {
     const error = await response.json();
@@ -247,7 +251,8 @@ export default function TravelDocuments() {
     setLoadingApplicants(true);
     try {
       const data = await fetchApprovedApplicants(documentType);
-      setApprovedApplicants(data.applications || []);
+      const applications = Array.isArray(data) ? data : data.applications || [];
+      setApprovedApplicants(applications);
     } catch (err) {
       console.error('Failed to load approved applicants:', err);
       setApprovedApplicants([]);
@@ -272,11 +277,11 @@ export default function TravelDocuments() {
         ...prev,
         document_type: applicant.document_type || prev.document_type,
         holder_name: applicant.applicant_name || prev.holder_name,
-        holder_given_name: applicant.given_name || '',
-        holder_family_name: applicant.family_name || '',
-        holder_dob: applicant.date_of_birth || '',
-        nationality: applicant.nationality || 'USA',
-        issuing_country: applicant.nationality || 'USA',
+        holder_given_name: applicant.applicant_given_name || '',
+        holder_family_name: applicant.applicant_family_name || '',
+        holder_dob: applicant.applicant_dob || '',
+        nationality: applicant.applicant_nationality || 'USA',
+        issuing_country: applicant.applicant_nationality || 'USA',
       }));
     }
   };
@@ -286,10 +291,8 @@ export default function TravelDocuments() {
     try {
       if (issueMode === 'applicant' && selectedApplicant) {
         // Issue via approved applicant
-        await issueDocumentForApplicant(selectedApplicant.id, {
+        await issueDocumentForApplicant(selectedApplicant.application_id, {
           document_number: issueForm.document_number || undefined,
-          validity_years: issueForm.validity_years,
-          issuing_authority: issueForm.issuing_authority,
         });
         setSuccess('Document issued successfully for approved applicant');
       } else {
@@ -404,6 +407,7 @@ export default function TravelDocuments() {
             variant="contained"
             startIcon={<AddIcon />}
             onClick={handleOpenIssueDialog}
+            data-testid="issue-document-button"
           >
             Issue Document
           </Button>
@@ -491,7 +495,7 @@ export default function TravelDocuments() {
           </Box>
 
           {/* Documents Table */}
-          <TableContainer>
+          <TableContainer data-testid="documents-table">
             <Table>
               <TableHead>
                 <TableRow>
@@ -520,7 +524,7 @@ export default function TravelDocuments() {
                   </TableRow>
                 ) : (
                   documents.map((doc) => (
-                    <TableRow key={doc.id}>
+                    <TableRow key={doc.id} data-testid={`document-row-${doc.id}`}>
                       <TableCell>
                         <Tooltip title={doc.document_type}>
                           {getDocumentTypeIcon(doc.document_type)}
@@ -654,13 +658,19 @@ export default function TravelDocuments() {
       )}
 
       {/* Issue Document Dialog */}
-      <Dialog open={issueDialogOpen} onClose={() => setIssueDialogOpen(false)} maxWidth="md" fullWidth>
+      <Dialog
+        open={issueDialogOpen}
+        onClose={() => setIssueDialogOpen(false)}
+        maxWidth="md"
+        fullWidth
+        data-testid="issue-document-dialog"
+      >
         <DialogTitle>Issue Travel Document</DialogTitle>
         <DialogContent>
           <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 2 }}>
             <Tabs value={issueMode === 'applicant' ? 0 : 1} onChange={(e, v) => setIssueMode(v === 0 ? 'applicant' : 'manual')}>
-              <Tab label="From Approved Applicant" />
-              <Tab label="Manual Entry (Demo)" />
+              <Tab label="From Approved Applicant" data-testid="issue-tab-applicant" />
+              <Tab label="Manual Entry (Demo)" data-testid="issue-tab-manual" />
             </Tabs>
           </Box>
           
@@ -686,19 +696,21 @@ export default function TravelDocuments() {
               ) : (
                 <>
                   <Grid item xs={12}>
-                    <FormControl fullWidth>
+                    <FormControl fullWidth data-testid="approved-applicant-select">
                       <InputLabel>Select Approved Applicant</InputLabel>
                       <Select
-                        value={selectedApplicant?.id || ''}
+                        value={selectedApplicant?.application_id || ''}
                         label="Select Approved Applicant"
                         onChange={(e) => {
-                          const applicant = approvedApplicants.find(a => a.id === e.target.value);
+                          const applicant = approvedApplicants.find(
+                            a => a.application_id === e.target.value
+                          );
                           handleApplicantSelect(applicant);
                         }}
                       >
                         {approvedApplicants.map(app => (
-                          <MenuItem key={app.id} value={app.id}>
-                            {app.applicant_name} - {app.document_type} ({new Date(app.approved_at).toLocaleDateString()})
+                          <MenuItem key={app.application_id} value={app.application_id}>
+                            {app.applicant_name} - {app.credential_display_name || app.document_type} ({new Date(app.approved_at).toLocaleDateString()})
                           </MenuItem>
                         ))}
                       </Select>
@@ -717,15 +729,15 @@ export default function TravelDocuments() {
                       </Grid>
                       <Grid item xs={6}>
                         <Typography variant="body2" color="text.secondary">Document Type</Typography>
-                        <Typography>{selectedApplicant.document_type}</Typography>
+                        <Typography>{selectedApplicant.credential_display_name || selectedApplicant.document_type}</Typography>
                       </Grid>
                       <Grid item xs={6}>
                         <Typography variant="body2" color="text.secondary">Date of Birth</Typography>
-                        <Typography>{selectedApplicant.date_of_birth || 'N/A'}</Typography>
+                        <Typography>{selectedApplicant.applicant_dob || 'N/A'}</Typography>
                       </Grid>
                       <Grid item xs={6}>
                         <Typography variant="body2" color="text.secondary">Nationality</Typography>
-                        <Typography>{selectedApplicant.nationality || 'N/A'}</Typography>
+                        <Typography>{selectedApplicant.applicant_nationality || 'N/A'}</Typography>
                       </Grid>
                       <Grid item xs={6}>
                         <Typography variant="body2" color="text.secondary">Vetting Level</Typography>
@@ -748,6 +760,7 @@ export default function TravelDocuments() {
                           onChange={(e) => setIssueForm({ ...issueForm, document_number: e.target.value })}
                           placeholder="Auto-generated if empty"
                           helperText="Leave blank for auto-generation"
+                          data-testid="issue-document-number"
                         />
                       </Grid>
                       <Grid item xs={6}>
@@ -758,6 +771,7 @@ export default function TravelDocuments() {
                           value={issueForm.validity_years}
                           onChange={(e) => setIssueForm({ ...issueForm, validity_years: parseInt(e.target.value) })}
                           inputProps={{ min: 1, max: 20 }}
+                          data-testid="issue-validity-years"
                         />
                       </Grid>
                       <Grid item xs={12}>
@@ -766,6 +780,7 @@ export default function TravelDocuments() {
                           label="Issuing Authority"
                           value={issueForm.issuing_authority}
                           onChange={(e) => setIssueForm({ ...issueForm, issuing_authority: e.target.value })}
+                          data-testid="issue-issuing-authority"
                         />
                       </Grid>
                     </>
@@ -891,6 +906,7 @@ export default function TravelDocuments() {
               loading || 
               (issueMode === 'applicant' ? !selectedApplicant : (!issueForm.document_number || !issueForm.holder_name || !issueForm.holder_dob))
             }
+            data-testid="confirm-issue-document"
           >
             {loading ? <CircularProgress size={24} /> : 'Issue Document'}
           </Button>
@@ -1094,7 +1110,12 @@ export default function TravelDocuments() {
       <Snackbar open={!!error} autoHideDuration={6000} onClose={() => setError(null)}>
         <Alert severity="error" onClose={() => setError(null)}>{error}</Alert>
       </Snackbar>
-      <Snackbar open={!!success} autoHideDuration={4000} onClose={() => setSuccess(null)}>
+      <Snackbar
+        open={!!success}
+        autoHideDuration={4000}
+        onClose={() => setSuccess(null)}
+        data-testid="documents-success-snackbar"
+      >
         <Alert severity="success" onClose={() => setSuccess(null)}>{success}</Alert>
       </Snackbar>
     </Box>

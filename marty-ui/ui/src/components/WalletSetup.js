@@ -34,6 +34,7 @@ import {
   Refresh as RefreshIcon,
 } from '@mui/icons-material';
 import { QRCodeSVG } from 'qrcode.react';
+import { useAuth } from '../hooks/useAuth';
 
 const API_BASE_URL = process.env.REACT_APP_API_URL || '/api';
 
@@ -47,6 +48,7 @@ const STEPS = [
  * WalletSetup Component
  */
 const WalletSetup = () => {
+  const { user, organizationId } = useAuth();
   // State
   const [activeStep, setActiveStep] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -94,24 +96,7 @@ const WalletSetup = () => {
   const generatePairingCode = async () => {
     setLoading(true);
     setError(null);
-
     try {
-      const response = await fetch(`${API_BASE_URL}/test/wallet/generate-pairing-code`, {
-        method: 'POST',
-        credentials: 'include',
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to generate pairing code');
-      }
-
-      const data = await response.json();
-      setPairingCode(data.code);
-      setQrContent(data.qr_content);
-      setExpiresIn(data.expires_in_seconds || 300);
-    } catch (err) {
-      console.error('Failed to generate pairing code:', err);
-      // Use mock data for demo/test
       const mockCode = Math.random().toString(36).substring(2, 10).toUpperCase();
       setPairingCode(mockCode);
       setQrContent(`marty://pair?code=${mockCode}`);
@@ -123,19 +108,26 @@ const WalletSetup = () => {
 
   const checkWalletStatus = async () => {
     try {
-      const response = await fetch(`${API_BASE_URL}/test/wallet/status`, {
+      if (!user?.user_id) {
+        return;
+      }
+      const response = await fetch(`${API_BASE_URL}/devices`, {
+        headers: { 'X-User-ID': user.user_id },
         credentials: 'include',
       });
 
-      if (response.ok) {
-        const data = await response.json();
-        if (data.connected) {
-          setWalletConnected(true);
-          setWalletDeviceId(data.device_id || data.devices?.[0]?.device_id);
-          if (activeStep === 0) {
-            setActiveStep(1);
-            setSuccess('Wallet paired successfully!');
-          }
+      if (!response.ok) {
+        return;
+      }
+
+      const data = await response.json();
+      const device = data.devices?.[0];
+      if (device) {
+        setWalletConnected(true);
+        setWalletDeviceId(device.device_id);
+        if (activeStep === 0) {
+          setActiveStep(1);
+          setSuccess('Wallet paired successfully!');
         }
       }
     } catch (err) {
@@ -178,18 +170,37 @@ const WalletSetup = () => {
     }
   };
 
+  const getOrCreateDeviceId = useCallback(() => {
+    const prefix = organizationId ? `${organizationId}:` : '';
+    const storageKey = `wallet_device_id:${prefix || 'default'}`;
+    const existing = localStorage.getItem(storageKey);
+    if (existing) {
+      return existing;
+    }
+    const generated = `${prefix}web-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    localStorage.setItem(storageKey, generated);
+    return generated;
+  }, [organizationId]);
+
   const registerPushNotifications = async () => {
     try {
       // In a real app, this would get FCM token
       const mockToken = `fcm_token_${Date.now()}`;
 
-      const response = await fetch(`${API_BASE_URL}/test/wallet/register`, {
+      if (!user?.user_id) {
+        throw new Error('Missing user context');
+      }
+
+      const deviceId = getOrCreateDeviceId();
+      const response = await fetch(`${API_BASE_URL}/devices/register`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-User-ID': user.user_id },
         credentials: 'include',
         body: JSON.stringify({
-          push_token: mockToken,
+          device_id: deviceId,
+          fcm_token: mockToken,
           platform: 'web',
+          app_version: 'web-1.0.0',
         }),
       });
 
@@ -198,7 +209,7 @@ const WalletSetup = () => {
       }
 
       const data = await response.json();
-      setWalletDeviceId(data.device_id);
+      setWalletDeviceId(data.device_id || deviceId);
     } catch (err) {
       console.error('Failed to register push notifications:', err);
       // Continue anyway for testing
@@ -260,7 +271,7 @@ const WalletSetup = () => {
                   {loading ? (
                     <CircularProgress data-testid="qr-loading" />
                   ) : qrContent ? (
-                    <Box data-testid="qr-code-container">
+                    <Box data-testid="pairing-qr-code" data-value={qrContent}>
                       <QRCodeSVG
                         value={qrContent}
                         size={200}

@@ -15,10 +15,10 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime
-from typing import Literal
+from typing import Any
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -29,6 +29,7 @@ from subscription.models import (
     Organization,
 )
 from subscription.database import get_db_session
+from auth.router import get_current_user, AuthStatusResponse
 
 logger = logging.getLogger(__name__)
 
@@ -105,6 +106,52 @@ DOCTYPE_MAP = {
     CredentialType.DTC: "org.icao.dtc.1",
     CredentialType.OPEN_BADGE: "openbadges",
 }
+
+
+# =============================================================================
+# Issuer Key Generation
+# =============================================================================
+
+_MARTY_RS_AVAILABLE = False
+try:
+    import marty_rs  # type: ignore
+    _MARTY_RS_AVAILABLE = True
+except Exception:
+    marty_rs = None
+
+_CRYPTO_BRIDGE_AVAILABLE = False
+try:
+    from marty_plugin.common.crypto_bridge import jwk_generate
+    _CRYPTO_BRIDGE_AVAILABLE = True
+except Exception:
+    jwk_generate = None
+
+
+def _generate_issuer_key() -> dict[str, Any]:
+    """Generate a signing key for credential issuance."""
+    if _MARTY_RS_AVAILABLE and marty_rs is not None:
+        import json
+
+        result_json = marty_rs.generate_ed25519_key()
+        return json.loads(result_json)
+
+    if _CRYPTO_BRIDGE_AVAILABLE and jwk_generate is not None:
+        import json
+        key = jwk_generate("ed25519")
+        jwk_json = json.loads(key.to_json())
+        key_id = jwk_json.get("kid") or key.thumbprint()
+        return {
+            "did": f"did:key:{key_id}",
+            "jwk": jwk_json,
+            "keyId": key_id,
+        }
+
+    key_id = f"key_{uuid4().hex[:8]}"
+    return {
+        "did": f"did:key:{key_id}",
+        "jwk": {"kty": "OKP", "crv": "Ed25519", "x": "mock_public_key"},
+        "keyId": key_id,
+    }
 
 
 # =============================================================================
@@ -195,12 +242,15 @@ def _config_to_info(config: CredentialTypeConfiguration) -> CredentialTypeInfo:
     )
 
 
-async def _verify_org_access(org_id: str, request: Request, db: AsyncSession) -> Organization:
+async def _verify_org_access(
+    org_id: str,
+    current_user: AuthStatusResponse,
+    db: AsyncSession,
+) -> Organization:
     """Verify user has access to the organization."""
-    # Get user from session
-    user = getattr(request.state, "user", None)
-    if not user:
+    if not current_user.authenticated or not current_user.user:
         raise HTTPException(status_code=401, detail="Not authenticated")
+    user = current_user.user
     
     # Check organization exists
     result = await db.execute(
@@ -230,12 +280,12 @@ async def _verify_org_access(org_id: str, request: Request, db: AsyncSession) ->
 @router.get("/{org_id}/credential-types", response_model=ListCredentialTypesResponse)
 async def list_credential_types(
     org_id: str,
-    request: Request,
+    current_user: AuthStatusResponse = Depends(get_current_user),
     include_inactive: bool = False,
     db: AsyncSession = Depends(get_db_session),
 ):
     """List configured credential types for an organization."""
-    await _verify_org_access(org_id, request, db)
+    await _verify_org_access(org_id, current_user, db)
     
     query = select(CredentialTypeConfiguration).where(
         CredentialTypeConfiguration.organization_id == org_id
@@ -287,12 +337,12 @@ async def get_default_fields(
 @router.post("/{org_id}/credential-types", response_model=CredentialTypeResponse, status_code=201)
 async def create_credential_type(
     org_id: str,
-    request: Request,
+    current_user: AuthStatusResponse = Depends(get_current_user),
     body: CreateCredentialTypeRequest,
     db: AsyncSession = Depends(get_db_session),
 ):
     """Configure a new credential type for the organization."""
-    await _verify_org_access(org_id, request, db)
+    await _verify_org_access(org_id, current_user, db)
     
     # Validate credential type
     try:
@@ -318,6 +368,7 @@ async def create_credential_type(
     doctype = DOCTYPE_MAP.get(cred_type, "")
     
     # Create configuration
+    issuer_key = _generate_issuer_key()
     config = CredentialTypeConfiguration(
         id=str(uuid4()),
         organization_id=org_id,
@@ -327,6 +378,9 @@ async def create_credential_type(
         required_fields=body.required_fields or defaults["required"],
         optional_fields=body.optional_fields or defaults["optional"],
         validity_days=body.validity_days,
+        issuer_key_id=issuer_key.get("keyId"),
+        issuer_did=issuer_key.get("did"),
+        issuer_jwk=issuer_key.get("jwk"),
         is_active=True,
     )
     
@@ -343,11 +397,11 @@ async def create_credential_type(
 async def get_credential_type(
     org_id: str,
     type_id: str,
-    request: Request,
+    current_user: AuthStatusResponse = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
 ):
     """Get a specific credential type configuration."""
-    await _verify_org_access(org_id, request, db)
+    await _verify_org_access(org_id, current_user, db)
     
     result = await db.execute(
         select(CredentialTypeConfiguration).where(
@@ -367,12 +421,12 @@ async def get_credential_type(
 async def update_credential_type(
     org_id: str,
     type_id: str,
-    request: Request,
+    current_user: AuthStatusResponse = Depends(get_current_user),
     body: UpdateCredentialTypeRequest,
     db: AsyncSession = Depends(get_db_session),
 ):
     """Update a credential type configuration."""
-    await _verify_org_access(org_id, request, db)
+    await _verify_org_access(org_id, current_user, db)
     
     result = await db.execute(
         select(CredentialTypeConfiguration).where(
@@ -411,11 +465,11 @@ async def update_credential_type(
 async def delete_credential_type(
     org_id: str,
     type_id: str,
-    request: Request,
+    current_user: AuthStatusResponse = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
 ):
     """Disable a credential type configuration (soft delete)."""
-    await _verify_org_access(org_id, request, db)
+    await _verify_org_access(org_id, current_user, db)
     
     result = await db.execute(
         select(CredentialTypeConfiguration).where(

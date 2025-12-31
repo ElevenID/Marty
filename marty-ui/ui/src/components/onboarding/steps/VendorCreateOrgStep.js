@@ -41,12 +41,13 @@ const VendorCreateOrgStep = ({
   onDiscoverableChange,
   membershipMode,
   onMembershipModeChange,
+  orgDetailsLocked = false,
 }) => {
   return (
     <Fade in>
       <Box data-testid="vendor-create-org-step">
         <Typography variant="h5" gutterBottom textAlign="center">
-          Create Your Organization
+          {orgDetailsLocked ? 'Organization Settings' : 'Create Your Organization'}
         </Typography>
         <Typography
           variant="body1"
@@ -54,10 +55,18 @@ const VendorCreateOrgStep = ({
           textAlign="center"
           sx={{ mb: 4 }}
         >
-          Set up your organization to start issuing travel documents
+          {orgDetailsLocked
+            ? 'Review visibility and membership settings for your organization'
+            : 'Set up your organization to start issuing travel documents'}
         </Typography>
 
         <Box sx={{ maxWidth: 600, mx: 'auto' }} data-testid="org-details-form">
+          {orgDetailsLocked && (
+            <Alert severity="info" sx={{ mb: 3 }}>
+              You're completing setup for <strong>{orgName || 'your organization'}</strong>.
+            </Alert>
+          )}
+
           {/* Organization Info */}
           <Typography variant="subtitle1" fontWeight="bold" sx={{ mb: 2 }}>
             Organization Details
@@ -69,6 +78,7 @@ const VendorCreateOrgStep = ({
             onChange={(e) => onOrgNameChange(e.target.value)}
             placeholder="e.g., Acme Travel Services"
             required
+            disabled={orgDetailsLocked}
             sx={{ mb: 2 }}
             data-testid="org-name-input"
           />
@@ -80,6 +90,7 @@ const VendorCreateOrgStep = ({
               value={orgType || ''}
               onChange={(e) => onOrgTypeChange(e.target.value)}
               label="Organization Type"
+              disabled={orgDetailsLocked}
               data-testid="org-type-select"
             >
               <MenuItem value="government">Government Agency</MenuItem>
@@ -98,6 +109,7 @@ const VendorCreateOrgStep = ({
             onChange={(e) => onJurisdictionChange(e.target.value)}
             placeholder="e.g., US-TX, EU, CA-ON"
             helperText="Region or jurisdiction your organization operates in"
+            disabled={orgDetailsLocked}
             sx={{ mb: 2 }}
             data-testid="jurisdiction-input"
           />
@@ -110,6 +122,7 @@ const VendorCreateOrgStep = ({
             placeholder="Brief description of your organization"
             multiline
             rows={2}
+            disabled={orgDetailsLocked}
             sx={{ mb: 4 }}
             data-testid="org-description-input"
           />
@@ -238,8 +251,9 @@ const VendorCreateOrgStep = ({
 
           <Alert severity="info" sx={{ mt: 3 }}>
             <Typography variant="body2">
-              You'll receive an <strong>invite code</strong> after creating your organization.
-              Share this code with users who need to join directly.
+              {orgDetailsLocked
+                ? 'You will see or regenerate your invite code after completing setup.'
+                : "You'll receive an invite code after creating your organization. Share this code with users who need to join directly."}
             </Typography>
           </Alert>
         </Box>

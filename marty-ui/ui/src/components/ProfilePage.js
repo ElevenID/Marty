@@ -19,6 +19,10 @@ import {
   ListItem,
   ListItemIcon,
   ListItemText,
+  FormControl,
+  InputLabel,
+  Select,
+  MenuItem,
 } from '@mui/material';
 import PersonIcon from '@mui/icons-material/Person';
 import EmailIcon from '@mui/icons-material/Email';
@@ -27,10 +31,18 @@ import PublicIcon from '@mui/icons-material/Public';
 import CakeIcon from '@mui/icons-material/Cake';
 import SecurityIcon from '@mui/icons-material/Security';
 import AdminPanelSettingsIcon from '@mui/icons-material/AdminPanelSettings';
+import BusinessIcon from '@mui/icons-material/Business';
 import { useAuth } from '../hooks/useAuth';
 
 function ProfilePage() {
-  const { user, isAdministrator, isApplicant } = useAuth();
+  const {
+    user,
+    isAdministrator,
+    isApplicant,
+    organizationId,
+    organizations,
+    setActiveOrganizationId,
+  } = useAuth();
 
   if (!user) {
     return (
@@ -114,6 +126,34 @@ function ProfilePage() {
                     <EmailIcon />
                   </ListItemIcon>
                   <ListItemText primary="Email Address" secondary={user.email || 'Not provided'} />
+                </ListItem>
+
+                <ListItem>
+                  <ListItemIcon>
+                    <BusinessIcon />
+                  </ListItemIcon>
+                  {organizations.length > 1 ? (
+                    <FormControl fullWidth size="small">
+                      <InputLabel id="org-select-label">Organization</InputLabel>
+                      <Select
+                        labelId="org-select-label"
+                        value={organizationId || ''}
+                        label="Organization"
+                        onChange={(event) => setActiveOrganizationId(event.target.value)}
+                      >
+                        {organizations.map((org) => (
+                          <MenuItem key={org.id} value={org.id}>
+                            {org.name || org.id}
+                          </MenuItem>
+                        ))}
+                      </Select>
+                    </FormControl>
+                  ) : (
+                    <ListItemText
+                      primary="Organization"
+                      secondary={organizations[0]?.name || 'Not assigned'}
+                    />
+                  )}
                 </ListItem>
 
                 <ListItem>

@@ -16,7 +16,7 @@ const {
   SEEDED_USERS 
 } = require('../../utils/test-helpers');
 
-test.describe('Push Challenge Creation', () => {
+test.describe('Push Challenge Creation @slow', () => {
   let auth;
   let deviceReg;
   let pushNotifications;
@@ -159,7 +159,7 @@ test.describe('Push Challenge Creation', () => {
   });
 });
 
-test.describe('Push Challenge with Credential Operations', () => {
+test.describe('Push Challenge with Credential Operations @slow', () => {
   let auth;
   let deviceReg;
   let pushNotifications;
@@ -210,11 +210,12 @@ test.describe('Push Challenge with Credential Operations', () => {
   });
 });
 
-test.describe('Mock Notification Storage', () => {
+test.describe('Mock Notification Storage @slow', () => {
   let pushNotifications;
 
   test.beforeEach(async ({ page }) => {
     pushNotifications = new PushNotificationHelpers(page);
+    pushNotifications.setUserId('test-user');
     await pushNotifications.clearAllNotifications();
   });
 

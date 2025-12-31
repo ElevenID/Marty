@@ -7,6 +7,8 @@ Endpoints:
 - POST /api/test/setup-credential - Set up a credential for testing
 - POST /api/test/setup-expired-credential - Set up an expired credential
 - POST /api/test/issue-credential - Issue a real signed credential using marty-rs
+- POST /api/test/issue-open-badge - Issue an Open Badge (OB2/OB3)
+- POST /api/test/verify-open-badge - Verify an Open Badge (OB2/OB3)
 - POST /api/test/request-presentation - Create a presentation request
 - POST /api/test/set-device-offline - Simulate device going offline
 - POST /api/test/set-device-online - Simulate device coming back online
@@ -16,11 +18,12 @@ Endpoints:
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 from datetime import datetime, timedelta
 from uuid import uuid4
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
@@ -131,6 +134,61 @@ class IssueCredentialResponse(BaseModel):
     message: str
 
 
+class IssueOpenBadgeRequest(BaseModel):
+    """Request to issue an Open Badge credential."""
+
+    version: Literal["v2", "v3"] = Field("v2", description="Open Badges version")
+    issuer_name: str = Field("Marty Issuer", description="Issuer display name")
+    recipient_identity: str = Field("user@example.org", description="Recipient identity")
+    recipient_name: str | None = Field(None, description="Recipient display name")
+    badge_name: str = Field("Marty Open Badge", description="Badge name")
+    badge_description: str = Field(
+        "Issued by Marty for testing",
+        description="Badge description",
+    )
+    include_document_store: bool = Field(
+        True,
+        description="Include verification document_store in response",
+    )
+
+
+class IssueOpenBadgeResponse(BaseModel):
+    """Response with issued Open Badge credential."""
+
+    success: bool
+    issued: bool
+    version: str
+    credential: dict[str, Any]
+    document_store: dict[str, Any] | None = None
+    warnings: list[str] = Field(default_factory=list)
+    message: str | None = None
+
+
+class VerifyOpenBadgeRequest(BaseModel):
+    """Request to verify an Open Badge credential."""
+
+    version: Literal["v2", "v3"] = Field("v2", description="Open Badges version")
+    credential: dict[str, Any] = Field(..., description="Credential or assertion JSON")
+    document_store: dict[str, Any] | None = Field(
+        None,
+        description="Document store for verification",
+    )
+    recipient_identity: str | None = Field(None, description="Expected recipient identity")
+
+
+class VerifyOpenBadgeResponse(BaseModel):
+    """Response with Open Badge verification result."""
+
+    success: bool
+    valid: bool
+    version: str
+    errors: list[str] = Field(default_factory=list)
+    error_codes: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+    normalized: dict[str, Any] | None = None
+    message: str | None = None
+
+
 class RequestPresentationRequest(BaseModel):
     """Request to create a presentation request."""
     
@@ -198,6 +256,136 @@ def _get_or_create_issuer_key() -> dict:
         "keyId": "key_test_issuer"
     }
     return _issuer_key
+
+
+def _public_jwk(jwk: dict[str, Any]) -> dict[str, Any]:
+    """Strip private key material from a JWK."""
+    return {key: value for key, value in jwk.items() if key not in {"d"}}
+
+
+def _iso_timestamp() -> str:
+    return datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
+
+
+def _build_ob2_issue_request(
+    body: IssueOpenBadgeRequest, issuer_key: dict[str, Any]
+) -> tuple[dict[str, Any], dict[str, Any], str]:
+    issuer_did = issuer_key["did"]
+    verification_method = f"{issuer_did}#key-1"
+    badge_id = f"urn:uuid:{uuid4()}"
+    assertion_id = f"urn:uuid:{uuid4()}"
+
+    issuer = {"id": issuer_did, "type": "Issuer", "name": body.issuer_name}
+    badge = {
+        "id": badge_id,
+        "type": "BadgeClass",
+        "name": body.badge_name,
+        "description": body.badge_description,
+        "issuer": issuer,
+    }
+    recipient = {
+        "identity": body.recipient_identity,
+        "type": "email",
+        "hashed": False,
+    }
+    if body.recipient_name:
+        recipient["name"] = body.recipient_name
+
+    assertion = {
+        "@context": "https://w3id.org/openbadges/v2",
+        "id": assertion_id,
+        "type": "Assertion",
+        "badge": badge,
+        "issuedOn": _iso_timestamp(),
+        "recipient": recipient,
+    }
+
+    request = {
+        "assertion": assertion,
+        "signing": {
+            "jwk": issuer_key["jwk"],
+            "creator": verification_method,
+            "verification_type": "signed",
+        },
+    }
+
+    store = {
+        verification_method: {
+            "id": verification_method,
+            "publicKeyJwk": _public_jwk(issuer_key["jwk"]),
+        },
+        issuer_did: issuer,
+        badge_id: badge,
+    }
+
+    return request, store, verification_method
+
+
+def _build_ob3_issue_request(
+    body: IssueOpenBadgeRequest, issuer_key: dict[str, Any]
+) -> tuple[dict[str, Any], dict[str, Any], str]:
+    issuer_did = issuer_key["did"]
+    verification_method = f"{issuer_did}#key-1"
+    credential_id = f"urn:uuid:{uuid4()}"
+    achievement_id = f"urn:uuid:{uuid4()}"
+
+    credential = {
+        "@context": [
+            "https://www.w3.org/ns/credentials/v2",
+            "https://purl.imsglobal.org/spec/ob/v3p0/context.json",
+        ],
+        "id": credential_id,
+        "type": [
+            "OpenBadgeCredential",
+            "AchievementCredential",
+            "VerifiableCredential",
+        ],
+        "issuer": {"id": issuer_did, "name": body.issuer_name},
+        "issuanceDate": _iso_timestamp(),
+        "credentialSubject": {
+            "id": body.recipient_identity,
+            "type": "AchievementSubject",
+            "name": body.recipient_name or body.recipient_identity,
+            "achievement": {
+                "id": achievement_id,
+                "type": "Achievement",
+                "name": body.badge_name,
+                "description": body.badge_description,
+            },
+            "recipient": {"identity": body.recipient_identity, "type": "email"},
+        },
+    }
+
+    request = {
+        "credential": credential,
+        "signing": {
+            "jwk": issuer_key["jwk"],
+            "verification_method": verification_method,
+            "verification_method_type": "JsonWebKey2020",
+            "controller": issuer_did,
+            "proof_purpose": "assertionMethod",
+        },
+    }
+
+    store = {
+        verification_method: {
+            "id": verification_method,
+            "type": "JsonWebKey2020",
+            "controller": issuer_did,
+            "publicKeyJwk": _public_jwk(issuer_key["jwk"]),
+        }
+    }
+
+    return request, store, verification_method
+
+
+def _context_contains(value: dict[str, Any], needle: str) -> bool:
+    context = value.get("@context") or value.get("context")
+    if isinstance(context, str):
+        return needle in context
+    if isinstance(context, list):
+        return any(isinstance(item, str) and needle in item for item in context)
+    return False
 
 
 # =============================================================================
@@ -327,6 +515,115 @@ async def issue_credential(body: IssueCredentialRequest):
         offer_uri=offer_uri,
         issuer_did=issuer_key["did"],
         message=f"Credential issued: {credential_id}",
+    )
+
+
+@router.post("/issue-open-badge", response_model=IssueOpenBadgeResponse)
+async def issue_open_badge(body: IssueOpenBadgeRequest):
+    """Issue an Open Badge (OB2 or OB3) using marty-rs."""
+    _check_test_mode()
+
+    issuer_key = _get_or_create_issuer_key()
+    warnings: list[str] = []
+
+    if body.version == "v3":
+        request, store, _ = _build_ob3_issue_request(body, issuer_key)
+        default_version = "3.0"
+        issue_fn = getattr(marty_rs, "open_badge_ob3_issue", None) if MARTY_RS_AVAILABLE else None
+    else:
+        request, store, _ = _build_ob2_issue_request(body, issuer_key)
+        default_version = "2.0"
+        issue_fn = getattr(marty_rs, "open_badge_ob2_issue", None) if MARTY_RS_AVAILABLE else None
+
+    if MARTY_RS_AVAILABLE and issue_fn is not None:
+        try:
+            result_json = issue_fn(json.dumps(request))
+            result = json.loads(result_json)
+            credential = result.get("credential") or {}
+            issued = bool(result.get("issued", False))
+            version = str(result.get("version", default_version))
+            warnings = list(result.get("warnings", []))
+        except Exception as e:
+            logger.error(f"Failed to issue Open Badge: {e}")
+            raise HTTPException(status_code=500, detail=f"Open Badge issuance failed: {e}")
+    else:
+        warnings.append("marty-rs not available; issued unsigned Open Badge")
+        credential = request.get("credential") or request.get("assertion") or {}
+        issued = True
+        version = default_version
+
+    document_store = store if body.include_document_store else None
+
+    return IssueOpenBadgeResponse(
+        success=True,
+        issued=issued,
+        version=version,
+        credential=credential,
+        document_store=document_store,
+        warnings=warnings,
+        message="Open Badge issued",
+    )
+
+
+@router.post("/verify-open-badge", response_model=VerifyOpenBadgeResponse)
+async def verify_open_badge(body: VerifyOpenBadgeRequest):
+    """Verify an Open Badge (OB2 or OB3) using marty-rs."""
+    _check_test_mode()
+
+    warnings: list[str] = []
+
+    if body.version == "v3":
+        request = {"credential": body.credential, "document_store": body.document_store}
+        verify_fn = getattr(marty_rs, "open_badge_ob3_verify", None) if MARTY_RS_AVAILABLE else None
+        default_version = "3.0"
+    else:
+        request = {
+            "assertion": body.credential,
+            "document_store": body.document_store,
+            "recipient_identity": body.recipient_identity,
+        }
+        verify_fn = getattr(marty_rs, "open_badge_ob2_verify", None) if MARTY_RS_AVAILABLE else None
+        default_version = "2.0"
+
+    if MARTY_RS_AVAILABLE and verify_fn is not None:
+        try:
+            result_json = verify_fn(json.dumps(request))
+            result = json.loads(result_json)
+            return VerifyOpenBadgeResponse(
+                success=True,
+                valid=bool(result.get("valid", False)),
+                version=str(result.get("version", default_version)),
+                errors=list(result.get("errors", [])),
+                error_codes=list(result.get("error_codes", [])),
+                warnings=list(result.get("warnings", [])),
+                normalized=result.get("normalized"),
+                message="Open Badge verification completed",
+            )
+        except Exception as e:
+            logger.error(f"Failed to verify Open Badge: {e}")
+            raise HTTPException(status_code=500, detail=f"Open Badge verification failed: {e}")
+
+    warnings.append("marty-rs not available; performed minimal Open Badge checks")
+    credential = body.credential
+    if body.version == "v3":
+        valid = _context_contains(credential, "openbadges/v3") or _context_contains(
+            credential, "ob/v3p0/context.json"
+        )
+        types = credential.get("type", [])
+        if isinstance(types, str):
+            types = [types]
+        valid = bool(valid and ("OpenBadgeCredential" in types or "AchievementCredential" in types))
+    else:
+        valid = _context_contains(credential, "openbadges/v2") and credential.get("type") == "Assertion"
+        valid = bool(valid and credential.get("badge"))
+
+    return VerifyOpenBadgeResponse(
+        success=True,
+        valid=valid,
+        version=default_version,
+        warnings=warnings,
+        normalized=None,
+        message="Open Badge verification completed (minimal checks)",
     )
 
 

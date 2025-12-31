@@ -31,6 +31,8 @@ from subscription.models import (
     MembershipRequestStatus,
 )
 from subscription.database import get_db_session
+from .config import AuthConfig
+from .router import get_session_manager
 from .keycloak_admin import KeycloakAdminClient, get_keycloak_admin
 
 logger = logging.getLogger(__name__)
@@ -183,6 +185,19 @@ async def get_org_settings(org_id: str, db: AsyncSession) -> dict:
     }
 
 
+def merge_org_claim(
+    current_claim: Any,
+    org_id: str | None,
+    org_name: str | None,
+) -> dict[str, Any]:
+    """Merge an org into the Keycloak organization claim shape."""
+    claim = current_claim if isinstance(current_claim, dict) else {}
+    updated = dict(claim)
+    if org_id:
+        updated[org_id] = {"name": org_name or ""}
+    return updated
+
+
 async def set_org_settings(org_id: str, settings: dict, db: AsyncSession) -> None:
     """Update or create organization settings in database.
     
@@ -308,65 +323,120 @@ _membership_requests: dict[str, dict] = {}
 
 async def get_current_user_id(request: Request) -> str:
     """Get current user ID from session."""
-    # Cookie name matches auth config
-    session_id = request.cookies.get("marty_session")
+    config = AuthConfig.from_env()
+    session_id = request.cookies.get(config.cookie.name)
     if not session_id:
         raise HTTPException(status_code=401, detail="Not authenticated")
-    
-    import redis.asyncio as redis
-    import os
-    import json
-    
-    redis_url = os.environ.get("REDIS_URL", "redis://localhost:6379")
-    redis_client = redis.from_url(redis_url, decode_responses=True)
-    
-    try:
-        # Redis key format matches session manager: marty:session:{session_id}
-        session_json = await redis_client.get(f"marty:session:{session_id}")
-        if not session_json:
-            raise HTTPException(status_code=401, detail="Session expired")
-        
-        session_data = json.loads(session_json)
-        user_id = session_data.get("user_id")
-        if not user_id:
-            raise HTTPException(status_code=401, detail="Invalid session")
-        
-        return user_id
-    finally:
-        await redis_client.aclose()
+
+    session_manager = await get_session_manager()
+    session = await session_manager.get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=401, detail="Session expired")
+    return session.user_id
 
 
 async def get_session_data(request: Request) -> dict[str, Any]:
-    """Get full session data from Redis using the session cookie."""
-    # Cookie name matches auth config
-    session_id = request.cookies.get("marty_session")
+    """Get full session data using the session cookie."""
+    config = AuthConfig.from_env()
+    session_id = request.cookies.get(config.cookie.name)
     if not session_id:
         raise HTTPException(status_code=401, detail="Not authenticated")
-    
-    import redis.asyncio as redis
-    import os
-    import json
-    
-    redis_url = os.environ.get("REDIS_URL", "redis://localhost:6379")
-    redis_client = redis.from_url(redis_url, decode_responses=True)
-    
-    try:
-        # Redis key format matches session manager: marty:session:{session_id}
-        session_json = await redis_client.get(f"marty:session:{session_id}")
-        if not session_json:
-            raise HTTPException(status_code=401, detail="Session expired")
-        
-        session_data = json.loads(session_json)
-        # Flatten attributes into main dict for easier access
-        attributes = session_data.get("attributes", {})
-        result = {
-            **session_data,
-            **attributes,
-            "_session_id": session_id,
+
+    session_manager = await get_session_manager()
+    session = await session_manager.get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=401, detail="Session expired")
+
+    attributes = session.attributes or {}
+    return {
+        "user_id": session.user_id,
+        **attributes,
+        "_session_id": session_id,
+    }
+
+
+async def update_session_attributes(session_id: str, updates: dict[str, Any]) -> None:
+    """Update session attributes in Redis."""
+    if not session_id:
+        return
+    session_manager = await get_session_manager()
+    session = await session_manager.get_session(session_id)
+    if not session:
+        return
+    session.attributes.update({k: v for k, v in updates.items() if v is not None})
+    await session_manager.update_session(session)
+
+
+async def auto_accept_email_invites(
+    *,
+    user_id: str,
+    user_email: str,
+    session_id: str | None,
+    keycloak: KeycloakAdminClient,
+    db: AsyncSession,
+    existing_org_claim: Any = None,
+) -> tuple[str | None, str | None, dict[str, Any]]:
+    """Auto-accept active email invitations for the user."""
+    if not user_email:
+        return None, None, merge_org_claim(existing_org_claim, None, None)
+
+    result = await db.execute(
+        select(OrganizationInvitation).where(
+            OrganizationInvitation.email == user_email,
+            OrganizationInvitation.is_active == True,
+        )
+    )
+    invitations = [inv for inv in result.scalars().all() if inv.is_valid]
+    if not invitations:
+        return None, None, merge_org_claim(existing_org_claim, None, None)
+
+    primary_org_id = None
+    primary_org_name = None
+    org_claim = merge_org_claim(existing_org_claim, None, None)
+
+    for invitation in invitations:
+        org_id = invitation.organization_id
+        org = await keycloak.get_organization(org_id)
+        if not org:
+            continue
+
+        org_name = org.get("name", "Unknown")
+        org_claim = merge_org_claim(session.get("organization"), org_id, org_name)
+        org_claim = merge_org_claim(session.get("organization"), org_id, org_name)
+        await keycloak.add_user_to_organization(org_id, user_id)
+        org_claim = merge_org_claim(org_claim, org_id, org_name)
+
+        invitation.uses_count += 1
+        if not invitation.is_reusable:
+            invitation.is_active = False
+        if invitation.max_uses and invitation.uses_count >= invitation.max_uses:
+            invitation.is_active = False
+
+        if not primary_org_id:
+            primary_org_id = org_id
+            primary_org_name = org_name
+
+    await db.commit()
+
+    if primary_org_id:
+        attributes = {
+            "organization_id": [primary_org_id],
+            "organization_name": [primary_org_name or ""],
+            "joined_via": ["email_invite"],
+            "onboarding_completed": [datetime.utcnow().isoformat()],
         }
-        return result
-    finally:
-        await redis_client.aclose()
+        await keycloak.update_user_attributes(user_id, attributes)
+        await update_session_attributes(
+            session_id,
+            {
+                "organization_id": primary_org_id,
+                "organization_name": primary_org_name,
+                "onboarding_completed": datetime.utcnow().isoformat(),
+                "organization": org_claim,
+            },
+        )
+
+    return primary_org_id, primary_org_name, org_claim
 
 
 # =============================================================================
@@ -377,6 +447,8 @@ async def get_session_data(request: Request) -> dict[str, Any]:
 @router.get("/status", response_model=OnboardingStatusResponse)
 async def get_onboarding_status(
     session: dict = Depends(get_session_data),
+    keycloak: KeycloakAdminClient = Depends(get_keycloak_admin),
+    db: AsyncSession = Depends(get_db_session),
 ) -> OnboardingStatusResponse:
     """
     Check if the current user needs onboarding.
@@ -408,24 +480,49 @@ async def get_onboarding_status(
         onboarding_completed = session.get("onboarding_completed")
         organization_id = session.get("organization_id")
         organization_name = session.get("organization_name")
+        roles = session.get("roles", [])
+        is_admin = "administrator" in roles or user_type == "administrator"
+        is_vendor = "vendor" in roles or user_type == "vendor"
+        resolved_user_type = "administrator" if is_admin else "vendor" if is_vendor else user_type
+
+        # Auto-accept email invites for applicants without an org
+        if not organization_id and user_type == "applicant":
+            org_id, org_name, _org_claim = await auto_accept_email_invites(
+                user_id=user_id,
+                user_email=user_email,
+                session_id=session.get("_session_id"),
+                keycloak=keycloak,
+                db=db,
+                existing_org_claim=session.get("organization"),
+            )
+            if org_id:
+                organization_id = org_id
+                organization_name = org_name
+                onboarding_completed = onboarding_completed or datetime.utcnow().isoformat()
         
         if onboarding_completed:
             return OnboardingStatusResponse(
                 needs_onboarding=False,
-                user_type=user_type,
+                user_type=resolved_user_type,
                 organization_id=organization_id,
                 organization_name=organization_name,
                 completed_at=onboarding_completed,
                 pending_request=pending_request,
             )
         
-        # Check if user has vendor or administrator role (stored in session)
-        roles = session.get("roles", [])
-        
-        if "vendor" in roles or "administrator" in roles:
+        if is_admin:
             return OnboardingStatusResponse(
                 needs_onboarding=False,
-                user_type="vendor" if "vendor" in roles else "administrator",
+                user_type="administrator",
+                organization_id=organization_id,
+                organization_name=organization_name,
+                pending_request=pending_request,
+            )
+
+        if is_vendor:
+            return OnboardingStatusResponse(
+                needs_onboarding=True,
+                user_type="vendor",
                 organization_id=organization_id,
                 organization_name=organization_name,
                 pending_request=pending_request,
@@ -434,7 +531,9 @@ async def get_onboarding_status(
         # New users without onboarding_completed need onboarding
         return OnboardingStatusResponse(
             needs_onboarding=True,
-            user_type=user_type,
+            user_type=resolved_user_type,
+            organization_id=organization_id,
+            organization_name=organization_name,
             pending_request=pending_request,
         )
         
@@ -540,25 +639,16 @@ async def join_with_invite_code(
             "onboarding_completed": [datetime.utcnow().isoformat()],
         }
         await keycloak.update_user_attributes(user_id, attributes)
-        
-        # Update session
-        if session_id:
-            import redis.asyncio as redis
-            import os
-            
-            redis_url = os.environ.get("REDIS_URL", "redis://localhost:6379")
-            redis_client = redis.from_url(redis_url, decode_responses=True)
-            try:
-                await redis_client.hset(
-                    f"session:{session_id}",
-                    mapping={
-                        "organization_id": org_id,
-                        "organization_name": org_name,
-                        "onboarding_completed": "true",
-                    }
-                )
-            finally:
-                await redis_client.aclose()
+        await use_invite_code(request_data.invite_code, db)
+        await update_session_attributes(
+            session_id,
+            {
+                "organization_id": org_id,
+                "organization_name": org_name,
+                "onboarding_completed": datetime.utcnow().isoformat(),
+                "organization": org_claim,
+            },
+        )
         
         logger.info(f"User {user_email} joined organization {org_name} via invite code")
         
@@ -704,49 +794,86 @@ async def complete_onboarding(
         invite_code = None
         
         if request_data.user_type == "vendor":
-            # Vendor flow: create new organization
+            # Vendor flow: create or complete organization setup
             if request_data.organization_id:
-                # Vendors joining existing org - this should go through invite code
-                raise HTTPException(
-                    status_code=400,
-                    detail="Vendors must create a new organization or use an invite code to join existing one."
+                org_id = request_data.organization_id
+                session_org_id = session.get("organization_id")
+                if session_org_id and session_org_id != org_id:
+                    raise HTTPException(
+                        status_code=403,
+                        detail="Not authorized for this organization.",
+                    )
+                session_orgs = session.get("organization")
+                if isinstance(session_orgs, dict) and session_orgs and org_id not in session_orgs:
+                    raise HTTPException(
+                        status_code=403,
+                        detail="Not authorized for this organization.",
+                    )
+
+                org = await keycloak.get_organization(org_id)
+                if not org:
+                    raise HTTPException(status_code=404, detail="Organization not found")
+
+                org_name = org.get("name", "Unknown")
+
+                await set_org_settings(
+                    org_id,
+                    {
+                        "name": org_name,
+                        "is_discoverable": request_data.is_discoverable,
+                        "membership_mode": request_data.membership_mode,
+                        "updated_by": user_id,
+                        "updated_at": datetime.utcnow().isoformat(),
+                    },
+                    db,
                 )
-            
-            if not request_data.organization_name:
-                raise HTTPException(
-                    status_code=400,
-                    detail="Organization name is required"
+
+                settings = await get_org_settings(org_id, db)
+                invite_code = settings.get("invite_code")
+                if not invite_code:
+                    invite_code = await generate_invite_code(org_id, db, created_by=user_id)
+
+                await keycloak.add_user_to_organization(org_id, user_id)
+                membership_status = "owner"
+            else:
+                if not request_data.organization_name:
+                    raise HTTPException(
+                        status_code=400,
+                        detail="Organization name is required"
+                    )
+
+                # Create new organization in Keycloak
+                new_org = await keycloak.create_organization(
+                    name=request_data.organization_name,
+                    description=request_data.organization_description,
                 )
-            
-            # Create new organization in Keycloak
-            new_org = await keycloak.create_organization(
-                name=request_data.organization_name,
-                description=request_data.organization_description,
-            )
-            org_id = new_org.get("id")
-            org_name = request_data.organization_name
-            
-            # Store organization settings (also create Organization record in local DB)
-            await set_org_settings(org_id, {
-                "name": org_name,  # Needed for creating local DB record
-                "is_discoverable": request_data.is_discoverable,
-                "membership_mode": request_data.membership_mode,
-                "created_by": user_id,
-                "created_at": datetime.utcnow().isoformat(),
-            }, db)
-            
-            # Generate invite code for the organization
-            invite_code = await generate_invite_code(org_id, db, created_by=user_id)
-            logger.info(f"Created org '{org_name}' with invite code: {invite_code}")
-            
-            # Add user to organization as owner
-            await keycloak.add_user_to_organization(org_id, user_id)
-            
-            # Update role from applicant to vendor
-            await keycloak.remove_user_role(user_id, "applicant")
-            await keycloak.add_user_role(user_id, "vendor")
-            
-            membership_status = "owner"
+                org_id = new_org.get("id")
+                org_name = request_data.organization_name
+
+                # Store organization settings (also create Organization record in local DB)
+                await set_org_settings(org_id, {
+                    "name": org_name,  # Needed for creating local DB record
+                    "is_discoverable": request_data.is_discoverable,
+                    "membership_mode": request_data.membership_mode,
+                    "created_by": user_id,
+                    "created_at": datetime.utcnow().isoformat(),
+                }, db)
+
+                # Generate invite code for the organization
+                invite_code = await generate_invite_code(org_id, db, created_by=user_id)
+                logger.info(f"Created org '{org_name}' with invite code: {invite_code}")
+
+                # Add user to organization as owner
+                await keycloak.add_user_to_organization(org_id, user_id)
+
+                membership_status = "owner"
+
+            # Update role from applicant to vendor if needed
+            current_roles = session.get("roles", []) or []
+            if "vendor" not in current_roles:
+                await keycloak.add_user_role(user_id, "vendor")
+            if "applicant" in current_roles:
+                await keycloak.remove_user_role(user_id, "applicant")
             
         elif request_data.user_type == "applicant":
             # Applicant flow
@@ -793,41 +920,53 @@ async def complete_onboarding(
                     }
                     membership_status = "pending_approval"
         
+        org_id_for_attributes = org_id
+        org_name_for_attributes = org_name
+        if request_data.user_type == "applicant" and membership_status == "pending_approval":
+            org_id_for_attributes = None
+            org_name_for_attributes = None
+
         # Update user attributes
         attributes = {
             "user_type": [request_data.user_type],
             "onboarding_completed": [datetime.utcnow().isoformat()],
         }
-        if org_id:
-            attributes["organization_id"] = [org_id]
-        if org_name:
-            attributes["organization_name"] = [org_name]
+        if org_id_for_attributes:
+            attributes["organization_id"] = [org_id_for_attributes]
+        if org_name_for_attributes:
+            attributes["organization_name"] = [org_name_for_attributes]
         
         await keycloak.update_user_attributes(user_id, attributes)
         
-        # Update session
-        if session_id:
-            import redis.asyncio as redis
-            import os
-            
-            redis_url = os.environ.get("REDIS_URL", "redis://localhost:6379")
-            redis_client = redis.from_url(redis_url, decode_responses=True)
-            try:
-                await redis_client.hset(
-                    f"session:{session_id}",
-                    mapping={
-                        "user_type": request_data.user_type,
-                        "organization_id": org_id or "",
-                        "organization_name": org_name or "",
-                        "onboarding_completed": "true",
-                    }
-                )
-            finally:
-                await redis_client.aclose()
+        updated_roles = None
+        if request_data.user_type == "vendor":
+            updated_roles = list({*(session.get("roles", []) or []), "vendor"} - {"applicant"})
+        elif request_data.user_type == "applicant":
+            updated_roles = list({*(session.get("roles", []) or []), "applicant"})
+
+        org_claim = (
+            merge_org_claim(session.get("organization"), org_id_for_attributes, org_name_for_attributes)
+            if org_id_for_attributes
+            else session.get("organization")
+        )
+        await update_session_attributes(
+            session_id,
+            {
+                "user_type": request_data.user_type,
+                "organization_id": org_id_for_attributes or None,
+                "organization_name": org_name_for_attributes or None,
+                "onboarding_completed": datetime.utcnow().isoformat(),
+                "roles": updated_roles or session.get("roles", []),
+                "organization": org_claim,
+            },
+        )
         
         # Build response message
         if request_data.user_type == "vendor":
-            message = f"Welcome! Your organization '{org_name}' has been created. Your invite code is: {invite_code}"
+            if request_data.organization_id:
+                message = f"Organization setup complete. Your invite code is: {invite_code}"
+            else:
+                message = f"Welcome! Your organization '{org_name}' has been created. Your invite code is: {invite_code}"
         elif membership_status == "joined":
             message = f"Welcome! You've joined {org_name}."
         elif membership_status == "pending_approval":

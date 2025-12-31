@@ -35,7 +35,7 @@ import ErrorIcon from '@mui/icons-material/Error';
 import VerifiedUserIcon from '@mui/icons-material/VerifiedUser';
 import { useAuth } from '../hooks/useAuth';
 
-const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
+const API_URL = process.env.REACT_APP_API_URL || '';
 
 // Invitation states
 const STATES = {
