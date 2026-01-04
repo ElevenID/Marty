@@ -92,6 +92,46 @@ def get_kyc_service() -> KYCService:
     return _kyc_service
 
 
+async def _trigger_credential_issuance(application) -> None:
+    """
+    Trigger credential issuance after an application is approved.
+    
+    Creates a credential offer for the applicant that can be picked up
+    via OID4VCI protocol.
+    """
+    try:
+        from issuance.service import get_issuance_service
+        
+        issuance_service = get_issuance_service()
+        
+        # Build credential data from application
+        credential_data = {
+            "given_name": application.applicant.given_name if application.applicant else None,
+            "family_name": application.applicant.family_name if application.applicant else None,
+            "application_number": application.application_number,
+            "approved_at": application.approved_at.isoformat() if application.approved_at else None,
+        }
+        
+        # Create credential offer
+        session = await issuance_service.create_offer_for_application(
+            organization_id=application.organization_id or "default",
+            application_id=str(application.id),
+            credential_config_id=application.credential_type or "default_credential",
+            applicant_id=application.applicant.user_id if application.applicant else str(application.applicant_id),
+            credential_data=credential_data,
+            device_id=None,  # Will be looked up from device registration
+            deferred=True,  # Use async credential generation
+        )
+        
+        logger.info(
+            f"Created credential offer for application {application.application_number}, "
+            f"transaction_id={session.transaction_id}"
+        )
+    except Exception as e:
+        # Log but don't fail the approval - credential issuance can be retried
+        logger.error(f"Failed to trigger credential issuance for application {application.id}: {e}")
+
+
 @router.on_event("startup")
 async def startup_event() -> None:
     """Initialize applicant database on API startup."""
@@ -1146,6 +1186,7 @@ async def approve_application(
     Approve an application for document issuance.
     
     Requires all mandatory vetting checks to have passed.
+    After approval, automatically creates a credential offer for the applicant.
     
     Args:
         application_id: UUID of the application
@@ -1167,6 +1208,10 @@ async def approve_application(
             notes=req.notes,
             ip_address=ip_address,
         )
+        
+        # Trigger credential issuance after approval
+        await _trigger_credential_issuance(application)
+        
         return build_application_response(application)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))

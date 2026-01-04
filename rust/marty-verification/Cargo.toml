@@ -85,6 +85,7 @@ bs58 = { workspace = true }
 futures = "0.3"
 iref = "3.2.2"
 ssi = { workspace = true }
+flate2 = "1.0"
 
 # Error handling
 thiserror = { workspace = true }

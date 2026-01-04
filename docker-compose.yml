@@ -46,8 +46,8 @@ x-keycloak-env: &keycloak-env
   KC_HEALTH_ENABLED: "true"
   KC_METRICS_ENABLED: "true"
   # Hostname configuration - ensures tokens have consistent issuer
-  # Use host.docker.internal for browser access, allow backchannel (keycloak:8080) access
-  KC_HOSTNAME: host.docker.internal
+  # Use localhost for native development (browser access)
+  KC_HOSTNAME: localhost
   KC_HOSTNAME_PORT: "8180"
   KC_HOSTNAME_STRICT: "false"
   KC_HOSTNAME_STRICT_BACKCHANNEL: "false"
@@ -163,7 +163,6 @@ services:
       ADAPTER_MODE: ${ADAPTER_MODE:-spruceid}
       STORAGE_MODE: ${STORAGE_MODE:-memory}
       TEST_MODE: ${TEST_MODE:-false}
-      ENABLE_TEST_ENDPOINTS: ${ENABLE_TEST_ENDPOINTS:-false}
       NOTIFICATION_ADAPTER: ${NOTIFICATION_ADAPTER:-sse}
       # Document Signer gRPC connection
       DOCUMENT_SIGNER_HOST: document-signer
@@ -219,7 +218,6 @@ services:
       ADAPTER_MODE: ${ADAPTER_MODE:-spruceid}
       STORAGE_MODE: ${STORAGE_MODE:-memory}
       TEST_MODE: "true"
-      ENABLE_TEST_ENDPOINTS: "true"
       NOTIFICATION_ADAPTER: ${NOTIFICATION_ADAPTER:-sse}
       # Document Signer gRPC connection
       DOCUMENT_SIGNER_HOST: document-signer
@@ -371,6 +369,8 @@ services:
   # ---------------------------------------------------------------------------
   postgres:
     image: postgres:15-alpine
+    ports:
+      - "5432:5432"
     environment:
       POSTGRES_DB: postgres
       POSTGRES_USER: postgres

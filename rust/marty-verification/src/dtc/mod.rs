@@ -159,6 +159,74 @@ fn now_iso() -> String {
     format!("{:010}Z", secs)
 }
 
+/// Parse an ISO8601 date string into Unix timestamp (seconds).
+/// Supports formats: "YYYY-MM-DD", "YYYY-MM-DDTHH:MM:SSZ", and epoch-style "SSSSSSSSSSZ"
+fn parse_iso_to_epoch(s: &str) -> Option<u64> {
+    let s = s.trim();
+    if s.is_empty() {
+        return None;
+    }
+
+    // Try epoch-style format first (e.g., "1234567890Z")
+    if s.ends_with('Z') && s.chars().take(s.len() - 1).all(|c| c.is_ascii_digit()) {
+        return s[..s.len() - 1].parse().ok();
+    }
+
+    // Try ISO8601 date only: YYYY-MM-DD
+    if s.len() == 10 && s.chars().nth(4) == Some('-') && s.chars().nth(7) == Some('-') {
+        let parts: Vec<&str> = s.split('-').collect();
+        if parts.len() == 3 {
+            let year: i32 = parts[0].parse().ok()?;
+            let month: u32 = parts[1].parse().ok()?;
+            let day: u32 = parts[2].parse().ok()?;
+            // Approximate calculation: days since epoch
+            let days = (year - 1970) as i64 * 365
+                + ((year - 1969) / 4) as i64 // leap years
+                + days_before_month(month, is_leap_year(year)) as i64
+                + (day - 1) as i64;
+            return Some((days * 86400) as u64);
+        }
+    }
+
+    // Try ISO8601 datetime: YYYY-MM-DDTHH:MM:SSZ
+    if s.len() >= 19 && s.contains('T') {
+        let s = s.trim_end_matches('Z').trim_end_matches("+00:00");
+        let parts: Vec<&str> = s.split('T').collect();
+        if parts.len() == 2 {
+            let date_parts: Vec<&str> = parts[0].split('-').collect();
+            let time_parts: Vec<&str> = parts[1].split(':').collect();
+            if date_parts.len() == 3 && time_parts.len() >= 2 {
+                let year: i32 = date_parts[0].parse().ok()?;
+                let month: u32 = date_parts[1].parse().ok()?;
+                let day: u32 = date_parts[2].parse().ok()?;
+                let hour: u32 = time_parts[0].parse().ok()?;
+                let minute: u32 = time_parts[1].parse().ok()?;
+                let second: u32 = time_parts.get(2).and_then(|s| s.split('.').next()?.parse().ok()).unwrap_or(0);
+
+                let days = (year - 1970) as i64 * 365
+                    + ((year - 1969) / 4) as i64
+                    + days_before_month(month, is_leap_year(year)) as i64
+                    + (day - 1) as i64;
+                let secs = days * 86400 + hour as i64 * 3600 + minute as i64 * 60 + second as i64;
+                return Some(secs as u64);
+            }
+        }
+    }
+
+    None
+}
+
+fn is_leap_year(year: i32) -> bool {
+    (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0)
+}
+
+fn days_before_month(month: u32, leap: bool) -> u32 {
+    const DAYS: [u32; 12] = [0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334];
+    const DAYS_LEAP: [u32; 12] = [0, 31, 60, 91, 121, 152, 182, 213, 244, 274, 305, 335];
+    let idx = (month.saturating_sub(1)) as usize;
+    if leap { DAYS_LEAP.get(idx).copied().unwrap_or(0) } else { DAYS.get(idx).copied().unwrap_or(0) }
+}
+
 fn b64_encode(bytes: &[u8]) -> String {
     general_purpose::STANDARD.encode(bytes)
 }
@@ -642,6 +710,100 @@ pub fn verify_dtc_json(input: &str) -> VerificationResult<String> {
             false,
             Some("missing signature".to_string()),
             Some(error_codes::DTC_MISSING_FIELD),
+        );
+    }
+
+    // Temporal validation: check dtc_valid_from, dtc_valid_until, and expiry_date
+    let now_epoch = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+
+    // Check not-yet-valid (dtc_valid_from)
+    if !record.dtc_valid_from.is_empty() {
+        if let Some(valid_from) = parse_iso_to_epoch(&record.dtc_valid_from) {
+            if now_epoch < valid_from {
+                is_valid = false;
+                record_check(
+                    &mut checks,
+                    &mut errors,
+                    &mut error_codes_out,
+                    "TemporalValidation",
+                    false,
+                    Some(format!("DTC not yet valid (valid_from: {})", record.dtc_valid_from)),
+                    Some(error_codes::DTC_NOT_YET_VALID),
+                );
+            } else {
+                record_check(
+                    &mut checks,
+                    &mut errors,
+                    &mut error_codes_out,
+                    "TemporalValidation_NotBefore",
+                    true,
+                    None,
+                    None,
+                );
+            }
+        }
+    }
+
+    // Check expired (dtc_valid_until or expiry_date)
+    let expiry_to_check = if !record.dtc_valid_until.is_empty() {
+        Some(&record.dtc_valid_until)
+    } else if !record.expiry_date.is_empty() {
+        Some(&record.expiry_date)
+    } else {
+        None
+    };
+
+    if let Some(expiry_str) = expiry_to_check {
+        if let Some(expiry_epoch) = parse_iso_to_epoch(expiry_str) {
+            if now_epoch > expiry_epoch {
+                is_valid = false;
+                record_check(
+                    &mut checks,
+                    &mut errors,
+                    &mut error_codes_out,
+                    "TemporalValidation",
+                    false,
+                    Some(format!("DTC has expired (expiry: {})", expiry_str)),
+                    Some(error_codes::DTC_EXPIRED),
+                );
+            } else {
+                record_check(
+                    &mut checks,
+                    &mut errors,
+                    &mut error_codes_out,
+                    "TemporalValidation_Expiry",
+                    true,
+                    None,
+                    None,
+                );
+            }
+        }
+    }
+
+    // Revocation check
+    if record.is_revoked {
+        is_valid = false;
+        record_check(
+            &mut checks,
+            &mut errors,
+            &mut error_codes_out,
+            "RevocationStatus",
+            false,
+            Some("DTC has been revoked".to_string()),
+            Some(error_codes::DTC_REVOKED),
+        );
+    } else {
+        record_check(
+            &mut checks,
+            &mut errors,
+            &mut error_codes_out,
+            "RevocationStatus",
+            true,
+            None,
+            None,
         );
     }
 

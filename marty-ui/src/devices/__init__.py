@@ -51,6 +51,7 @@ class RegisterDeviceRequest(BaseModel):
     os_version: str | None = Field(None, max_length=50)
     device_model: str | None = Field(None, max_length=100)
     public_key: str | None = Field(None, description="Base64-encoded DER public key for challenge signing")
+    organization_id: str | None = Field(None, description="Organization ID for org-scoped push notifications")
 
 
 class DeviceInfo(BaseModel):
@@ -210,14 +211,15 @@ async def register_device(
         existing.last_seen_at = datetime.utcnow()
         existing.updated_at = datetime.utcnow()
         
+        # Handle organization_id - explicit param takes precedence over device_id prefix
+        org_id = body.organization_id
+        if not org_id and ":" in body.device_id:
+            org_id = body.device_id.split(":")[0]
+        existing.organization_id = org_id
+        
         await db.commit()
         
-        # Extract organization_id from device_id if it follows org:device format
-        org_id = None
-        if ":" in body.device_id:
-            org_id = body.device_id.split(":")[0]
-        
-        logger.info(f"Updated device registration: device={body.device_id}, user={x_user_id}")
+        logger.info(f"Updated device registration: device={body.device_id}, user={x_user_id}, org={org_id}")
         return RegisterDeviceResponse(
             success=True,
             device_id=body.device_id,
@@ -227,11 +229,17 @@ async def register_device(
         )
     
     # Create new registration
+    # Handle organization_id - explicit param takes precedence over device_id prefix
+    org_id = body.organization_id
+    if not org_id and ":" in body.device_id:
+        org_id = body.device_id.split(":")[0]
+    
     registration_id = str(uuid4())
     registration = DeviceRegistration(
         id=registration_id,
         device_id=body.device_id,
         user_id=x_user_id,
+        organization_id=org_id,
         fcm_token=body.fcm_token,
         platform=body.platform,
         app_version=body.app_version,
@@ -246,12 +254,7 @@ async def register_device(
     db.add(registration)
     await db.commit()
     
-    # Extract organization_id from device_id if it follows org:device format
-    org_id = None
-    if ":" in body.device_id:
-        org_id = body.device_id.split(":")[0]
-    
-    logger.info(f"Registered new device: device={body.device_id}, user={x_user_id}")
+    logger.info(f"Registered new device: device={body.device_id}, user={x_user_id}, org={org_id}")
     return RegisterDeviceResponse(
         success=True,
         device_id=body.device_id,

@@ -10,6 +10,10 @@ mod error;
 #[cfg(feature = "python")]
 mod status_list;
 
+// mDoc issuance and presentation module (only for python)
+#[cfg(feature = "python")]
+pub mod mdoc;
+
 // WASM module (only compiled with wasm feature)
 #[cfg(feature = "wasm")]
 pub mod wasm;
@@ -536,6 +540,9 @@ mod python_bindings {
 
         // Add marty-verification module for trust chain verification
         marty_verification::bindings::register_marty_verification(m)?;
+
+        // Add mDoc issuance and presentation functions
+        crate::mdoc::register_mdoc_module(m)?;
 
         Ok(())
     }

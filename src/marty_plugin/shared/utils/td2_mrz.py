@@ -4,7 +4,7 @@ TD-2 MRZ (Machine Readable Zone) generation utilities.
 This module implements TD-2 MRZ generation per ICAO Part 6:
 - TD-2 two-line format (36 characters each line)
 - Field width enforcement and filler characters
-- Check digit computation using ICAO algorithm
+- Check digit computation using ICAO algorithm (via Rust marty_rs)
 - Visual and data alignment rules per Part 6
 - Name truncation with primary identifier precedence
 
@@ -20,6 +20,7 @@ from __future__ import annotations
 import re
 from datetime import date
 
+from marty_plugin.common.crypto_bridge import compute_check_digit as _rust_compute_check_digit
 from marty_plugin.shared.models.td2 import PersonalData, TD2Document, TD2DocumentData, TD2MRZData
 
 
@@ -29,7 +30,7 @@ class TD2MRZGenerator:
     # Character mapping for MRZ
     MRZ_CHARACTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789<"
 
-    # Check digit weights (ICAO standard)
+    # Check digit weights (ICAO standard) - kept for documentation
     CHECK_DIGIT_WEIGHTS = [7, 3, 1]
 
     # TD-2 specific constants
@@ -67,6 +68,8 @@ class TD2MRZGenerator:
         """
         Compute check digit for MRZ field using ICAO algorithm.
 
+        Uses Rust implementation via marty_rs for correctness and performance.
+
         Args:
             data: Input data string
 
@@ -75,22 +78,7 @@ class TD2MRZGenerator:
         """
         if not data:
             return "0"
-
-        # Convert characters to numeric values
-        total = 0
-        for i, char in enumerate(data):
-            if char.isdigit():
-                value = int(char)
-            elif char.isalpha():
-                value = ord(char) - ord("A") + 10
-            else:  # < character
-                value = 0
-
-            weight = cls.CHECK_DIGIT_WEIGHTS[i % 3]
-            total += value * weight
-
-        check_digit = total % 10
-        return str(check_digit)
+        return _rust_compute_check_digit(data)
 
     @classmethod
     def format_date_for_mrz(cls, date_obj: date) -> str:

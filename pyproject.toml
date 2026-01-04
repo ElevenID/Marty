@@ -13,49 +13,43 @@ dependencies = [
     # Core plugin dependencies
     "pydantic>=2.4.2",
     "pydantic-settings>=2.0.0",
-    
     # Cryptography and PKI
     "cryptography>=41.0.7",
     "asn1crypto>=1.5.1",
     "pyasn1>=0.6.1",
     "certvalidator>=0.11.1",
-    
     # Protocol support
     "protobuf>=4.24.4",
     "cbor2>=5.4.6",
     "cose>=0.9.dev8",
-    
     # Enhanced OIDC4VC and credentials
     "jwcrypto>=1.5.0",
     "authlib>=1.2.0",
     "sd-jwt>=0.9.0",
     "pyjwt[crypto]>=2.9.0",
-    
     # ISO 18013-5 mDL and document support
     "pillow>=10.1.0",
     "scipy>=1.11.4",
     "qrcode>=7.4.2",
-    
     # Transport and connectivity
     "bleak>=0.21.1", # BLE support for mDL transactions
     "pyscard>=2.0.7", # Smart card/NFC support
     "aiohttp>=3.9.0", # HTTP client for ISO 18013-7 online flows
     "requests>=2.32.5",
-    
     # Utilities
     "loguru>=0.7.2",
     "tenacity>=8.3.0",
     "psutil>=7.1.0",
-    
     # Testing framework for plugin validation
     "pytest>=7.4.3",
     "pytest-asyncio>=0.21.1",
-    
     # MMF Framework integration
     "marty-msf>=1.0.0", # Marty Microservices Framework
+    "grpcio>=1.76.0",
 ]
 
 [tool.maturin]
+manifest-path = "rust/marty-rs/Cargo.toml"
 features = ["pyo3/extension-module"]
 python-source = "src"
 module-name = "marty_plugin._marty_rs"
@@ -417,4 +411,6 @@ dev = [
     "httpx>=0.25.0",
     "websockets>=12.0",
     "responses>=0.24.0",
+    "docker>=7.1.0",
+    "grpcio-health-checking>=1.76.0",
 ]

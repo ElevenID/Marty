@@ -32,7 +32,6 @@ class UiSettings(BaseSettings):
     pkd_service_target: str = Field(default="localhost:9090", alias="UI_PKD_SERVICE_ADDR")
     cmc_api_base: str = Field(default="http://localhost:8000", alias="UI_CMC_API_BASE")
     grpc_timeout_seconds: int = Field(default=5, alias="UI_GRPC_TIMEOUT_SECONDS")
-    enable_mock_data: bool = Field(default=False, alias="UI_ENABLE_MOCK_DATA")
     theme: Literal["light", "dark"] = Field(default="light", alias="UI_THEME")
     public_base_url: str | None = Field(default=None, alias="UI_PUBLIC_BASE_URL")
     credential_issuer: str = Field(default="https://issuer.local", alias="UI_CREDENTIAL_ISSUER")

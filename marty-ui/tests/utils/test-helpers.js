@@ -1,7 +1,7 @@
 // Test utilities and helpers
 const { expect } = require('@playwright/test');
 const crypto = require('crypto');
-const { SEEDED_USERS, SEEDED_PASSWORDS, SEEDED_ORGS, getUserByRole } = require('../fixtures/users');
+const { SEEDED_USERS, SEEDED_PASSWORDS, SEEDED_ORGS, getUserByRole, generateTestUser } = require('../fixtures/users');
 
 // =============================================================================
 // RSA Key Utilities for Push Challenge Signing
@@ -2038,6 +2038,7 @@ module.exports = {
   loginAs,
   waitForElement,
   generateTestEmail,
+  generateTestUser,
   getVendorOrganizationId,
   // RSA signing utilities
   generateTestKeypair,

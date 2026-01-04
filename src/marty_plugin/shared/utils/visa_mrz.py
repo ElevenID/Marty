@@ -6,12 +6,13 @@ This module implements MRZ generation for ICAO Part 7 visa types:
 - Type B visas: 3-line MRZ (36 characters each)
 
 Follows ICAO Doc 9303 Part 7 specifications for visa MRZ format
-and check digit computation algorithms.
+and check digit computation algorithms (via Rust marty_rs).
 """
 
 import re
 from datetime import date
 
+from marty_plugin.common.crypto_bridge import compute_check_digit as _rust_compute_check_digit
 from marty_plugin.shared.models.visa import MRZData, Visa, VisaType
 
 
@@ -21,7 +22,7 @@ class MRZGenerator:
     # Character mapping for MRZ
     MRZ_CHARACTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789<"
 
-    # Check digit weights
+    # Check digit weights - kept for documentation
     CHECK_DIGIT_WEIGHTS = [7, 3, 1]
 
     @classmethod
@@ -55,6 +56,8 @@ class MRZGenerator:
         """
         Compute check digit for MRZ field using ICAO algorithm.
 
+        Uses Rust implementation via marty_rs for correctness and performance.
+
         Args:
             data: Input data string
 
@@ -63,22 +66,7 @@ class MRZGenerator:
         """
         if not data:
             return "0"
-
-        # Convert characters to numeric values
-        total = 0
-        for i, char in enumerate(data):
-            if char.isdigit():
-                value = int(char)
-            elif char.isalpha():
-                value = ord(char) - ord("A") + 10
-            else:  # < character
-                value = 0
-
-            weight = cls.CHECK_DIGIT_WEIGHTS[i % 3]
-            total += value * weight
-
-        check_digit = total % 10
-        return str(check_digit)
+        return _rust_compute_check_digit(data)
 
     @classmethod
     def format_date_for_mrz(cls, date_obj: date) -> str:

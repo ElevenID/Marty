@@ -364,6 +364,63 @@ mod tests {
     }
 
     #[test]
+    fn test_p521_sign_verify_roundtrip() {
+        let (private_key, public_key) = generate_p521_keypair().unwrap();
+
+        let message = b"Hello, ECDSA P-521!";
+        let signature = sign_p521_sha512(&private_key, message).unwrap();
+
+        let valid = verify_p521_sha512(&public_key, message, &signature).unwrap();
+        assert!(valid, "Signature should be valid");
+
+        // Test with wrong message
+        let wrong_message = b"Wrong message";
+        let invalid = verify_p521_sha512(&public_key, wrong_message, &signature).unwrap();
+        assert!(!invalid, "Signature should be invalid for wrong message");
+    }
+
+    #[test]
+    fn test_p521_invalid_private_key_length() {
+        let short_key = vec![0u8; 48]; // Too short for P-521 (needs 66 bytes)
+        let result = sign_p521_sha512(&short_key, b"message");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_p521_key_sizes() {
+        let (private_key, public_key) = generate_p521_keypair().unwrap();
+
+        // P-521 private key should be 66 bytes
+        assert_eq!(private_key.len(), 66, "P-521 private key should be 66 bytes");
+        // P-521 public key (uncompressed) should be 133 bytes (1 + 66 + 66)
+        assert_eq!(public_key.len(), 133, "P-521 public key should be 133 bytes");
+    }
+
+    #[test]
+    fn test_p521_signature_format() {
+        let (private_key, _public_key) = generate_p521_keypair().unwrap();
+
+        let message = b"Test message for signature format";
+        let signature = sign_p521_sha512(&private_key, message).unwrap();
+
+        // DER-encoded signature should start with 0x30 (SEQUENCE tag)
+        assert_eq!(signature[0], 0x30, "DER signature should start with SEQUENCE tag");
+    }
+
+    #[test]
+    fn test_p521_cross_key_verification_fails() {
+        let (private_key_1, _public_key_1) = generate_p521_keypair().unwrap();
+        let (_private_key_2, public_key_2) = generate_p521_keypair().unwrap();
+
+        let message = b"Message signed with key 1";
+        let signature = sign_p521_sha512(&private_key_1, message).unwrap();
+
+        // Verification with different public key should fail
+        let invalid = verify_p521_sha512(&public_key_2, message, &signature).unwrap();
+        assert!(!invalid, "Signature should be invalid with wrong public key");
+    }
+
+    #[test]
     fn test_extract_ec_point_placeholder() {
         // Placeholder test - full tests need actual SPKI data
         let empty_spki: &[u8] = &[];

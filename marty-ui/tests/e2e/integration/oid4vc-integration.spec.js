@@ -2,12 +2,12 @@
  * OID4VC Integration Smoke Tests
  *
  * These tests verify the credential issuance and presentation flow
- * using the test orchestration endpoints. They serve as a foundation
+ * using the API endpoints. They serve as a foundation
  * for full E2E tests that will include wallet integration.
  *
  * Prerequisites:
- * - Backend running with ENABLE_TEST_ENDPOINTS=true
- * - marty-rs Python bindings available (optional, falls back to mock)
+ * - Backend running with all required gRPC services
+ * - marty-rs Python bindings available
  */
 
 const { test, expect } = require("@playwright/test");
@@ -15,7 +15,7 @@ const { test, expect } = require("@playwright/test");
 // Base URL for the API
 const API_BASE = process.env.API_URL || "http://localhost:8000";
 
-test.describe("OID4VC API Integration @slow", () => {
+test.describe("OID4VC API Integration", () => {
   test.beforeAll(async ({ request }) => {
     try {
       const response = await request.get(`${API_BASE}/health`);

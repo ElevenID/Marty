@@ -84,6 +84,22 @@ except ImportError as e:
     CREDENTIALS_SERVICE_AVAILABLE = False
     logging.warning(f"Credentials service not available: {e}")
 
+# Trust configuration service imports
+try:
+    from trust.router import router as trust_router
+    TRUST_SERVICE_AVAILABLE = True
+except ImportError as e:
+    TRUST_SERVICE_AVAILABLE = False
+    logging.warning(f"Trust configuration service not available: {e}")
+
+# Issuance service imports
+try:
+    from issuance.router import router as issuance_router
+    ISSUANCE_SERVICE_AVAILABLE = True
+except ImportError as e:
+    ISSUANCE_SERVICE_AVAILABLE = False
+    logging.warning(f"Issuance service not available: {e}")
+
 # Devices service imports
 try:
     from devices import router as devices_router
@@ -100,37 +116,36 @@ except ImportError as e:
     OPEN_BADGES_AVAILABLE = False
     logging.warning(f"Open Badges service not available: {e}")
 
-# Notifications API imports
+# Notifications API imports (local notification storage/retrieval)
 try:
-    from notifications.api import router as notifications_router
+    from notifications_local.api import router as notifications_router
     NOTIFICATIONS_API_AVAILABLE = True
 except ImportError as e:
     NOTIFICATIONS_API_AVAILABLE = False
     logging.warning(f"Notifications API not available: {e}")
 
-# Test helper service imports (only in test/dev environments)
-try:
-    from test_helpers import router as test_helpers_router
-    TEST_HELPERS_AVAILABLE = True
-except ImportError as e:
-    TEST_HELPERS_AVAILABLE = False
-    logging.warning(f"Test helpers not available: {e}")
+
 
 # SSE (Server-Sent Events) service imports for real-time push notifications
 try:
     import sys
+    from pathlib import Path
+    # Add main src directory to path for full notifications module (native or Docker)
+    _main_src = Path(__file__).parent.parent.parent / "src"
+    if _main_src.exists():
+        sys.path.insert(0, str(_main_src))
     sys.path.insert(0, '/app')  # For Docker context
+    # Import from main notifications module (not the simplified marty-ui version)
     from notifications.api import sse_router, push_router, configure_sse_adapter
     from notifications.adapters.sse import SSEAdapter
     SSE_SERVICE_AVAILABLE = True
+    logging.info("SSE service loaded successfully")
 except ImportError as e:
     SSE_SERVICE_AVAILABLE = False
     logging.warning(f"SSE service not available: {e}")
 
-# Error handling imports
+# Error handling imports (path already set above)
 try:
-    import sys
-    sys.path.insert(0, '/app')  # For Docker context
     from marty_plugin.common.errors import register_exception_handlers
     ERROR_HANDLERS_AVAILABLE = True
 except ImportError as e:
@@ -203,6 +218,16 @@ if CREDENTIALS_SERVICE_AVAILABLE:
     app.include_router(credentials_router, tags=["Credential Configuration"])
     logger.info("Credentials service router registered")
 
+# Trust configuration service
+if TRUST_SERVICE_AVAILABLE:
+    app.include_router(trust_router, tags=["Trust Configuration"])
+    logger.info("Trust configuration service router registered")
+
+# Issuance service (OID4VCI)
+if ISSUANCE_SERVICE_AVAILABLE:
+    app.include_router(issuance_router, tags=["Credential Issuance"])
+    logger.info("Issuance service router registered")
+
 # Devices and push challenges service
 if DEVICES_SERVICE_AVAILABLE:
     app.include_router(devices_router, tags=["Devices"])
@@ -217,11 +242,6 @@ if OPEN_BADGES_AVAILABLE:
 if NOTIFICATIONS_API_AVAILABLE:
     app.include_router(notifications_router, tags=["Notifications"])
     logger.info("Notifications API router registered")
-
-# Test helper endpoints (for E2E testing)
-if TEST_HELPERS_AVAILABLE and os.environ.get("ENABLE_TEST_ENDPOINTS", "").lower() == "true":
-    app.include_router(test_helpers_router, tags=["Test Helpers"])
-    logger.info("Test helpers router registered")
 
 # SSE (Server-Sent Events) endpoints for real-time push challenge delivery
 if SSE_SERVICE_AVAILABLE:
@@ -758,14 +778,14 @@ async def list_keys():
 @app.get("/api/admin/stats")
 async def get_admin_stats():
     """Get system statistics."""
-    _, issuer, wallet, verifier = _get_adapters()
-    
-    # In a real system, these would come from a database or metrics service
-    # For now, we count in-memory items
-    
-    # We can't easily count issued credentials without persistence query
-    # But we can count wallet credentials
-    wallet_creds = len(wallet.list_credentials())
+    try:
+        _, issuer, wallet, verifier = _get_adapters()
+        # We can't easily count issued credentials without persistence query
+        # But we can count wallet credentials
+        wallet_creds = len(wallet.list_credentials()) if wallet else 0
+    except Exception:
+        # Adapters not available, return mock data
+        wallet_creds = 0
     
     return {
         "passport": 12, # Mock

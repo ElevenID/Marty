@@ -23,7 +23,7 @@ const {
   SEEDED_USERS,
   SEEDED_PASSWORDS,
   SEEDED_ORGS,
-} = require("../utils/test-helpers");
+} = require("../../utils/test-helpers");
 
 // Skip this test suite - requires OID4VP endpoints and wallet integration
 test.describe.skip("OID4VP Presentation Flow", () => {

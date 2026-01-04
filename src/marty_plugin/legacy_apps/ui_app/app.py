@@ -141,25 +141,21 @@ def create_app(settings: UiSettings | None = None) -> FastAPI:
         message: str
         error: str | None = None
 
-        if settings.enable_mock_data:
-            grpc_status = "SUCCESS"
-            message = f"[mock] Passport {generated_number} processed"
-        else:
-            try:
-                with factory.passport_engine() as stub:
-                    grpc_response = stub.ProcessPassport(
-                        passport_engine_pb2.PassportRequest(passport_number=generated_number)
-                    )
-                    grpc_status = grpc_response.status
-                    message = f"Passport {generated_number} processed with status {grpc_status}"
-            except grpc.RpcError as exc:  # pragma: no cover - requires gRPC server
-                error = exc.details() if hasattr(exc, "details") else str(exc)
-                LOGGER.warning("Passport processing failed: %s", error)
-                message = f"Failed to process passport {generated_number}"
-            except Exception as exc:  # pragma: no cover - defensive guard
-                error = str(exc)
-                LOGGER.exception("Unexpected passport processing failure")
-                message = f"Failed to process passport {generated_number}"
+        try:
+            with factory.passport_engine() as stub:
+                grpc_response = stub.ProcessPassport(
+                    passport_engine_pb2.PassportRequest(passport_number=generated_number)
+                )
+                grpc_status = grpc_response.status
+                message = f"Passport {generated_number} processed with status {grpc_status}"
+        except grpc.RpcError as exc:  # pragma: no cover - requires gRPC server
+            error = exc.details() if hasattr(exc, "details") else str(exc)
+            LOGGER.warning("Passport processing failed: %s", error)
+            message = f"Failed to process passport {generated_number}"
+        except Exception as exc:  # pragma: no cover - defensive guard
+            error = str(exc)
+            LOGGER.exception("Unexpected passport processing failure")
+            message = f"Failed to process passport {generated_number}"
 
         operation_log.add(
             OperationRecord(
@@ -207,19 +203,6 @@ def create_app(settings: UiSettings | None = None) -> FastAPI:
 
         if not passport_number:
             error = "Passport number is required"
-        elif settings.enable_mock_data:
-            # Simulate error for fake/invalid passport numbers
-            if passport_number.upper().startswith("FAKE") or len(passport_number) < 6:
-                status = "ERROR"
-                inspection_text = f"ERROR: Passport {passport_number} NOT FOUND\nStatus: INVALID\nConnection: REFUSED"
-            else:
-                status = "SUCCESS"
-                inspection_text = (
-                    f"VALID: Passport {passport_number} (mock data)\n"
-                    "Issue Date: 2024-01-01\n"
-                    "Expiry Date: 2034-01-01\n"
-                    "Data Groups: 4"
-                )
         else:
             try:
                 with factory.inspection_system() as stub:
@@ -301,9 +284,6 @@ def create_app(settings: UiSettings | None = None) -> FastAPI:
 
         if mdl_engine_pb2 is None:
             error = "MDL engine proto not available in this build"
-        elif settings.enable_mock_data:
-            mdl_id = f"mdl_{license_number.lower()}"
-            status = "PENDING_SIGNATURE"
         else:
             try:
                 with factory.mdl_engine() as stub:
@@ -377,24 +357,6 @@ def create_app(settings: UiSettings | None = None) -> FastAPI:
 
         if mdl_engine_pb2 is None:
             error = "MDL engine proto not available in this build"
-        elif settings.enable_mock_data:
-            mdl_payload = {
-                "mdl_id": f"mdl_{license_number.lower()}",
-                "license_number": license_number,
-                "first_name": "John",  # Use consistent test name
-                "middle_name": "A",
-                "last_name": "User",
-                "status": "PENDING_SIGNATURE",
-                "issue_date": "2024-01-01",
-                "expiry_date": "2029-01-01",
-                "document_number": f"DOC{license_number}",
-                "issuing_authority": "Department of Motor Vehicles",
-                "date_of_birth": "1985-05-15",
-                "gender": "M",
-                "height": "175",
-                "weight": "70",
-                "eye_color": "Brown",
-            }
         else:
             try:
                 with factory.mdl_engine() as stub:

@@ -21,8 +21,6 @@ from .database import DatabaseManager
 from .models import (
     CRLRefreshRequest,
     CRLRefreshResponse,
-    DevJobRequest,
-    DevJobResponse,
     DSCListResponse,
     MasterListUploadRequest,
     MasterListUploadResponse,
@@ -442,68 +440,6 @@ def create_app(config_obj: TrustServiceConfig = config) -> FastAPI:
             logger.error(f"Status check failed: {e}")
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Status check failed"
-            )
-
-    # Development endpoints
-    @app.post("/api/v1/dev/load-synthetic", response_model=DevJobResponse)
-    async def load_synthetic_data(
-        request: DevJobRequest = DevJobRequest(), db: DatabaseManager = Depends(get_db_manager)
-    ):
-        """Load synthetic master list data for development."""
-        try:
-            job_id = await db.start_job(
-                job_name="dev_load_synthetic", job_type="load_synthetic", metadata=request.dict()
-            )
-
-            start_time = datetime.now(timezone.utc)
-
-            # TODO: Implement synthetic data loading
-            # For now, return mock statistics
-
-            statistics = {
-                "master_list": {
-                    "country": request.country_code,
-                    "certificates": request.certificate_count,
-                    "valid_certificates": request.certificate_count - 2,
-                    "expired_certificates": 2,
-                },
-                "trust_anchors": {"loaded": 1, "skipped": 0},
-                "dsc_certificates": {
-                    "loaded": request.certificate_count - 1,
-                    "revocation_status": {
-                        "good": int((request.certificate_count - 1) * 0.8),
-                        "bad": int((request.certificate_count - 1) * 0.1),
-                        "unknown": int((request.certificate_count - 1) * 0.1),
-                    },
-                },
-            }
-
-            # Complete job
-            await db.complete_job(
-                job_id=job_id,
-                status="completed",
-                records_processed=request.certificate_count,
-                metadata={"statistics": statistics},
-            )
-
-            duration = (datetime.now(timezone.utc) - start_time).total_seconds()
-
-            return DevJobResponse(
-                success=True,
-                job_id=job_id,
-                message=f"Synthetic data loaded for {request.country_code}",
-                statistics=statistics,
-                duration_seconds=duration,
-            )
-
-        except Exception as e:
-            logger.error(f"Synthetic data loading failed: {e}")
-            return DevJobResponse(
-                success=False,
-                job_id="",
-                message="Synthetic data loading failed",
-                statistics={},
-                duration_seconds=0,
             )
 
     return app

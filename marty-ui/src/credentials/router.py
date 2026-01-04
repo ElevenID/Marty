@@ -247,7 +247,13 @@ async def _verify_org_access(
     current_user: AuthStatusResponse,
     db: AsyncSession,
 ) -> Organization:
-    """Verify user has access to the organization."""
+    """Verify user has access to the organization.
+    
+    If the organization exists in Keycloak but not in the local database,
+    auto-create it to enable credential configuration.
+    """
+    import re
+    
     if not current_user.authenticated or not current_user.user:
         raise HTTPException(status_code=401, detail="Not authenticated")
     user = current_user.user
@@ -258,16 +264,38 @@ async def _verify_org_access(
     )
     org = result.scalar_one_or_none()
     
-    if not org:
-        raise HTTPException(status_code=404, detail="Organization not found")
-    
-    # Check user is member of org (simplified - in production check roles)
+    # Check user authorization first
     user_org_id = getattr(user, "organization_id", None)
-    if user_org_id != org_id:
-        # Allow if user is administrator
-        user_type = getattr(user, "user_type", None)
-        if user_type != "administrator":
-            raise HTTPException(status_code=403, detail="Not authorized for this organization")
+    user_type = getattr(user, "user_type", None)
+    is_admin = user_type == "administrator"
+    is_org_member = user_org_id == org_id
+    
+    if not org:
+        # Organization doesn't exist in local DB
+        # If user is member of this org (from Keycloak), auto-create it
+        if is_org_member or is_admin:
+            # Get org name from user session if available
+            org_name = getattr(user, "organization_name", None) or f"Organization {org_id[:8]}"
+            slug = re.sub(r'[^a-z0-9]+', '-', org_name.lower()).strip('-')
+            slug = f"{slug}-{org_id[:8]}"
+            
+            org = Organization(
+                id=org_id,
+                name=org_name,
+                slug=slug,
+                is_active=True,
+                is_discoverable=False,
+            )
+            db.add(org)
+            await db.commit()
+            await db.refresh(org)
+            logger.info(f"Auto-created organization from Keycloak: {org_id} ({org_name})")
+        else:
+            raise HTTPException(status_code=404, detail="Organization not found")
+    
+    # Verify access
+    if not is_org_member and not is_admin:
+        raise HTTPException(status_code=403, detail="Not authorized for this organization")
     
     return org
 
@@ -337,8 +365,8 @@ async def get_default_fields(
 @router.post("/{org_id}/credential-types", response_model=CredentialTypeResponse, status_code=201)
 async def create_credential_type(
     org_id: str,
-    current_user: AuthStatusResponse = Depends(get_current_user),
     body: CreateCredentialTypeRequest,
+    current_user: AuthStatusResponse = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
 ):
     """Configure a new credential type for the organization."""
@@ -421,8 +449,8 @@ async def get_credential_type(
 async def update_credential_type(
     org_id: str,
     type_id: str,
-    current_user: AuthStatusResponse = Depends(get_current_user),
     body: UpdateCredentialTypeRequest,
+    current_user: AuthStatusResponse = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
 ):
     """Update a credential type configuration."""

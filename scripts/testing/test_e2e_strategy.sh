@@ -90,7 +90,7 @@ start_services() {
     if [ "$services_ready" = true ]; then
         echo "✅ All services are running and healthy"
     else
-        echo "⚠️  Some services are not ready. Tests may run in mock mode."
+        echo "⚠️  Some services are not ready. Tests may fail."
     fi
 }
 
@@ -105,21 +105,11 @@ run_tests() {
             ;;
         "integration")
             echo "🧪 Running integration tests with live services..."
-            export UI_ENABLE_MOCK_DATA=false
             export UI_PASSPORT_ENGINE_ADDR=localhost:8084
             export UI_INSPECTION_SYSTEM_ADDR=localhost:8083
             export UI_MDL_ENGINE_ADDR=localhost:8085
             export UI_TRUST_ANCHOR_ADDR=localhost:8080
             uv run pytest tests/ui/test_new_ui_e2e.py -v --tb=short -k "not test_advanced"
-            ;;
-        "mock")
-            echo "🧪 Running tests in mock mode (no service dependencies)..."
-            export UI_ENABLE_MOCK_DATA=true
-            export UI_PASSPORT_ENGINE_ADDR=mock
-            export UI_INSPECTION_SYSTEM_ADDR=mock
-            export UI_MDL_ENGINE_ADDR=mock
-            export UI_TRUST_ANCHOR_ADDR=mock
-            uv run pytest tests/ui/test_smoke.py -v
             ;;
         "full")
             echo "🧪 Running full test suite..."
@@ -130,7 +120,7 @@ run_tests() {
             ;;
         *)
             echo "❌ Unknown test mode: $test_mode"
-            echo "Available modes: smoke, integration, mock, full"
+            echo "Available modes: smoke, integration, full"
             exit 1
             ;;
     esac
@@ -154,9 +144,6 @@ case "${1:-help}" in
         start_services
         run_tests "integration"
         ;;
-    "test-mock")
-        run_tests "mock"
-        ;;
     "test-full")
         start_services
         run_tests "full"
@@ -174,7 +161,6 @@ case "${1:-help}" in
         echo "  start-services     Start all backend services"
         echo "  test-smoke         Run smoke tests only"
         echo "  test-integration   Start services and run integration tests"
-        echo "  test-mock          Run tests in mock mode (no service dependencies)"
         echo "  test-full          Run complete test suite with cleanup"
         echo "  cleanup            Stop and remove all services"
         echo "  help               Show this help message"
@@ -182,7 +168,6 @@ case "${1:-help}" in
         echo "Examples:"
         echo "  $0 test-smoke                    # Quick smoke tests"
         echo "  $0 test-integration             # Full integration testing"
-        echo "  $0 test-mock                    # Test without backend services"
         echo "  $0 test-full                    # Complete test suite"
         ;;
 esac

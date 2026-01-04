@@ -7,6 +7,7 @@ Supports batching, exponential backoff, and token validation.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -272,6 +273,17 @@ class FCMAdapter:
             },
         )
     
+    def _serialize_data_value(self, value: Any) -> str:
+        """Serialize a value for FCM data payload. All values must be strings."""
+        if isinstance(value, str):
+            return value
+        if isinstance(value, bool):
+            return "true" if value else "false"
+        if isinstance(value, (int, float)):
+            return str(value)
+        # For complex types (list, dict), use JSON serialization
+        return json.dumps(value)
+    
     def _build_message(self, payload: NotificationPayload, token: str) -> dict:
         """Build FCM message payload."""
         # Map priority
@@ -288,7 +300,7 @@ class FCMAdapter:
             "data": {
                 "notification_id": str(payload.id),
                 "event_type": payload.event_type,
-                **{k: str(v) for k, v in payload.data.items()},
+                **{k: self._serialize_data_value(v) for k, v in payload.data.items()},
             },
             "android": {
                 "priority": priority,

@@ -2,6 +2,8 @@
 
 Parses elementary files from electronic passports according to ICAO Doc 9303.
 Supports all standard data groups and common data elements.
+
+Uses Rust bindings from marty_rs for MRZ check digit validation.
 """
 
 from __future__ import annotations
@@ -11,6 +13,8 @@ import struct
 from dataclasses import dataclass
 from enum import Enum
 from typing import Any
+
+from marty_plugin.common.crypto_bridge import validate_check_digit as _rust_validate_check_digit
 
 logger = logging.getLogger(__name__)
 
@@ -393,20 +397,5 @@ class ElementaryFileParser:
             return ef_data
 
     def validate_mrz_check_digit(self, data: str, check_digit: str) -> bool:
-        """Validate MRZ check digit."""
-        weights = [7, 3, 1]
-        total = 0
-
-        for i, char in enumerate(data):
-            if char.isdigit():
-                value = int(char)
-            elif char == "<":
-                value = 0
-            else:
-                # Convert letters to numbers (A=10, B=11, etc.)
-                value = ord(char.upper()) - ord("A") + 10
-
-            total += value * weights[i % 3]
-
-        calculated_digit = str(total % 10)
-        return calculated_digit == check_digit
+        """Validate MRZ check digit using Rust implementation."""
+        return _rust_validate_check_digit(data, check_digit)

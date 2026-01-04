@@ -32,5 +32,7 @@ ENV KEYCLOAK_URL=http://keycloak:8080
 # Use only Chromium for local testing
 ENV PLAYWRIGHT_BROWSERS=chromium
 
-# Default command runs tests with Chromium only
-CMD ["npx", "playwright", "test", "--project=chromium", "--reporter=list"]
+# Default command runs all test projects
+# Projects: smoke (parallel), integration (parallel), workflows (sequential),
+#           vendor, applicant, push-notifications
+CMD ["npx", "playwright", "test", "--reporter=list"]

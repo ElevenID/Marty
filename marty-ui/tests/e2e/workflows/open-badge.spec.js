@@ -6,7 +6,7 @@
  */
 
 const { test, expect } = require('@playwright/test');
-const { WalletBridge, AuthHelpers, getVendorOrganizationId } = require('../utils/test-helpers');
+const { WalletBridge, AuthHelpers, getVendorOrganizationId } = require('../../utils/test-helpers');
 
 const API_BASE = process.env.API_URL || 'http://localhost:8000';
 

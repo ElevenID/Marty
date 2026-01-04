@@ -3,8 +3,13 @@
  * 
  * Comprehensive tests for the post-registration onboarding wizard.
  * Tests role selection, applicant join flows, and vendor organization creation.
+ * 
+ * These tests use dynamic user registration to test the onboarding flow
+ * with fresh users who haven't completed onboarding yet.
  */
 const { test, expect } = require('@playwright/test');
+const { AuthHelpers, generateTestUser } = require('../../utils/test-helpers');
+const { SEEDED_ORGS } = require('../../fixtures/organizations');
 
 // Test configuration
 const APP_URL = process.env.BASE_URL || 'http://localhost:9080';
@@ -131,7 +136,7 @@ class OnboardingTestHelpers {
 }
 
 
-test.describe('Onboarding Page Structure @slow', () => {
+test.describe('Onboarding Page Structure', () => {
   let helpers;
 
   test.beforeEach(async ({ page }) => {
@@ -182,7 +187,7 @@ test.describe('Onboarding Page Structure @slow', () => {
 });
 
 
-test.describe('Role Selection Step @slow', () => {
+test.describe('Role Selection Step', () => {
   let helpers;
 
   test.beforeEach(async ({ page }) => {
@@ -320,7 +325,7 @@ test.describe('Role Selection Step @slow', () => {
 });
 
 
-test.describe('Applicant Join Organization Step @slow', () => {
+test.describe('Applicant Join Organization Step', () => {
   let helpers;
 
   test.beforeEach(async ({ page }) => {
@@ -445,7 +450,7 @@ test.describe('Applicant Join Organization Step @slow', () => {
 });
 
 
-test.describe('Vendor Create Organization Step @slow', () => {
+test.describe('Vendor Create Organization Step', () => {
   let helpers;
 
   test.beforeEach(async ({ page }) => {
@@ -596,7 +601,7 @@ test.describe('Vendor Create Organization Step @slow', () => {
 });
 
 
-test.describe('Onboarding API Integration @slow', () => {
+test.describe('Onboarding API Integration', () => {
   test('onboarding status endpoint should return proper structure', async ({ page }) => {
     // Test the API endpoint directly
     const response = await page.request.get(`${API_URL}/onboarding/status`, {
@@ -634,7 +639,7 @@ test.describe('Onboarding API Integration @slow', () => {
 });
 
 
-test.describe('Onboarding Accessibility @slow', () => {
+test.describe('Onboarding Accessibility', () => {
   let helpers;
 
   test.beforeEach(async ({ page }) => {
@@ -695,7 +700,7 @@ test.describe('Onboarding Accessibility @slow', () => {
 });
 
 
-test.describe('Onboarding Error Handling @slow', () => {
+test.describe('Onboarding Error Handling', () => {
   let helpers;
 
   test.beforeEach(async ({ page }) => {
@@ -760,7 +765,7 @@ test.describe('Onboarding Error Handling @slow', () => {
 });
 
 
-test.describe('Onboarding Responsive Design @slow', () => {
+test.describe('Onboarding Responsive Design', () => {
   test('should render correctly on mobile viewport', async ({ page }) => {
     await page.setViewportSize({ width: 375, height: 667 });
     await page.goto('/onboarding');

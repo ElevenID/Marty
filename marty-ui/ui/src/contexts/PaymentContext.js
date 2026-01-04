@@ -213,9 +213,9 @@ export function PaymentProvider({ children }) {
 
   // Determine if we should use mock mode
   const isMockMode = useMemo(() => {
-    const envMock = import.meta.env.VITE_USE_MOCK_PAYMENTS;
+    const envMock = process.env.REACT_APP_USE_MOCK_PAYMENTS;
     // Default to mock in development, or if explicitly enabled
-    return envMock === 'true' || envMock === true || import.meta.env.DEV;
+    return envMock === 'true' || envMock === true || process.env.NODE_ENV === 'development';
   }, []);
 
   // Initialize payment provider
@@ -226,8 +226,8 @@ export function PaymentProvider({ children }) {
         setIsReady(true);
         console.log('[PaymentContext] Using mock payment provider');
       } else {
-        const appId = import.meta.env.VITE_SQUARE_APP_ID;
-        const locationId = import.meta.env.VITE_SQUARE_LOCATION_ID;
+        const appId = process.env.REACT_APP_SQUARE_APP_ID;
+        const locationId = process.env.REACT_APP_SQUARE_LOCATION_ID;
 
         if (!appId || !locationId) {
           console.error('[PaymentContext] Square credentials not configured, falling back to mock');

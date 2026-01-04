@@ -54,16 +54,16 @@ from .config import (
 )
 from .enhanced_errors import (
     AuthorizationError,
-    BusinessLogicError,
-    ConfigurationError,
+    BusinessRuleError as BusinessLogicError,  # Alias for backwards compatibility
     DatabaseError,
     EnhancedErrorCategory,
     EnhancedMartyError,
     ErrorDetails,
     ExternalServiceError,
-    ResourceError,
     TransientError,
-    map_grpc_error_enhanced,
+    ValidationError as ResourceError,  # Alias for backwards compatibility  
+    ValidationError as ConfigurationError,  # Alias for backwards compatibility
+    create_error_from_grpc_error as map_grpc_error_enhanced,  # Alias for backwards compatibility
 )
 
 # Enhanced resilience components
@@ -83,16 +83,15 @@ from .error_codes import (
     map_exception_to_status,
 )
 from .graceful_degradation import (
-    CachedValueProvider,
+    CachedResponseProvider as CachedValueProvider,  # Alias for backwards compatibility
     DefaultValueProvider,
     DegradationLevel,
     FallbackProvider,
     FeatureToggle,
     GracefulDegradationManager,
     HealthBasedDegradationMonitor,
-    ServiceFallbackProvider,
+    BackupServiceProvider as ServiceFallbackProvider,  # Alias for backwards compatibility
 )
-from .integration_tests import MockService, ResilienceIntegrationTest, TestMetrics
 from .interceptors import FailureInjectionConfig, ResilienceServerInterceptor
 from .metrics import (
     HistogramBucket,

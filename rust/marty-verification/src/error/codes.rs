@@ -169,6 +169,25 @@ pub const DTC_SIGNATURE_INVALID: &str = "E805";
 /// E806: DTC trust chain validation failed.
 pub const DTC_TRUST_CHAIN_INVALID: &str = "E806";
 
+/// E807: DTC has expired (expiry_date or dtc_valid_until in the past).
+pub const DTC_EXPIRED: &str = "E807";
+
+/// E808: DTC is not yet valid (dtc_valid_from is in the future).
+pub const DTC_NOT_YET_VALID: &str = "E808";
+
+/// E809: DTC has been revoked.
+pub const DTC_REVOKED: &str = "E809";
+
+//=========================================================================
+// Open Badges additional errors (7xx continued)
+//=========================================================================
+
+/// E707: Open Badges credential has been revoked.
+pub const OPEN_BADGES_REVOKED: &str = "E707";
+
+/// E708: Open Badges credential status check failed.
+pub const OPEN_BADGES_STATUS_CHECK_FAILED: &str = "E708";
+
 //=========================================================================
 // I/O and general errors (9xx) - General errors
 //=========================================================================
@@ -283,6 +302,8 @@ pub fn error_codes_markdown() -> String {
     md.push_str("| E704 | `OPEN_BADGES_PROOF_INVALID` | Open Badges proof verification failed |\n");
     md.push_str("| E705 | `OPEN_BADGES_DOCUMENT_MISSING` | Open Badges referenced document not found in offline store |\n");
     md.push_str("| E706 | `OPEN_BADGES_UNSUPPORTED` | Open Badges unsupported feature or algorithm |\n");
+    md.push_str("| E707 | `OPEN_BADGES_REVOKED` | Open Badges credential has been revoked |\n");
+    md.push_str("| E708 | `OPEN_BADGES_STATUS_CHECK_FAILED` | Open Badges credential status check failed |\n");
     md.push('\n');
 
     md.push_str("## DTC Errors (E8xx)\n\n");
@@ -294,6 +315,9 @@ pub fn error_codes_markdown() -> String {
     md.push_str("| E804 | `DTC_SIGNING_FAILED` | DTC signing failed |\n");
     md.push_str("| E805 | `DTC_SIGNATURE_INVALID` | DTC signature verification failed |\n");
     md.push_str("| E806 | `DTC_TRUST_CHAIN_INVALID` | DTC trust chain validation failed |\n");
+    md.push_str("| E807 | `DTC_EXPIRED` | DTC has expired |\n");
+    md.push_str("| E808 | `DTC_NOT_YET_VALID` | DTC is not yet valid |\n");
+    md.push_str("| E809 | `DTC_REVOKED` | DTC has been revoked |\n");
     md.push('\n');
 
     md.push_str("## General Errors (E9xx)\n\n");

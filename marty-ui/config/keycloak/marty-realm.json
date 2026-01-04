@@ -178,6 +178,25 @@
         "nationality": ["ESP"],
         "date_of_birth": ["1978-11-08"]
       }
+    },
+    {
+      "username": "verifier@marty.demo",
+      "email": "verifier@marty.demo",
+      "emailVerified": true,
+      "enabled": true,
+      "firstName": "Verifier",
+      "lastName": "User",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "Verifier123!",
+          "temporary": false
+        }
+      ],
+      "realmRoles": ["vendor"],
+      "attributes": {
+        "user_type": ["verifier"]
+      }
     }
   ],
   "clients": [

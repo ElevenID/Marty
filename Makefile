@@ -3,19 +3,28 @@
 #
 # One-stop entry point for development, testing, and deployment.
 #
-# QUICK START:
+# QUICK START (Docker):
 #   make help        - Show all available commands
-#   make dev         - Start development environment
+#   make dev         - Start development environment (all in Docker)
 #   make test        - Run E2E tests (full browser matrix)
 #   make test-local  - Run fast Chromium-only tests
-#   make test-fast   - Run fast Chromium-only tests (skip @slow)
+#
+# QUICK START (Native - faster feedback):
+#   make dev-setup   - One-time: install UV, deps, Playwright browsers
+#   make dev-infra   - Start infrastructure (Keycloak, Postgres, Redis)
+#   make dev-api     - Start API natively (hot reload)
+#   make dev-ui      - Start UI natively (hot reload)
+#   make test-native - Run Playwright tests against native services
 #
 # PREREQUISITES:
-#   - Docker & Docker Compose v2
-#   - For wallet-simulator: pre-built image or use 'make build-wallet'
+#   - Docker & Docker Compose v2 (for infrastructure)
+#   - UV (auto-installed by dev-setup)
+#   - Node.js 18+ (for UI and Playwright)
 
 .PHONY: help dev test test-local pytest build build-wallet push-wallet clean \
-        status logs down up restart shell
+        status logs down up restart shell \
+        dev-setup dev-infra dev-api dev-ui wallet \
+        test-native test-native-ui test-native-headed test-native-debug
 
 # Colors
 BLUE := \033[0;34m
@@ -39,10 +48,18 @@ help: ## Show this help message
 	@echo "$(BLUE)  🚀 Marty Development Environment$(NC)"
 	@echo "$(BLUE)━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━$(NC)"
 	@echo ""
-	@echo "$(GREEN)Quick Start:$(NC)"
-	@echo "  make dev         Start development environment (API, UI, Keycloak, etc.)"
+	@echo "$(GREEN)Quick Start (Docker):$(NC)"
+	@echo "  make dev         Start full environment in Docker"
 	@echo "  make test        Run E2E tests with full browser matrix"
 	@echo "  make test-local  Run fast Chromium-only E2E tests"
+	@echo ""
+	@echo "$(GREEN)Quick Start (Native - faster feedback):$(NC)"
+	@echo "  make dev-setup      One-time setup (UV, deps, browsers)"
+	@echo "  make dev-infra      Start infrastructure only"
+	@echo "  make dev-api        Start API natively (hot reload)"
+	@echo "  make dev-ui         Start UI natively (hot reload)"
+	@echo "  make test-native    Run Playwright tests"
+	@echo "  make test-native-ui Playwright interactive mode"
 	@echo ""
 	@echo "$(GREEN)Available Commands:$(NC)"
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | \
@@ -218,5 +235,143 @@ _ensure-wallet:
 		echo "$(BLUE)Building wallet-simulator...$(NC)"; \
 		$(MAKE) build-wallet; \
 	fi
+
+# =============================================================================
+# Native Development (Faster Feedback Loop)
+# =============================================================================
+dev-setup: ## One-time setup: UV, Python deps, Node deps, Playwright browsers
+	@echo "$(BLUE)🔧 Setting up native development environment...$(NC)"
+	@echo ""
+	@echo "$(BLUE)📦 Checking UV installation...$(NC)"
+	@if ! command -v uv >/dev/null 2>&1; then \
+		echo "$(YELLOW)Installing UV...$(NC)"; \
+		curl -LsSf https://astral.sh/uv/install.sh | sh; \
+		echo "$(GREEN)✅ UV installed. You may need to restart your shell or run: source ~/.bashrc$(NC)"; \
+	else \
+		echo "$(GREEN)✅ UV already installed: $$(uv --version)$(NC)"; \
+	fi
+	@echo ""
+	@echo "$(BLUE)🐍 Setting up Python environment for API...$(NC)"
+	cd marty-ui/src && uv venv .venv && uv pip install -r requirements.txt
+	@echo "$(GREEN)✅ Python environment ready$(NC)"
+	@echo ""
+	@echo "$(BLUE)📦 Installing UI dependencies...$(NC)"
+	cd marty-ui/ui && npm install
+	@echo "$(GREEN)✅ UI dependencies ready$(NC)"
+	@echo ""
+	@echo "$(BLUE)🎭 Installing Playwright and browsers...$(NC)"
+	cd marty-ui/tests && npm install && npx playwright install --with-deps
+	@echo "$(GREEN)✅ Playwright browsers installed$(NC)"
+	@echo ""
+	@echo "$(GREEN)━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━$(NC)"
+	@echo "$(GREEN)✅ Native development environment ready!$(NC)"
+	@echo "$(GREEN)━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━$(NC)"
+	@echo ""
+	@echo "$(YELLOW)Next: Run 'make dev-infra' to start infrastructure$(NC)"
+
+dev-infra: ## Start infrastructure only (Keycloak, Postgres, Redis, MailHog)
+	@echo "$(BLUE)🏗️ Starting infrastructure services...$(NC)"
+	$(COMPOSE) up -d postgres redis mailhog keycloak
+	@echo "$(BLUE)⏳ Waiting for Keycloak to be healthy (this may take ~60s on first run)...$(NC)"
+	@until curl -sf http://localhost:8180/realms/marty >/dev/null 2>&1; do \
+		printf "."; \
+		sleep 3; \
+	done
+	@echo ""
+	@echo ""
+	@echo "$(GREEN)━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━$(NC)"
+	@echo "$(GREEN)✅ Infrastructure ready!$(NC)"
+	@echo "$(GREEN)━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━$(NC)"
+	@echo ""
+	@echo "  🔐 Keycloak: http://localhost:8180  (admin/admin)"
+	@echo "  🗄️  Postgres: localhost:5432"
+	@echo "  📦 Redis:    localhost:6379"
+	@echo "  📧 MailHog:  http://localhost:8025"
+	@echo ""
+	@echo "$(YELLOW)Next steps (in separate terminals):$(NC)"
+	@echo "  make dev-api        Start API (Terminal 2)"
+	@echo "  make dev-ui         Start UI (Terminal 3)"
+	@echo "  make test-native-ui Run tests (Terminal 4)"
+
+dev-api: ## Start API natively with hot reload (requires dev-infra)
+	@echo "$(BLUE)🚀 Starting API natively on http://localhost:8000...$(NC)"
+	@echo "$(YELLOW)Tip: Ensure infrastructure is running: make dev-infra$(NC)"
+	@echo ""
+	cd marty-ui/src && \
+		. .venv/bin/activate && \
+		export PYTHONPATH=$(CURDIR)/marty-microservices-framework:$$PYTHONPATH && \
+		ADAPTER_MODE=spruceid \
+		STORAGE_MODE=memory \
+		TEST_MODE=true \
+		OIDC_ISSUER_URL=http://localhost:8180/realms/marty \
+		OIDC_BACKEND_ISSUER_URL=http://localhost:8180/realms/marty \
+		OIDC_CLIENT_ID=marty-ui \
+		OIDC_REDIRECT_URI=http://localhost:3000/auth/callback \
+		OIDC_POST_LOGOUT_REDIRECT_URI=http://localhost:3000 \
+		KEYCLOAK_URL=http://localhost:8180 \
+		KEYCLOAK_ADMIN_CLIENT_ID=admin-cli \
+		REDIS_URL=redis://localhost:6379/0 \
+		SESSION_SECRET=dev-session-secret-change-in-production \
+		COOKIE_SECURE=false \
+		COOKIE_SAMESITE=lax \
+		APPLICANT_DB_URL=postgresql+asyncpg://marty:marty@localhost:5432/marty_applicants \
+		python -m uvicorn oid4vc_api:app --reload --host 0.0.0.0 --port 8000
+
+dev-ui: ## Start UI natively with hot reload (requires dev-api)
+	@echo "$(BLUE)🚀 Starting UI natively on http://localhost:3000...$(NC)"
+	@echo "$(YELLOW)Tip: Ensure API is running: make dev-api$(NC)"
+	@echo ""
+	cd marty-ui/ui && \
+		REACT_APP_API_URL=http://localhost:8000 \
+		REACT_APP_KEYCLOAK_URL=http://localhost:8180 \
+		npm start
+
+wallet: ## Start wallet-simulator in Docker (needed for issuance flows)
+	@echo "$(BLUE)📱 Starting wallet-simulator on http://localhost:9081...$(NC)"
+	$(MAKE) _ensure-wallet
+	$(COMPOSE) up -d wallet-simulator
+	@echo "$(GREEN)✅ Wallet available at http://localhost:9081$(NC)"
+
+test-native: ## Run Playwright tests against native services
+	@echo "$(BLUE)🧪 Running Playwright tests natively...$(NC)"
+	@echo "$(YELLOW)Ensure services are running: dev-infra, dev-api, dev-ui$(NC)"
+	@echo ""
+	cd marty-ui/tests && \
+		BASE_URL=http://localhost:3000 \
+		API_URL=http://localhost:8000 \
+		KEYCLOAK_URL=http://localhost:8180 \
+		WALLET_URL=http://localhost:9081 \
+		MAILHOG_URL=http://localhost:8025 \
+		npx playwright test
+
+test-native-ui: ## Run Playwright with interactive UI mode
+	@echo "$(BLUE)🎭 Opening Playwright UI mode...$(NC)"
+	cd marty-ui/tests && \
+		BASE_URL=http://localhost:3000 \
+		API_URL=http://localhost:8000 \
+		KEYCLOAK_URL=http://localhost:8180 \
+		WALLET_URL=http://localhost:9081 \
+		MAILHOG_URL=http://localhost:8025 \
+		npx playwright test --ui
+
+test-native-headed: ## Run Playwright tests with visible browser
+	@echo "$(BLUE)🧪 Running tests with visible browser...$(NC)"
+	cd marty-ui/tests && \
+		BASE_URL=http://localhost:3000 \
+		API_URL=http://localhost:8000 \
+		KEYCLOAK_URL=http://localhost:8180 \
+		WALLET_URL=http://localhost:9081 \
+		MAILHOG_URL=http://localhost:8025 \
+		npx playwright test --headed
+
+test-native-debug: ## Run Playwright tests in debug mode
+	@echo "$(BLUE)🐛 Running tests in debug mode...$(NC)"
+	cd marty-ui/tests && \
+		BASE_URL=http://localhost:3000 \
+		API_URL=http://localhost:8000 \
+		KEYCLOAK_URL=http://localhost:8180 \
+		WALLET_URL=http://localhost:9081 \
+		MAILHOG_URL=http://localhost:8025 \
+		npx playwright test --debug
 
 .SILENT: help

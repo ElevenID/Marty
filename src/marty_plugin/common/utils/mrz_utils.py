@@ -2,12 +2,18 @@
 Machine Readable Zone (MRZ) parsing and generation utilities.
 
 Implements MRZ processing according to ICAO Doc 9303 Part 3, Part 4, and Part 5.
+
+Uses Rust bindings from marty_rs for check digit calculation and validation.
 """
 
 import contextlib
 import re
 from datetime import datetime
 
+from marty_plugin.common.crypto_bridge import (
+    compute_check_digit as _rust_compute_check_digit,
+    validate_check_digit as _rust_validate_check_digit,
+)
 from marty_plugin.common.models.passport import Gender, MRZData
 
 
@@ -23,34 +29,22 @@ class MRZParser:
         """
         Calculate the check digit as per ICAO Doc 9303 specifications.
 
+        Uses Rust implementation via marty_rs for correctness and performance.
+
         Args:
             input_string: String to calculate check digit for
 
         Returns:
             Single character check digit
         """
-        weights = [7, 3, 1]
-        total = 0
-
-        for i, char in enumerate(input_string):
-            if char == "<":
-                value = 0
-            elif char.isdigit():
-                value = int(char)
-            elif char.isalpha():
-                # A = 10, B = 11, ..., Z = 35
-                value = ord(char.upper()) - ord("A") + 10
-            else:
-                value = 0  # For any other character
-
-            total += value * weights[i % 3]
-
-        return str(total % 10)
+        return _rust_compute_check_digit(input_string)
 
     @staticmethod
     def validate_check_digit(input_string: str, check_digit: str) -> bool:
         """
         Validate a check digit against an input string.
+
+        Uses Rust implementation via marty_rs for correctness and performance.
 
         Args:
             input_string: String to validate check digit for
@@ -59,8 +53,7 @@ class MRZParser:
         Returns:
             True if valid, False otherwise
         """
-        calculated = MRZParser.calculate_check_digit(input_string)
-        return calculated == check_digit
+        return _rust_validate_check_digit(input_string, check_digit)
 
     @staticmethod
     def clean_name(name: str) -> str:

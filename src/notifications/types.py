@@ -164,3 +164,135 @@ class DeliveryResult:
             "retry_after": self.retry_after,
             "metadata": self.metadata,
         }
+
+
+# =============================================================================
+# Marty Push Challenge Types
+# =============================================================================
+
+MARTY_CHALLENGE_FORMAT = "marty/v1"
+
+
+@dataclass
+class ChallengeOption:
+    """
+    An option for multi-choice challenges.
+    
+    Displayed as buttons in the mobile app.
+    """
+    id: str  # Unique identifier sent in response
+    label: str  # Display text for the button
+    
+    def to_dict(self) -> dict[str, str]:
+        """Convert to dictionary for serialization."""
+        return {"id": self.id, "label": self.label}
+
+
+@dataclass
+class MartyChallengePayload:
+    """
+    Marty-native push challenge payload (marty/v1 format).
+    
+    Used for both FCM and SSE delivery. All fields are serialized
+    as strings for FCM compatibility.
+    """
+    # Identity
+    challenge_id: str
+    device_id: str
+    
+    # Content
+    title: str
+    question: str
+    
+    # Cryptographic
+    nonce: str
+    signature: str = ""  # Server signature, populated after signing
+    
+    # Options for multi-choice challenges (displayed as buttons)
+    options: list[ChallengeOption] = field(default_factory=list)
+    
+    # Timing
+    ttl_seconds: int = 120
+    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    
+    # Optional targeting
+    credential_id: Optional[str] = None
+    relying_party_id: Optional[str] = None
+    
+    # Configuration
+    require_signature: bool = True
+    
+    # Additional metadata
+    data: dict[str, Any] = field(default_factory=dict)
+    
+    @property
+    def format(self) -> str:
+        """Return the format identifier."""
+        return MARTY_CHALLENGE_FORMAT
+    
+    def canonical_string(self) -> str:
+        """
+        Build canonical string for signature verification.
+        
+        Format: challenge_id|nonce|device_id|ttl_seconds|created_at|options_json
+        """
+        import json
+        options_json = json.dumps([opt.to_dict() for opt in self.options], separators=(",", ":"))
+        return "|".join([
+            self.challenge_id,
+            self.nonce,
+            self.device_id,
+            str(self.ttl_seconds),
+            self.created_at.isoformat(),
+            options_json,
+        ])
+    
+    def to_fcm_data(self) -> dict[str, str]:
+        """
+        Convert to FCM data payload.
+        
+        All values are strings per FCM requirements.
+        """
+        import json
+        
+        data = {
+            "format": self.format,
+            "challenge_id": self.challenge_id,
+            "device_id": self.device_id,
+            "title": self.title,
+            "question": self.question,
+            "nonce": self.nonce,
+            "ttl_seconds": str(self.ttl_seconds),
+            "created_at": self.created_at.isoformat(),
+            "require_signature": "true" if self.require_signature else "false",
+            "signature": self.signature,
+        }
+        
+        # Add options as JSON string
+        if self.options:
+            data["options"] = json.dumps([opt.to_dict() for opt in self.options], separators=(",", ":"))
+        
+        # Add optional fields
+        if self.credential_id:
+            data["credential_id"] = self.credential_id
+        if self.relying_party_id:
+            data["relying_party_id"] = self.relying_party_id
+        
+        # Add custom data as JSON string if present
+        if self.data:
+            data["data"] = json.dumps(self.data, separators=(",", ":"))
+        
+        return data
+    
+    def to_notification_payload(self) -> NotificationPayload:
+        """Convert to NotificationPayload for delivery via adapters."""
+        return NotificationPayload(
+            id=UUID(self.challenge_id) if self.challenge_id else uuid4(),
+            title=self.title,
+            body=self.question,
+            event_type="push_challenge",
+            data=self.to_fcm_data(),
+            ttl_seconds=self.ttl_seconds,
+            created_at=self.created_at,
+            priority=NotificationPriority.HIGH,
+        )

@@ -3,6 +3,8 @@ VDS-NC Main Processor Implementation.
 
 This module provides the main VDS-NC processor for document creation and verification
 following ICAO Doc 9303 Part 13 specifications.
+
+Uses Rust marty_rs for cryptographic operations via crypto_bridge.
 """
 
 from __future__ import annotations
@@ -11,8 +13,14 @@ import base64
 import json
 from typing import Any
 
-from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.hazmat.primitives.asymmetric import ec
+from cryptography.hazmat.primitives import serialization
+
+from marty_plugin.common.crypto_bridge import (
+    ecdsa_p256_sign,
+    ecdsa_p384_sign,
+    ecdsa_p521_sign,
+    pkcs8_to_raw_private_key,
+)
 
 from .barcode import VDSNCBarcodeSelector
 from .canonicalization import VDSNCCanonicalizer
@@ -211,27 +219,37 @@ class VDSNCProcessor:
         return result
 
     def _sign_payload(self, payload: VDSNCPayload, algorithm: SignatureAlgorithm) -> str:
-        """Sign VDS-NC payload."""
+        """Sign VDS-NC payload using Rust crypto bindings."""
         try:
             if not self.private_key_pem:
                 msg = "Private key required for signing"
                 raise SignatureError(msg)
 
-            # Load private key
+            # Load private key and extract raw bytes
             private_key = serialization.load_pem_private_key(
                 self.private_key_pem.encode(), password=None
+            )
+
+            # Get DER-encoded private key
+            private_key_der = private_key.private_bytes(
+                encoding=serialization.Encoding.DER,
+                format=serialization.PrivateFormat.PKCS8,
+                encryption_algorithm=serialization.NoEncryption(),
             )
 
             # Get signature data
             signature_data = payload.get_signature_data()
 
-            # Sign based on algorithm
+            # Sign based on algorithm using Rust crypto_bridge
             if algorithm == SignatureAlgorithm.ES256:
-                signature = private_key.sign(signature_data, ec.ECDSA(hashes.SHA256()))
+                private_key_raw = pkcs8_to_raw_private_key(private_key_der, "ec_p256")
+                signature = ecdsa_p256_sign(private_key_raw, signature_data)
             elif algorithm == SignatureAlgorithm.ES384:
-                signature = private_key.sign(signature_data, ec.ECDSA(hashes.SHA384()))
+                private_key_raw = pkcs8_to_raw_private_key(private_key_der, "ec_p384")
+                signature = ecdsa_p384_sign(private_key_raw, signature_data)
             elif algorithm == SignatureAlgorithm.ES512:
-                signature = private_key.sign(signature_data, ec.ECDSA(hashes.SHA512()))
+                private_key_raw = pkcs8_to_raw_private_key(private_key_der, "ec_p521")
+                signature = ecdsa_p521_sign(private_key_raw, signature_data)
             else:
                 msg = f"Unsupported signature algorithm: {algorithm}"
                 raise SignatureError(msg)

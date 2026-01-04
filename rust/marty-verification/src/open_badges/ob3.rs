@@ -170,6 +170,9 @@ pub async fn verify_ob3_json_async(request_json: &str) -> VerificationResult<Str
         ),
     }
 
+    // Credential status check (revocation)
+    check_credential_status(&req.credential, &store, &mut errors, &mut error_codes_out, &mut warnings);
+
     let normalized = normalize_ob3(&req.credential);
 
     let result = OpenBadgesVerificationResult {
@@ -359,4 +362,215 @@ fn normalize_ob3(value: &Value) -> Value {
         "issuer": value.get("issuer").cloned().unwrap_or(Value::Null),
         "credential_subject": value.get("credentialSubject").cloned().unwrap_or(Value::Null),
     })
+}
+
+/// Check credential status (revocation) for OB3 credentials.
+/// Supports StatusList2021, BitstringStatusListEntry, and RevocationList2020.
+fn check_credential_status(
+    credential: &Value,
+    document_store: &super::types::DocumentStore,
+    errors: &mut Vec<String>,
+    error_codes_out: &mut Vec<String>,
+    warnings: &mut Vec<String>,
+) {
+    let Some(status) = credential.get("credentialStatus") else {
+        // No credentialStatus field - nothing to check
+        return;
+    };
+
+    // Handle single status or array of statuses
+    let statuses: Vec<&Value> = match status {
+        Value::Array(arr) => arr.iter().collect(),
+        _ => vec![status],
+    };
+
+    for status_entry in statuses {
+        let status_type = status_entry
+            .get("type")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+
+        match status_type {
+            "StatusList2021Entry" | "BitstringStatusListEntry" => {
+                check_status_list_entry(status_entry, document_store, errors, error_codes_out, warnings);
+            }
+            "RevocationList2020Status" => {
+                check_revocation_list_2020(status_entry, document_store, errors, error_codes_out, warnings);
+            }
+            _ if !status_type.is_empty() => {
+                warnings.push(format!(
+                    "Unsupported credential status type '{}', skipping revocation check",
+                    status_type
+                ));
+            }
+            _ => {
+                warnings.push("Credential status entry missing 'type' field".to_string());
+            }
+        }
+    }
+}
+
+/// Check StatusList2021Entry or BitstringStatusListEntry status.
+fn check_status_list_entry(
+    status_entry: &Value,
+    document_store: &super::types::DocumentStore,
+    errors: &mut Vec<String>,
+    error_codes_out: &mut Vec<String>,
+    warnings: &mut Vec<String>,
+) {
+    let status_list_credential = status_entry
+        .get("statusListCredential")
+        .and_then(|v| v.as_str());
+    let status_list_index = status_entry
+        .get("statusListIndex")
+        .and_then(|v| v.as_str().or_else(|| v.as_u64().map(|_| "")))
+        .and_then(|s| if s.is_empty() {
+            status_entry.get("statusListIndex").and_then(|v| v.as_u64())
+        } else {
+            s.parse::<u64>().ok()
+        });
+    let status_purpose = status_entry
+        .get("statusPurpose")
+        .and_then(|v| v.as_str())
+        .unwrap_or("revocation");
+
+    let Some(list_url) = status_list_credential else {
+        warnings.push("StatusList entry missing 'statusListCredential' URL".to_string());
+        return;
+    };
+
+    let Some(index) = status_list_index else {
+        warnings.push("StatusList entry missing or invalid 'statusListIndex'".to_string());
+        return;
+    };
+
+    // Look up the status list credential in the document store
+    let Some(status_list_doc) = document_store.get(list_url) else {
+        warnings.push(format!(
+            "StatusList credential '{}' not found in document store, unable to verify revocation status",
+            list_url
+        ));
+        return;
+    };
+
+    // Extract the encoded list from the status list credential
+    let encoded_list = status_list_doc
+        .get("credentialSubject")
+        .and_then(|cs| cs.get("encodedList"))
+        .and_then(|v| v.as_str());
+
+    let Some(encoded) = encoded_list else {
+        warnings.push("StatusList credential missing 'credentialSubject.encodedList'".to_string());
+        return;
+    };
+
+    // Decode and check the bit at the specified index
+    match decode_and_check_status_bit(encoded, index) {
+        Ok(is_set) => {
+            if is_set {
+                push_error(
+                    errors,
+                    error_codes_out,
+                    error_codes::OPEN_BADGES_REVOKED,
+                    format!("Credential has been {} (statusListIndex: {})", status_purpose, index),
+                );
+            }
+        }
+        Err(e) => {
+            warnings.push(format!("Failed to decode status list: {}", e));
+        }
+    }
+}
+
+/// Decode a base64+gzip compressed bitstring and check if the bit at `index` is set.
+fn decode_and_check_status_bit(encoded: &str, index: u64) -> Result<bool, String> {
+    use base64::{engine::general_purpose, Engine as _};
+    use flate2::read::GzDecoder;
+    use std::io::Read;
+
+    // Decode base64
+    let compressed = general_purpose::STANDARD
+        .decode(encoded)
+        .map_err(|e| format!("Base64 decode error: {}", e))?;
+
+    // Decompress gzip
+    let mut decoder = GzDecoder::new(&compressed[..]);
+    let mut bitstring = Vec::new();
+    decoder
+        .read_to_end(&mut bitstring)
+        .map_err(|e| format!("Gzip decompress error: {}", e))?;
+
+    // Check the bit at the specified index
+    let byte_index = (index / 8) as usize;
+    let bit_index = (index % 8) as u8;
+
+    if byte_index >= bitstring.len() {
+        return Err(format!(
+            "Status index {} out of bounds (list size: {} bytes)",
+            index,
+            bitstring.len()
+        ));
+    }
+
+    // Bits are numbered from most significant to least significant
+    let bit_mask = 0x80 >> bit_index;
+    Ok((bitstring[byte_index] & bit_mask) != 0)
+}
+
+/// Check RevocationList2020Status (legacy format).
+fn check_revocation_list_2020(
+    status_entry: &Value,
+    document_store: &super::types::DocumentStore,
+    errors: &mut Vec<String>,
+    error_codes_out: &mut Vec<String>,
+    warnings: &mut Vec<String>,
+) {
+    let revocation_list_credential = status_entry
+        .get("revocationListCredential")
+        .and_then(|v| v.as_str());
+    let revocation_list_index = status_entry
+        .get("revocationListIndex")
+        .and_then(|v| v.as_str().and_then(|s| s.parse::<u64>().ok()).or_else(|| v.as_u64()));
+
+    let Some(list_url) = revocation_list_credential else {
+        warnings.push("RevocationList2020 entry missing 'revocationListCredential' URL".to_string());
+        return;
+    };
+
+    let Some(index) = revocation_list_index else {
+        warnings.push("RevocationList2020 entry missing or invalid 'revocationListIndex'".to_string());
+        return;
+    };
+
+    // Look up in document store
+    let Some(revocation_list_doc) = document_store.get(list_url) else {
+        warnings.push(format!(
+            "RevocationList credential '{}' not found in document store, unable to verify revocation status",
+            list_url
+        ));
+        return;
+    };
+
+    // Check if the index is in the revokedCredentials array
+    let revoked_credentials = revocation_list_doc
+        .get("credentialSubject")
+        .and_then(|cs| cs.get("revokedCredentials"))
+        .and_then(|v| v.as_array());
+
+    if let Some(revoked) = revoked_credentials {
+        let is_revoked = revoked.iter().any(|v| {
+            v.as_u64() == Some(index) || v.as_str().and_then(|s| s.parse::<u64>().ok()) == Some(index)
+        });
+
+        if is_revoked {
+            push_error(
+                errors,
+                error_codes_out,
+                error_codes::OPEN_BADGES_REVOKED,
+                format!("Credential has been revoked (revocationListIndex: {})", index),
+            );
+        }
+    } else {
+        warnings.push("RevocationList credential missing 'credentialSubject.revokedCredentials'".to_string());
+    }
 }

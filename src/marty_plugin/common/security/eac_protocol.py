@@ -13,6 +13,8 @@ Key Features:
 - Ephemeral key generation and validation
 - Secure channel establishment with MAC protection
 - Support for multiple cryptographic algorithms (P-256, P-384, brainpoolP256r1)
+
+Uses Rust marty_rs for cryptographic operations via crypto_bridge.
 """
 
 from __future__ import annotations
@@ -29,7 +31,9 @@ from typing import Any
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec, padding, rsa
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
-from cryptography.hazmat.primitives.kdf.hkdf import HKDF
+
+# Use Rust-backed HKDF from crypto_bridge
+from marty_plugin.common.crypto_bridge import hkdf_sha256, hkdf_sha384
 
 logger = logging.getLogger(__name__)
 
@@ -429,27 +433,41 @@ class EACSecureMessaging:
         self._derive_session_keys()
 
     def _derive_session_keys(self) -> None:
-        """Derive session keys from shared secret using HKDF"""
+        """Derive session keys from shared secret using HKDF (Rust-backed)"""
         try:
             # Select hash algorithm based on EAC algorithm
-            if "sha256" in self.algorithm.value:
-                hash_alg = hashes.SHA256()
-            elif "sha384" in self.algorithm.value:
-                hash_alg = hashes.SHA384()
+            use_sha384 = "sha384" in self.algorithm.value
+
+            if use_sha384:
+                # Derive MAC key using Rust HKDF-SHA384
+                self.secure_channel.mac_key = hkdf_sha384(
+                    ikm=self.shared_secret,
+                    salt=b"EAC_MAC_KEY",
+                    info=b"MAC_DERIVATION",
+                    length=32,
+                )
+                # Derive encryption key using Rust HKDF-SHA384
+                self.secure_channel.encryption_key = hkdf_sha384(
+                    ikm=self.shared_secret,
+                    salt=b"EAC_ENC_KEY",
+                    info=b"ENC_DERIVATION",
+                    length=32,
+                )
             else:
-                hash_alg = hashes.SHA256()  # Default
-
-            # Derive MAC key
-            hkdf_mac = HKDF(
-                algorithm=hash_alg, length=32, salt=b"EAC_MAC_KEY", info=b"MAC_DERIVATION"
-            )
-            self.secure_channel.mac_key = hkdf_mac.derive(self.shared_secret)
-
-            # Derive encryption key
-            hkdf_enc = HKDF(
-                algorithm=hash_alg, length=32, salt=b"EAC_ENC_KEY", info=b"ENC_DERIVATION"
-            )
-            self.secure_channel.encryption_key = hkdf_enc.derive(self.shared_secret)
+                # Default to SHA256 - Derive MAC key using Rust HKDF-SHA256
+                self.secure_channel.mac_key = hkdf_sha256(
+                    ikm=self.shared_secret,
+                    salt=b"EAC_MAC_KEY",
+                    info=b"MAC_DERIVATION",
+                    length=32,
+                )
+                # Derive encryption key using Rust HKDF-SHA256
+                self.secure_channel.encryption_key = hkdf_sha256(
+                    ikm=self.shared_secret,
+                    salt=b"EAC_ENC_KEY",
+                    info=b"ENC_DERIVATION",
+                    length=32,
+                )
 
             self.secure_channel.algorithm = self.algorithm
             self.secure_channel.established_at = datetime.utcnow()

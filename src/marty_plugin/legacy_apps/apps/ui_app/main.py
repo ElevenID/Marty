@@ -45,7 +45,6 @@ GRAFANA_ADDR = os.getenv("UI_GRAFANA_ADDR", "http://grafana-demo:3000")
 
 UI_TITLE = os.getenv("UI_TITLE", "Marty Demo Console")
 UI_ENVIRONMENT = os.getenv("UI_ENVIRONMENT", "demo")
-ENABLE_MOCK_DATA = os.getenv("UI_ENABLE_MOCK_DATA", "true").lower() == "true"
 
 # FastAPI app
 app = FastAPI(
@@ -86,7 +85,6 @@ async def get_config():
         "ui_environment": UI_ENVIRONMENT,
         "jaeger_url": JAEGER_ADDR,
         "grafana_url": GRAFANA_ADDR,
-        "demo_mode": ENABLE_MOCK_DATA,
     }
 
 @app.get("/api/health")

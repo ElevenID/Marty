@@ -818,6 +818,7 @@ export default function TravelDocuments() {
                   onChange={(e) => setIssueForm({ ...issueForm, document_number: e.target.value })}
                   placeholder="e.g., P1234567"
                   required
+                  data-testid="manual-document-number"
                 />
               </Grid>
               <Grid item xs={12}>
@@ -827,6 +828,7 @@ export default function TravelDocuments() {
                   value={issueForm.holder_name}
                   onChange={(e) => setIssueForm({ ...issueForm, holder_name: e.target.value })}
                   required
+                  data-testid="manual-holder-name"
                 />
               </Grid>
               <Grid item xs={6}>
@@ -854,6 +856,7 @@ export default function TravelDocuments() {
                   onChange={(e) => setIssueForm({ ...issueForm, holder_dob: e.target.value })}
                   InputLabelProps={{ shrink: true }}
                   required
+                  data-testid="manual-holder-dob"
                 />
               </Grid>
               <Grid item xs={6}>
@@ -864,6 +867,7 @@ export default function TravelDocuments() {
                   onChange={(e) => setIssueForm({ ...issueForm, nationality: e.target.value.toUpperCase() })}
                   inputProps={{ maxLength: 3 }}
                   required
+                  data-testid="manual-nationality"
                 />
               </Grid>
               <Grid item xs={6}>
@@ -874,6 +878,7 @@ export default function TravelDocuments() {
                   onChange={(e) => setIssueForm({ ...issueForm, issuing_country: e.target.value.toUpperCase() })}
                   inputProps={{ maxLength: 3 }}
                   required
+                  data-testid="manual-issuing-country"
                 />
               </Grid>
               <Grid item xs={12}>

@@ -43,7 +43,7 @@ TEST_UPLOAD_FILES = {
 }
 
 # Service endpoints for direct testing (using centralized registry)
-from src.marty_common.service_registry import ServiceRegistry
+from marty_plugin.common.service_registry import ServiceRegistry
 
 SERVICES = ServiceRegistry.get_service_endpoints("local")
 # Override UI service to use configured BASE_URL

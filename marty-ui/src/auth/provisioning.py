@@ -50,15 +50,28 @@ class OIDCUserInfo:
 
         # Parse organization claim from Keycloak
         # Format: { "org-id": { "name": "Org Name", ... } }
+        # Note: Keycloak may use org name as key if Organizations feature isn't properly configured
         org_claim = claims.get("organization", {})
         org_id = None
         org_name = None
         if org_claim and isinstance(org_claim, dict):
             org_ids = list(org_claim.keys())
             if org_ids:
-                org_id = org_ids[0]  # Use first/primary org
-                org_data = org_claim[org_id]
+                raw_org_id = org_ids[0]  # Use first/primary org
+                org_data = org_claim[raw_org_id]
                 org_name = org_data.get("name") if isinstance(org_data, dict) else None
+                
+                # Check if org_id looks like a UUID, otherwise generate one from the name
+                import uuid as uuid_module
+                try:
+                    uuid_module.UUID(raw_org_id)
+                    org_id = raw_org_id  # It's a valid UUID
+                except (ValueError, TypeError):
+                    # Not a UUID - generate a deterministic UUID from the org name/key
+                    # This ensures consistency across logins
+                    org_id = str(uuid_module.uuid5(uuid_module.NAMESPACE_DNS, f"marty-org:{raw_org_id}"))
+                    if not org_name:
+                        org_name = raw_org_id  # The key is actually the name
 
         # Also check for explicit org attributes (fallback)
         if not org_name:

@@ -5,6 +5,8 @@ Based on the concepts from the pypassport library, this module generates
 realistic passport data for testing purposes, including properly structured
 data groups and the necessary cryptographic signatures.
 
+Uses Rust bindings from marty_rs for MRZ check digit calculation.
+
 LICENSING NOTE:
 --------------
 This implementation is inspired by concepts from the pypassport project
@@ -35,6 +37,7 @@ sys.path.append(str(project_root))
 
 # Import from Marty's codebase
 from src.marty_common.models.passport import DataGroupType
+from src.marty_plugin.common.crypto_bridge import compute_check_digit as _rust_compute_check_digit
 
 
 class PassportGenerator:
@@ -131,26 +134,15 @@ class PassportGenerator:
         """
         Calculate the check digit for MRZ data.
 
+        Uses Rust implementation via marty_rs for correctness and performance.
+
         Args:
             data: The data to calculate the check digit for
 
         Returns:
             The check digit (0-9)
         """
-        weights = [7, 3, 1]
-        total = 0
-
-        for i, char in enumerate(data):
-            if char == "<":
-                value = 0
-            elif char.isdigit():
-                value = int(char)
-            else:
-                value = ord(char) - ord("A") + 10
-
-            total += value * weights[i % 3]
-
-        return str(total % 10)
+        return _rust_compute_check_digit(data)
 
     def create_data_group_1(self, mrz_data: str) -> dict[str, Any]:
         """

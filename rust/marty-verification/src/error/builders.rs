@@ -370,6 +370,66 @@ impl VerificationError {
         })
     }
 
+    /// Create a DTC expired error.
+    pub fn dtc_expired(reason: impl Into<String>) -> Box<Self> {
+        Box::new(Self::DtcError {
+            reason: reason.into(),
+            code: codes::DTC_EXPIRED,
+            context: ErrorContext::default(),
+            source: None,
+            bt: CapturedBacktrace::capture(),
+            span_trace: SpanTrace::capture(),
+        })
+    }
+
+    /// Create a DTC not yet valid error.
+    pub fn dtc_not_yet_valid(reason: impl Into<String>) -> Box<Self> {
+        Box::new(Self::DtcError {
+            reason: reason.into(),
+            code: codes::DTC_NOT_YET_VALID,
+            context: ErrorContext::default(),
+            source: None,
+            bt: CapturedBacktrace::capture(),
+            span_trace: SpanTrace::capture(),
+        })
+    }
+
+    /// Create a DTC revoked error.
+    pub fn dtc_revoked(reason: impl Into<String>) -> Box<Self> {
+        Box::new(Self::DtcError {
+            reason: reason.into(),
+            code: codes::DTC_REVOKED,
+            context: ErrorContext::default(),
+            source: None,
+            bt: CapturedBacktrace::capture(),
+            span_trace: SpanTrace::capture(),
+        })
+    }
+
+    /// Create an Open Badges revoked error.
+    pub fn open_badges_revoked(reason: impl Into<String>) -> Box<Self> {
+        Box::new(Self::OpenBadgesError {
+            reason: reason.into(),
+            code: codes::OPEN_BADGES_REVOKED,
+            context: ErrorContext::default(),
+            source: None,
+            bt: CapturedBacktrace::capture(),
+            span_trace: SpanTrace::capture(),
+        })
+    }
+
+    /// Create an Open Badges status check failed error.
+    pub fn open_badges_status_check_failed(reason: impl Into<String>) -> Box<Self> {
+        Box::new(Self::OpenBadgesError {
+            reason: reason.into(),
+            code: codes::OPEN_BADGES_STATUS_CHECK_FAILED,
+            context: ErrorContext::default(),
+            source: None,
+            bt: CapturedBacktrace::capture(),
+            span_trace: SpanTrace::capture(),
+        })
+    }
+
     /// Create a not-implemented error.
     pub fn not_implemented(feature: impl Into<String>) -> Box<Self> {
         Box::new(Self::Internal {

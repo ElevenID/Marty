@@ -6,11 +6,13 @@ This module implements the cryptographic operations required for:
 - Message encryption and authentication
 - Digital signatures and verification
 - Selective disclosure cryptography
+
+All cryptographic operations use Rust bindings via marty_rs for
+correctness and performance.
 """
 
 from __future__ import annotations
 
-import hashlib
 import hmac
 import os
 from typing import Any, Dict, List, Optional, Tuple
@@ -25,15 +27,25 @@ from marty_plugin.common.crypto_bridge import (
     aes_gcm_decrypt,
     p256_generate,
     p256_agree,
-    generate_random_bytes,
+    generate_random_bytes as _generate_random_bytes,
+    sha256,
+    ecdsa_p256_sign,
+    ecdsa_p256_verify,
+    ecdsa_p384_sign,
+    ecdsa_p384_verify,
+    rsa_pss_sha256_sign,
+    rsa_pss_sha256_verify,
+    rsa_pss_sha384_sign,
+    rsa_pss_sha384_verify,
+    rsa_pss_sha512_sign,
+    rsa_pss_sha512_verify,
+    save_private_key_pem,
+    save_public_key_pem,
+    load_private_key_pem,
+    load_public_key_pem,
+    pkcs8_to_raw_private_key,
+    spki_to_raw_public_key,
 )
-
-# For signature operations, we still need cryptography types until
-# full migration to Rust-based signing is complete.
-# TODO: Migrate to Rust-based ECDSA/RSA signing
-from cryptography.hazmat.primitives import hashes
-from cryptography.hazmat.primitives.asymmetric import ec, padding
-from cryptography.hazmat.primitives.asymmetric.rsa import RSAPrivateKey, RSAPublicKey
 
 
 class CryptoError(Exception):
@@ -88,8 +100,8 @@ class KeyDerivation:
             Derived session key
         """
         try:
-            # Create salt from session transcript hash
-            salt = hashlib.sha256(session_transcript).digest()
+            # Create salt from session transcript hash using Rust
+            salt = sha256(session_transcript)
 
             # Create info parameter
             info = f"ISO18013-5 {info_label}".encode()
@@ -240,7 +252,8 @@ class MessageAuthentication:
             HMAC tag
         """
         try:
-            h = hmac.new(self.mac_key, digestmod=hashlib.sha256)
+            import hashlib as _hashlib  # Use Python hmac with hashlib for HMAC
+            h = hmac.new(self.mac_key, digestmod=_hashlib.sha256)
             h.update(message)
 
             if context:
@@ -275,115 +288,264 @@ class DigitalSignature:
     """
     Digital signature operations for ISO 18013-5
 
-    Supports both ECDSA and RSA signatures for different use cases.
+    Supports both ECDSA and RSA signatures using Rust bindings.
+    Keys are expected as raw bytes (for EC) or DER-encoded (for RSA).
     """
 
     @staticmethod
-    def sign_with_ecdsa(
-        private_key: ec.EllipticCurvePrivateKey,
+    def sign_with_ecdsa_p256(
+        private_key: bytes,
         message: bytes,
-        hash_algorithm: hashes.HashAlgorithm = hashes.SHA256(),
     ) -> bytes:
         """
-        Create ECDSA signature
+        Create ECDSA P-256 signature using Rust.
 
         Args:
-            private_key: ECDSA private key
+            private_key: Raw 32-byte private key scalar
             message: Message to sign
-            hash_algorithm: Hash algorithm to use
 
         Returns:
             DER-encoded signature
         """
         try:
-            signature = private_key.sign(message, ec.ECDSA(hash_algorithm))
-            return signature
-
+            return ecdsa_p256_sign(private_key, message)
         except Exception as e:
-            raise SignatureError(f"ECDSA signing failed: {e}")
+            raise SignatureError(f"ECDSA P-256 signing failed: {e}")
 
     @staticmethod
-    def verify_ecdsa(
-        public_key: ec.EllipticCurvePublicKey,
+    def sign_with_ecdsa_p384(
+        private_key: bytes,
         message: bytes,
-        signature: bytes,
-        hash_algorithm: hashes.HashAlgorithm = hashes.SHA256(),
-    ) -> bool:
+    ) -> bytes:
         """
-        Verify ECDSA signature
+        Create ECDSA P-384 signature using Rust.
 
         Args:
-            public_key: ECDSA public key
+            private_key: Raw 48-byte private key scalar
+            message: Message to sign
+
+        Returns:
+            DER-encoded signature
+        """
+        try:
+            return ecdsa_p384_sign(private_key, message)
+        except Exception as e:
+            raise SignatureError(f"ECDSA P-384 signing failed: {e}")
+
+    @staticmethod
+    def verify_ecdsa_p256(
+        public_key: bytes,
+        message: bytes,
+        signature: bytes,
+    ) -> bool:
+        """
+        Verify ECDSA P-256 signature using Rust.
+
+        Args:
+            public_key: Raw 64-byte uncompressed public key (without 0x04 prefix)
             message: Original message
             signature: DER-encoded signature
-            hash_algorithm: Hash algorithm used
 
         Returns:
             True if signature is valid
         """
         try:
-            public_key.verify(signature, message, ec.ECDSA(hash_algorithm))
-            return True
-
+            return ecdsa_p256_verify(public_key, message, signature)
         except Exception:
             return False
 
     @staticmethod
-    def sign_with_rsa(
-        private_key: RSAPrivateKey,
+    def verify_ecdsa_p384(
+        public_key: bytes,
         message: bytes,
-        hash_algorithm: hashes.HashAlgorithm = hashes.SHA256(),
-    ) -> bytes:
+        signature: bytes,
+    ) -> bool:
         """
-        Create RSA-PSS signature
+        Verify ECDSA P-384 signature using Rust.
 
         Args:
-            private_key: RSA private key
+            public_key: Raw 96-byte uncompressed public key (without 0x04 prefix)
+            message: Original message
+            signature: DER-encoded signature
+
+        Returns:
+            True if signature is valid
+        """
+        try:
+            return ecdsa_p384_verify(public_key, message, signature)
+        except Exception:
+            return False
+
+    @staticmethod
+    def sign_with_rsa_pss(
+        private_key_der: bytes,
+        message: bytes,
+        hash_algorithm: str = "sha256",
+    ) -> bytes:
+        """
+        Create RSA-PSS signature using Rust.
+
+        Args:
+            private_key_der: DER-encoded PKCS#8 private key
             message: Message to sign
-            hash_algorithm: Hash algorithm to use
+            hash_algorithm: Hash algorithm ("sha256", "sha384", "sha512")
 
         Returns:
             RSA signature
         """
         try:
-            signature = private_key.sign(
-                message,
-                padding.PSS(mgf=padding.MGF1(hash_algorithm), salt_length=padding.PSS.MAX_LENGTH),
-                hash_algorithm,
-            )
-            return signature
-
+            if hash_algorithm == "sha256":
+                return rsa_pss_sha256_sign(private_key_der, message)
+            elif hash_algorithm == "sha384":
+                return rsa_pss_sha384_sign(private_key_der, message)
+            elif hash_algorithm == "sha512":
+                return rsa_pss_sha512_sign(private_key_der, message)
+            else:
+                raise ValueError(f"Unsupported hash algorithm: {hash_algorithm}")
         except Exception as e:
-            raise SignatureError(f"RSA signing failed: {e}")
+            raise SignatureError(f"RSA-PSS signing failed: {e}")
 
     @staticmethod
-    def verify_rsa(
-        public_key: RSAPublicKey,
+    def verify_rsa_pss(
+        public_key_der: bytes,
         message: bytes,
         signature: bytes,
-        hash_algorithm: hashes.HashAlgorithm = hashes.SHA256(),
+        hash_algorithm: str = "sha256",
     ) -> bool:
         """
-        Verify RSA-PSS signature
+        Verify RSA-PSS signature using Rust.
 
         Args:
-            public_key: RSA public key
+            public_key_der: DER-encoded SubjectPublicKeyInfo
             message: Original message
             signature: RSA signature
-            hash_algorithm: Hash algorithm used
+            hash_algorithm: Hash algorithm ("sha256", "sha384", "sha512")
 
         Returns:
             True if signature is valid
         """
         try:
-            public_key.verify(
-                signature,
-                message,
-                padding.PSS(mgf=padding.MGF1(hash_algorithm), salt_length=padding.PSS.MAX_LENGTH),
-                hash_algorithm,
-            )
-            return True
+            if hash_algorithm == "sha256":
+                return rsa_pss_sha256_verify(public_key_der, message, signature)
+            elif hash_algorithm == "sha384":
+                return rsa_pss_sha384_verify(public_key_der, message, signature)
+            elif hash_algorithm == "sha512":
+                return rsa_pss_sha512_verify(public_key_der, message, signature)
+            else:
+                return False
+        except Exception:
+            return False
 
+    # Legacy compatibility methods that accept cryptography key objects
+    @staticmethod
+    def sign_with_ecdsa(
+        private_key,  # ec.EllipticCurvePrivateKey
+        message: bytes,
+        hash_algorithm=None,  # Ignored, using SHA-256
+    ) -> bytes:
+        """
+        Legacy ECDSA signing - converts cryptography key to raw bytes.
+        
+        Deprecated: Use sign_with_ecdsa_p256() or sign_with_ecdsa_p384() directly.
+        """
+        from cryptography.hazmat.primitives import serialization
+        
+        try:
+            # Get raw private key bytes
+            raw_key = private_key.private_bytes(
+                encoding=serialization.Encoding.Raw,
+                format=serialization.PrivateFormat.Raw,
+                encryption_algorithm=serialization.NoEncryption(),
+            )
+            
+            # Detect curve size
+            if len(raw_key) == 32:
+                return ecdsa_p256_sign(raw_key, message)
+            elif len(raw_key) == 48:
+                return ecdsa_p384_sign(raw_key, message)
+            else:
+                raise SignatureError(f"Unsupported key size: {len(raw_key)}")
+        except Exception as e:
+            raise SignatureError(f"ECDSA signing failed: {e}")
+
+    @staticmethod
+    def verify_ecdsa(
+        public_key,  # ec.EllipticCurvePublicKey  
+        message: bytes,
+        signature: bytes,
+        hash_algorithm=None,  # Ignored
+    ) -> bool:
+        """
+        Legacy ECDSA verification - converts cryptography key to raw bytes.
+        
+        Deprecated: Use verify_ecdsa_p256() or verify_ecdsa_p384() directly.
+        """
+        from cryptography.hazmat.primitives import serialization
+        
+        try:
+            # Get uncompressed public key bytes
+            raw_key = public_key.public_bytes(
+                encoding=serialization.Encoding.X962,
+                format=serialization.PublicFormat.UncompressedPoint,
+            )
+            
+            # Remove 0x04 prefix for uncompressed point
+            if raw_key[0] == 0x04:
+                raw_key = raw_key[1:]
+            
+            # Detect curve size
+            if len(raw_key) == 64:
+                return ecdsa_p256_verify(raw_key, message, signature)
+            elif len(raw_key) == 96:
+                return ecdsa_p384_verify(raw_key, message, signature)
+            else:
+                return False
+        except Exception:
+            return False
+
+    @staticmethod
+    def sign_with_rsa(
+        private_key,  # RSAPrivateKey
+        message: bytes,
+        hash_algorithm=None,  # Ignored, using SHA-256
+    ) -> bytes:
+        """
+        Legacy RSA-PSS signing - converts cryptography key to DER bytes.
+        
+        Deprecated: Use sign_with_rsa_pss() directly with DER key.
+        """
+        from cryptography.hazmat.primitives import serialization
+        
+        try:
+            der_key = private_key.private_bytes(
+                encoding=serialization.Encoding.DER,
+                format=serialization.PrivateFormat.PKCS8,
+                encryption_algorithm=serialization.NoEncryption(),
+            )
+            return rsa_pss_sha256_sign(der_key, message)
+        except Exception as e:
+            raise SignatureError(f"RSA-PSS signing failed: {e}")
+
+    @staticmethod
+    def verify_rsa(
+        public_key,  # RSAPublicKey
+        message: bytes,
+        signature: bytes,
+        hash_algorithm=None,  # Ignored
+    ) -> bool:
+        """
+        Legacy RSA-PSS verification - converts cryptography key to DER bytes.
+        
+        Deprecated: Use verify_rsa_pss() directly with DER key.
+        """
+        from cryptography.hazmat.primitives import serialization
+        
+        try:
+            der_key = public_key.public_bytes(
+                encoding=serialization.Encoding.DER,
+                format=serialization.PublicFormat.SubjectPublicKeyInfo,
+            )
+            return rsa_pss_sha256_verify(der_key, message, signature)
         except Exception:
             return False
 
@@ -393,6 +555,7 @@ class SelectiveDisclosureCrypto:
     Cryptographic operations for selective disclosure
 
     Implements hash-based selective disclosure according to ISO 18013-5.
+    Uses Rust bindings for cryptographic operations.
     """
 
     @staticmethod
@@ -414,17 +577,17 @@ class SelectiveDisclosureCrypto:
         try:
             # Create digest array [DigestID, Random, ElementIdentifier, ElementValue]
             digest_id = int.from_bytes(
-                hashlib.sha256(
+                sha256(
                     namespace.encode("utf-8") + element_identifier.encode("utf-8") + random_value
-                ).digest()[:4],
+                )[:4],
                 "big",
             )
 
             digest_data = [digest_id, random_value, element_identifier, element_value]
 
-            # Encode as CBOR and hash
+            # Encode as CBOR and hash using Rust
             cbor_data = cbor2.dumps(digest_data)
-            digest_hash = hashlib.sha256(cbor_data).digest()
+            digest_hash = sha256(cbor_data)
 
             return digest_id, digest_hash
 
@@ -451,10 +614,10 @@ class SelectiveDisclosureCrypto:
                 element_id = item["elementIdentifier"]
                 element_value = item["elementValue"]
 
-                # Create digest for verification
+                # Create digest for verification using Rust
                 digest_data = [digest_id, random_value, element_id, element_value]
                 cbor_data = cbor2.dumps(digest_data)
-                digest_hash = hashlib.sha256(cbor_data).digest()
+                digest_hash = sha256(cbor_data)
 
                 digest_mapping[digest_id] = digest_hash
 
@@ -554,16 +717,15 @@ class KeyManager:
             key_info = f"ISO18013-5 DeviceBinding {document_id}".encode()
 
             # Get private key scalar
+            from cryptography.hazmat.primitives import serialization
             private_bytes = device_private_key.private_bytes(
                 encoding=serialization.Encoding.Raw,
                 format=serialization.PrivateFormat.Raw,
                 encryption_algorithm=serialization.NoEncryption(),
             )
 
-            # Derive binding key using HKDF
-            hkdf = HKDF(algorithm=hashes.SHA256(), length=32, salt=b"", info=key_info)
-
-            return hkdf.derive(private_bytes)
+            # Derive binding key using Rust HKDF
+            return hkdf_sha256(private_bytes, b"", key_info, 32)
 
         except Exception as e:
             raise CryptoError(f"Device binding key derivation failed: {e}")
@@ -571,7 +733,7 @@ class KeyManager:
 
 def generate_random_bytes(length: int) -> bytes:
     """
-    Generate cryptographically secure random bytes
+    Generate cryptographically secure random bytes using Rust.
 
     Args:
         length: Number of bytes to generate
@@ -579,7 +741,7 @@ def generate_random_bytes(length: int) -> bytes:
     Returns:
         Random bytes
     """
-    return os.urandom(length)
+    return _generate_random_bytes(length)
 
 
 def constant_time_compare(a: bytes, b: bytes) -> bool:

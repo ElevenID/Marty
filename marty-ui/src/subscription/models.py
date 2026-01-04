@@ -95,6 +95,38 @@ class MembershipMode(str, enum.Enum):
     OPEN = "open"                    # Anyone can join directly
 
 
+class TrustFramework(str, enum.Enum):
+    """Supported trust frameworks for credential issuance."""
+    
+    MARTY_HOSTED = "marty_hosted"      # Marty-managed PKI (default)
+    BYOK = "byok"                      # Bring your own keys/certs
+    MDL_IACA = "mdl_iaca"              # mDL Issuer Authority Certificate Authority
+    EBSI = "ebsi"                      # European Blockchain Services Infrastructure
+    CUSTOM = "custom"                  # Custom trust anchor configuration
+
+
+class IssuerKeySource(str, enum.Enum):
+    """Source of issuer signing keys."""
+    
+    MARTY_GENERATED = "marty_generated"  # Keys generated and managed by Marty
+    IMPORTED = "imported"                 # Keys imported by organization (BYOK)
+    HSM = "hsm"                          # Hardware Security Module
+    CLOUD_KMS = "cloud_kms"              # Cloud Key Management Service (AWS, Azure, GCP)
+
+
+class IssuanceStatus(str, enum.Enum):
+    """Status of a credential issuance session."""
+    
+    PENDING = "pending"                # Offer created, awaiting wallet acceptance
+    ACCEPTED = "accepted"              # Wallet accepted offer, processing
+    DEFERRED = "deferred"              # Async generation, use transaction_id to poll
+    READY = "ready"                    # Credential ready for pickup
+    ISSUED = "issued"                  # Credential delivered to wallet
+    EXPIRED = "expired"                # Offer expired before acceptance
+    FAILED = "failed"                  # Issuance failed
+    REVOKED = "revoked"                # Credential was revoked after issuance
+
+
 class MembershipRequestStatus(str, enum.Enum):
     """Status of a membership request."""
     
@@ -402,11 +434,13 @@ class DeviceRegistration(Base):
     """Device registration model.
 
     Tracks registered devices for push notifications and credential storage.
+    Devices can be registered per-organization for org-specific push notifications.
 
     Attributes:
         id: Unique device registration ID
         device_id: Device-provided unique identifier
         user_id: Keycloak user ID who owns the device
+        organization_id: Optional org ID for org-scoped registrations
         fcm_token: Firebase Cloud Messaging token
         platform: Device platform (ios, android, web)
         app_version: App version string
@@ -422,6 +456,9 @@ class DeviceRegistration(Base):
     id = Column(String(36), primary_key=True)
     device_id = Column(String(255), unique=True, nullable=False, index=True)
     user_id = Column(String(36), nullable=False, index=True)
+    
+    # Organization context (for org-scoped push notifications)
+    organization_id = Column(String(36), ForeignKey("organizations.id"), nullable=True, index=True)
     
     # Push notification token
     fcm_token = Column(String(512), nullable=True)
@@ -947,3 +984,267 @@ def get_tier_limit(tier: SubscriptionTier, metric: str) -> int:
     if isinstance(metric, UsageMetric):
         return tier_config.get(metric, 0)
     return tier_config.get(metric, 0)
+
+
+# ==================== Trust Configuration Models ====================
+
+
+class OrganizationTrustConfig(Base):
+    """Organization trust configuration for credential issuance.
+
+    Defines the trust framework and key management strategy for an organization's
+    credential issuance. Supports Marty-hosted PKI (default) or BYOK (bring your
+    own keys/certificates from existing PKI).
+
+    Attributes:
+        id: Unique configuration ID
+        organization_id: Parent organization ID
+        trust_framework: Selected trust framework (marty_hosted, byok, mdl_iaca, etc.)
+        key_source: Where signing keys come from
+        is_configured: Whether trust config has been completed
+        root_ca_certificate: PEM-encoded root CA cert (for BYOK)
+        intermediate_certificates: PEM-encoded intermediate certs chain (for BYOK)
+        issuer_certificate: PEM-encoded issuer signing cert (for BYOK)
+        trust_anchor_url: URL to trust registry/anchor (for mdl_iaca, ebsi)
+        policy_uri: URL to credential policy document
+        terms_of_use_uri: URL to terms of use
+        settings: Additional trust framework settings (JSON)
+    """
+
+    __tablename__ = "organization_trust_configs"
+
+    id = Column(String(36), primary_key=True)
+    organization_id = Column(String(36), ForeignKey("organizations.id"), nullable=False, unique=True)
+    
+    # Trust framework selection
+    trust_framework = Column(
+        SQLEnum(TrustFramework),
+        default=TrustFramework.MARTY_HOSTED,
+        nullable=False,
+    )
+    key_source = Column(
+        SQLEnum(IssuerKeySource),
+        default=IssuerKeySource.MARTY_GENERATED,
+        nullable=False,
+    )
+    is_configured = Column(Boolean, default=False, nullable=False)
+    
+    # BYOK certificate chain (PEM-encoded)
+    root_ca_certificate = Column(Text, nullable=True)
+    intermediate_certificates = Column(Text, nullable=True)  # Multiple certs concatenated
+    issuer_certificate = Column(Text, nullable=True)
+    
+    # Trust anchor reference (for external trust frameworks)
+    trust_anchor_url = Column(String(1024), nullable=True)
+    trust_anchor_did = Column(String(255), nullable=True)
+    
+    # Policy and terms
+    policy_uri = Column(String(1024), nullable=True)
+    terms_of_use_uri = Column(String(1024), nullable=True)
+    
+    # Additional settings (JSON)
+    settings = Column(JSON, default=dict)
+    
+    # Timestamps
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Relationships
+    organization = relationship("Organization", backref="trust_config", uselist=False)
+    issuer_keys = relationship("IssuerKeyConfig", back_populates="trust_config", cascade="all, delete-orphan")
+
+    def __repr__(self) -> str:
+        return f"<OrganizationTrustConfig(org={self.organization_id}, framework={self.trust_framework})>"
+
+
+class IssuerKeyConfig(Base):
+    """Issuer signing key configuration.
+
+    Stores issuer signing keys for credential issuance. For Marty-hosted,
+    keys are generated automatically. For BYOK, keys are imported.
+
+    Attributes:
+        id: Unique key configuration ID
+        trust_config_id: Parent trust configuration ID
+        key_id: Key identifier (kid in JWK)
+        algorithm: Signing algorithm (ES256, EdDSA, etc.)
+        key_type: Key type (EC, OKP, RSA)
+        did: DID for this key (did:key, did:web, etc.)
+        jwk_public: Public JWK (JSON)
+        jwk_private_encrypted: Encrypted private JWK (JSON) - only for Marty-hosted
+        x509_certificate: PEM-encoded certificate (for BYOK with X.509)
+        is_active: Whether this key is currently active for signing
+        is_default: Whether this is the default signing key
+        valid_from: Key validity start
+        valid_until: Key validity end
+    """
+
+    __tablename__ = "issuer_key_configs"
+
+    id = Column(String(36), primary_key=True)
+    trust_config_id = Column(String(36), ForeignKey("organization_trust_configs.id"), nullable=False)
+    
+    # Key identification
+    key_id = Column(String(255), nullable=False)  # kid in JWK
+    algorithm = Column(String(50), nullable=False, default="ES256")  # ES256, EdDSA, RS256
+    key_type = Column(String(20), nullable=False, default="EC")  # EC, OKP, RSA
+    
+    # DID representation
+    did = Column(String(255), nullable=True)
+    did_method = Column(String(50), nullable=True)  # key, web, jwk, etc.
+    
+    # Key material
+    jwk_public = Column(JSON, nullable=True)  # Public key as JWK
+    jwk_private_encrypted = Column(Text, nullable=True)  # Encrypted private key (Marty-hosted only)
+    x509_certificate = Column(Text, nullable=True)  # PEM certificate (BYOK)
+    
+    # Status
+    is_active = Column(Boolean, default=True, nullable=False)
+    is_default = Column(Boolean, default=False, nullable=False)
+    
+    # Validity period
+    valid_from = Column(DateTime, default=datetime.utcnow, nullable=False)
+    valid_until = Column(DateTime, nullable=True)
+    
+    # Timestamps
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Relationships
+    trust_config = relationship("OrganizationTrustConfig", back_populates="issuer_keys")
+
+    def __repr__(self) -> str:
+        return f"<IssuerKeyConfig(id={self.id}, kid={self.key_id}, alg={self.algorithm})>"
+
+
+# ==================== Issuance Session Models ====================
+
+
+class IssuanceSession(Base):
+    """Credential issuance session tracking.
+
+    Links an application approval to the OID4VCI credential offer and delivery.
+    Supports both synchronous and deferred (async) credential generation via
+    transaction_id polling.
+
+    Attributes:
+        id: Unique session ID (also used as c_nonce)
+        transaction_id: OID4VCI transaction_id for deferred issuance
+        organization_id: Issuing organization
+        application_id: Source application (if from application flow)
+        credential_config_id: Credential type configuration used
+        applicant_id: Recipient applicant/user ID
+        status: Current issuance status
+        pre_authorized_code: OID4VCI pre-authorized code
+        access_token_hash: Hash of issued access token
+        credential_format: Requested format (jwt_vc_json, vc+sd-jwt, mso_mdoc)
+        credential_data: Claim values for the credential (JSON)
+        issued_credential: The issued credential (stored after generation)
+        error_message: Error details if failed
+        expires_at: When the offer/session expires
+    """
+
+    __tablename__ = "issuance_sessions"
+
+    id = Column(String(36), primary_key=True)
+    transaction_id = Column(String(64), unique=True, nullable=False, index=True)
+    
+    # Relationships
+    organization_id = Column(String(36), ForeignKey("organizations.id"), nullable=False)
+    application_id = Column(String(36), nullable=True)  # Optional - not all issuances come from applications
+    credential_config_id = Column(String(36), ForeignKey("credential_type_configurations.id"), nullable=False)
+    applicant_id = Column(String(36), nullable=False)  # Keycloak user ID
+    device_id = Column(String(255), nullable=True)  # Target device for push notification
+    
+    # Status tracking
+    status = Column(
+        SQLEnum(IssuanceStatus),
+        default=IssuanceStatus.PENDING,
+        nullable=False,
+    )
+    
+    # OID4VCI protocol fields
+    pre_authorized_code = Column(String(64), unique=True, nullable=True, index=True)
+    access_token_hash = Column(String(128), nullable=True)
+    c_nonce = Column(String(64), nullable=True)  # Challenge nonce for proof of possession
+    c_nonce_expires_at = Column(DateTime, nullable=True)
+    
+    # Credential details
+    credential_format = Column(String(50), default="vc+sd-jwt", nullable=False)
+    credential_data = Column(JSON, nullable=True)  # Claim values
+    issued_credential = Column(Text, nullable=True)  # The actual credential (JWT, SD-JWT, etc.)
+    credential_id = Column(String(255), nullable=True)  # External credential ID after issuance
+    
+    # Error handling
+    error_code = Column(String(100), nullable=True)
+    error_message = Column(Text, nullable=True)
+    
+    # Retry tracking for deferred issuance
+    retry_count = Column(Integer, default=0, nullable=False)
+    last_retry_at = Column(DateTime, nullable=True)
+    
+    # Timing
+    expires_at = Column(DateTime, nullable=False)
+    accepted_at = Column(DateTime, nullable=True)
+    issued_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Relationships
+    organization = relationship("Organization")
+    credential_config = relationship("CredentialTypeConfiguration")
+
+    def __repr__(self) -> str:
+        return f"<IssuanceSession(id={self.id}, txn={self.transaction_id}, status={self.status})>"
+
+    @property
+    def is_expired(self) -> bool:
+        """Check if the session has expired."""
+        return datetime.utcnow() > self.expires_at
+
+    @property
+    def is_deferred(self) -> bool:
+        """Check if this is a deferred issuance."""
+        return self.status == IssuanceStatus.DEFERRED
+
+
+class CredentialOffer(Base):
+    """OID4VCI Credential Offer tracking.
+
+    Stores the credential offer URI and metadata for wallet retrieval.
+    Multiple offers can be created for a single issuance session (e.g., retry).
+
+    Attributes:
+        id: Unique offer ID
+        issuance_session_id: Parent issuance session
+        offer_uri: Full credential_offer_uri for wallet
+        offer_payload: The credential offer JSON
+        qr_code_data: Base64-encoded QR code image
+        is_active: Whether this offer is still valid
+        accessed_at: When the offer was accessed by wallet
+    """
+
+    __tablename__ = "credential_offers"
+
+    id = Column(String(36), primary_key=True)
+    issuance_session_id = Column(String(36), ForeignKey("issuance_sessions.id"), nullable=False)
+    
+    # Offer content
+    offer_uri = Column(String(2048), nullable=False)
+    offer_payload = Column(JSON, nullable=False)  # The credential_offer JSON
+    qr_code_data = Column(Text, nullable=True)  # Base64 QR code
+    
+    # Status
+    is_active = Column(Boolean, default=True, nullable=False)
+    accessed_at = Column(DateTime, nullable=True)
+    access_count = Column(Integer, default=0, nullable=False)
+    
+    # Timing
+    expires_at = Column(DateTime, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    
+    # Relationships
+    issuance_session = relationship("IssuanceSession", backref="offers")
+
+    def __repr__(self) -> str:
+        return f"<CredentialOffer(id={self.id}, session={self.issuance_session_id})>"

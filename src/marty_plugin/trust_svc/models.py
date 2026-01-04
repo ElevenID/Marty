@@ -325,23 +325,3 @@ class MetricsResponse(BaseModel):
     """Prometheus metrics response."""
 
     metrics: dict[str, Any] = Field(default_factory=dict)
-
-
-# Development and Testing Models
-class DevJobRequest(BaseModel):
-    """Development job request."""
-
-    job_type: str = "load_synthetic"
-    country_code: str = "DEV"
-    certificate_count: int = 25
-    output_format: str = "json"
-
-
-class DevJobResponse(BaseModel):
-    """Development job response."""
-
-    success: bool
-    job_id: str
-    message: str
-    statistics: dict[str, Any] = Field(default_factory=dict)
-    duration_seconds: float

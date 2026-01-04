@@ -5,7 +5,7 @@ This module provides comprehensive MRZ composition and validation utilities
 that are consistent across all document types (passports, visas, ID cards).
 
 Key features:
-- Doc 9303 compliant check digit calculation (weights [7,3,1], character mapping)
+- Doc 9303 compliant check digit calculation (via Rust marty_rs)
 - Standardized name formatting with ASCII transliteration and truncation
 - Date validation with leap year support and document-specific policies
 - Field truncation and padding with proper filler character handling
@@ -24,6 +24,11 @@ import unicodedata
 from datetime import date
 from enum import Enum
 from typing import ClassVar
+
+from marty_plugin.common.crypto_bridge import (
+    compute_check_digit as _rust_compute_check_digit,
+    validate_check_digit as _rust_validate_check_digit,
+)
 
 
 class MRZDocumentType(str, Enum):
@@ -189,7 +194,7 @@ class MRZStandardizedUtils:
         """
         Compute check digit according to Doc 9303 specifications.
 
-        Uses character mapping (0-9 → 0-9, A-Z → 10-35, < → 0) and weights [7,3,1].
+        Uses Rust implementation via marty_rs for correctness and performance.
 
         Args:
             data: Input string to compute check digit for
@@ -199,19 +204,14 @@ class MRZStandardizedUtils:
         """
         if not data:
             return "0"
-
-        total = 0
-        for i, char in enumerate(data.upper()):
-            char_value = cls.CHARACTER_VALUES.get(char, 0)
-            weight = cls.CHECK_DIGIT_WEIGHTS[i % 3]
-            total += char_value * weight
-
-        return str(total % 10)
+        return _rust_compute_check_digit(data)
 
     @classmethod
     def validate_check_digit(cls, data: str, check_digit: str) -> bool:
         """
         Validate a check digit against the computed value.
+
+        Uses Rust implementation via marty_rs for correctness and performance.
 
         Args:
             data: Input data
@@ -220,8 +220,9 @@ class MRZStandardizedUtils:
         Returns:
             True if valid, False otherwise
         """
-        computed = cls.compute_check_digit(data)
-        return computed == check_digit
+        if not data:
+            return check_digit == "0"
+        return _rust_validate_check_digit(data, check_digit)
 
     @classmethod
     def ascii_transliterate(cls, text: str) -> str:

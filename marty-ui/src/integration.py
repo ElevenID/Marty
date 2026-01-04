@@ -317,7 +317,7 @@ class ApplicantDocumentIntegration:
         # Emit a notification for the applicant.
         if applicant.account_id:
             try:
-                from notifications.store import record_notification
+                from notifications_local.store import record_notification
 
                 record_notification(
                     user_id=applicant.account_id,

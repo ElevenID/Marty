@@ -6,8 +6,6 @@ Supports mobile wallet device registration for push challenges.
 """
 from __future__ import annotations
 
-import asyncio
-import json
 import logging
 from datetime import datetime, timezone
 from typing import Annotated, Any, AsyncIterator, Optional
@@ -17,9 +15,12 @@ from fastapi import APIRouter, Depends, HTTPException, Header, Path, Query, stat
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from .device_registry import DeviceInfo, DeviceRegistry, DeviceRegistration
-from .adapters.mock import MockNotificationAdapter
-from .adapters.sse import SSEAdapter, SSEConnection
+from .device_registry import DeviceInfo, DeviceRegistry
+from .challenge_store import ChallengeStore
+from .adapters.sse import SSEAdapter
+from .adapters.fcm import FCMAdapter
+from .signing import get_server_public_key_der_base64, sign_challenge, get_signer
+from .types import MartyChallengePayload, ChallengeOption, NotificationTarget
 
 logger = logging.getLogger(__name__)
 
@@ -28,11 +29,31 @@ router = APIRouter(prefix="/api/devices", tags=["devices"])
 # Global SSE adapter instance - configured at app startup
 _sse_adapter: Optional[SSEAdapter] = None
 
+# Global FCM adapter instance - configured at app startup
+_fcm_adapter: Optional[FCMAdapter] = None
+
 
 def configure_sse_adapter(adapter: SSEAdapter) -> None:
     """Configure the global SSE adapter. Called at app startup."""
     global _sse_adapter
     _sse_adapter = adapter
+
+
+def configure_fcm_adapter(adapter: FCMAdapter) -> None:
+    """Configure the global FCM adapter. Called at app startup."""
+    global _fcm_adapter
+    _fcm_adapter = adapter
+    logger.info("FCM adapter configured")
+
+
+def get_fcm_adapter() -> Optional[FCMAdapter]:
+    """
+    Get the configured FCM adapter.
+    
+    Returns None if Firebase is not configured, allowing
+    the system to run in polling-only mode.
+    """
+    return _fcm_adapter
 
 
 # =============================================================================
@@ -89,6 +110,10 @@ class DeviceRegistrationResponse(BaseModel):
     organization_id: Optional[str] = None
     public_key_kid: Optional[str] = None
     registered_at: datetime
+    server_public_key: Optional[str] = Field(
+        None,
+        description="Server's RSA public key in base64-encoded DER format for verifying challenge signatures",
+    )
     
     class Config:
         from_attributes = True
@@ -205,10 +230,24 @@ async def get_device_registry() -> DeviceRegistry:
     )
 
 
-async def get_mock_adapter() -> Optional[MockNotificationAdapter]:
-    """Get mock adapter for testing. Only available in test mode."""
-    # Returns None in production, configured in test mode
-    return None
+# Global challenge store instance - configured at app startup
+_challenge_store: Optional[ChallengeStore] = None
+
+
+def configure_challenge_store(store: ChallengeStore) -> None:
+    """Configure the global challenge store. Called at app startup."""
+    global _challenge_store
+    _challenge_store = store
+
+
+def get_challenge_store() -> ChallengeStore:
+    """Get the challenge store instance. Fails if not configured."""
+    if _challenge_store is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Challenge store not configured",
+        )
+    return _challenge_store
 
 
 def parse_device_id(device_id: str) -> tuple[Optional[UUID], str]:
@@ -286,12 +325,16 @@ async def register_device(
     
     logger.info(f"Device registered: {request.device_id} for user {user_id}")
     
+    # Get server public key for signature verification (if signing is configured)
+    server_public_key = get_server_public_key_der_base64()
+    
     return DeviceRegistrationResponse(
         device_id=registration.device_id,
         registration_id=str(registration.id),
         organization_id=str(registration.organization_id) if registration.organization_id else None,
         public_key_kid=registration.public_key_kid,
         registered_at=registration.created_at,
+        server_public_key=server_public_key,
     )
 
 
@@ -409,6 +452,9 @@ async def list_devices(
         organization_id=org_uuid,
     )
     
+    # Get server public key for the list response
+    server_public_key = get_server_public_key_der_base64()
+    
     return DeviceListResponse(
         devices=[
             DeviceRegistrationResponse(
@@ -416,6 +462,7 @@ async def list_devices(
                 registration_id=str(d.id),
                 organization_id=str(d.organization_id) if d.organization_id else None,
                 registered_at=d.created_at,
+                server_public_key=server_public_key,
             )
             for d in devices
         ],
@@ -428,6 +475,20 @@ async def list_devices(
 # =============================================================================
 
 push_router = APIRouter(prefix="/api/push", tags=["push-notifications"])
+
+
+class ChallengeOptionInput(BaseModel):
+    """An option for multi-choice challenges."""
+    id: str = Field(
+        ...,
+        description="Unique identifier sent in response",
+        max_length=50,
+    )
+    label: str = Field(
+        ...,
+        description="Display text for the button",
+        max_length=100,
+    )
 
 
 class CreateChallengeRequest(BaseModel):
@@ -445,6 +506,11 @@ class CreateChallengeRequest(BaseModel):
     credential_id: Optional[str] = Field(
         None,
         description="Specific credential ID to use, or any if not specified",
+    )
+    options: Optional[list[ChallengeOptionInput]] = Field(
+        None,
+        description="Options for multi-choice challenges, displayed as buttons. If not provided, defaults to Accept/Reject.",
+        max_length=6,
     )
     data: Optional[dict[str, Any]] = Field(
         default_factory=dict,
@@ -494,14 +560,15 @@ async def create_challenge(
     request: CreateChallengeRequest,
     x_relying_party_id: Annotated[str, Header(description="Relying party identifier")],
     registry: DeviceRegistry = Depends(get_device_registry),
-    mock_adapter: Optional[MockNotificationAdapter] = Depends(get_mock_adapter),
+    challenge_store: ChallengeStore = Depends(get_challenge_store),
 ) -> ChallengeCreatedResponse:
     """Create a push authentication challenge for a device."""
     import secrets
     
-    # Get SSE adapter if configured (optional)
-    global _sse_adapter
+    # Get adapters
+    global _sse_adapter, _fcm_adapter
     sse_adapter = _sse_adapter
+    fcm_adapter = _fcm_adapter
     
     # Verify device exists and is registered
     device = await registry.get_device_by_id(device_id)
@@ -517,6 +584,73 @@ async def create_challenge(
     now = datetime.now(timezone.utc)
     expires_at = datetime.fromtimestamp(now.timestamp() + request.ttl_seconds, tz=timezone.utc)
     
+    # Build options (default to Accept/Reject if not provided)
+    if request.options:
+        options = [ChallengeOption(id=opt.id, label=opt.label) for opt in request.options]
+    else:
+        options = [
+            ChallengeOption(id="accept", label="Approve"),
+            ChallengeOption(id="reject", label="Deny"),
+        ]
+    
+    # Build Marty challenge payload
+    challenge = MartyChallengePayload(
+        challenge_id=challenge_id,
+        device_id=device_id,
+        title=request.title,
+        question=request.question,
+        nonce=nonce,
+        options=options,
+        ttl_seconds=request.ttl_seconds,
+        created_at=now,
+        credential_id=request.credential_id,
+        relying_party_id=x_relying_party_id,
+        require_signature=request.require_signature,
+        data=request.data or {},
+    )
+    
+    # Sign the challenge (if signing is configured)
+    signer = get_signer()
+    if signer:
+        challenge = sign_challenge(challenge)
+    else:
+        logger.warning("Challenge signing not configured - challenge will be unsigned")
+    
+    delivery_method = "poll"
+    
+    # Platform-based routing:
+    # - Web (platform == "web"): Use SSE only
+    # - Mobile (platform == "ios" or "android"): Use FCM, skip SSE
+    is_web_platform = device.platform == "web"
+    
+    if is_web_platform and sse_adapter:
+        # Web clients: deliver via SSE
+        try:
+            payload = challenge.to_notification_payload()
+            payload.target = NotificationTarget(user_id=device_id)
+            result = await sse_adapter.send(payload)
+            if result.success and result.metadata.get("connections", 0) > 0:
+                delivery_method = "sse"
+                logger.info(f"Challenge {challenge_id} delivered via SSE to {device_id}")
+        except Exception as e:
+            logger.debug(f"SSE delivery failed: {e}")
+    elif not is_web_platform and fcm_adapter and device.fcm_token:
+        # Mobile clients: deliver via FCM
+        try:
+            payload = challenge.to_notification_payload()
+            payload.target = NotificationTarget(device_tokens=[device.fcm_token])
+            result = await fcm_adapter.send(payload)
+            if result.success:
+                delivery_method = "fcm"
+                logger.info(f"Challenge {challenge_id} delivered via FCM to {device_id}")
+            else:
+                logger.warning(f"FCM delivery failed for {device_id}: {result.error_message}")
+        except Exception as e:
+            logger.error(f"FCM delivery error: {e}")
+    elif not is_web_platform and not fcm_adapter:
+        logger.debug(f"FCM not configured, challenge {challenge_id} will use polling")
+    
+    # Store challenge for polling (always, as fallback)
     challenge_data = {
         "challenge_id": challenge_id,
         "title": request.title,
@@ -525,46 +659,18 @@ async def create_challenge(
         "credential_id": request.credential_id,
         "relying_party_id": x_relying_party_id,
         "require_signature": request.require_signature,
+        "options": [opt.to_dict() for opt in options],
         "data": request.data or {},
         "created_at": now.isoformat(),
         "ttl_seconds": request.ttl_seconds,
+        "signature": challenge.signature,
+        "format": challenge.format,
     }
-    
-    delivery_method = "poll"
-    
-    # Try SSE first for web clients
-    if sse_adapter:
-        try:
-            from .types import NotificationPayload, NotificationTarget
-            
-            payload = NotificationPayload(
-                id=UUID(challenge_id),
-                title=request.title,
-                body=request.question,
-                event_type="push_challenge",
-                data=challenge_data,
-                created_at=now,
-                target=NotificationTarget(user_id=device_id),
-            )
-            result = await sse_adapter.send(payload)
-            if result.success and result.metadata.get("connections", 0) > 0:
-                delivery_method = "sse"
-                logger.info(f"Challenge {challenge_id} delivered via SSE to {device_id}")
-        except Exception as e:
-            logger.debug(f"SSE delivery failed, will try FCM: {e}")
-    
-    # Store challenge for polling (regardless of delivery method for reliability)
-    if mock_adapter:
-        await mock_adapter.create_push_challenge(
-            device_id=device_id,
-            challenge_data=challenge_data,
-            ttl_seconds=request.ttl_seconds,
-        )
-    
-    # TODO: Add FCM delivery for mobile apps when device has fcm_token
-    # if delivery_method == "poll" and device.fcm_token:
-    #     # Send via FCM
-    #     delivery_method = "fcm"
+    await challenge_store.create_challenge(
+        device_id=device_id,
+        challenge_data=challenge_data,
+        ttl_seconds=request.ttl_seconds,
+    )
     
     return ChallengeCreatedResponse(
         challenge_id=challenge_id,
@@ -592,7 +698,7 @@ async def create_challenge(
 )
 async def get_pending_challenges(
     device_id: Annotated[str, Query(description="Device ID to get challenges for")],
-    mock_adapter: Optional[MockNotificationAdapter] = Depends(get_mock_adapter),
+    challenge_store: ChallengeStore = Depends(get_challenge_store),
     registry: DeviceRegistry = Depends(get_device_registry),
 ) -> ChallengeListResponse:
     """Get pending challenges for a device."""
@@ -604,12 +710,7 @@ async def get_pending_challenges(
             detail="Device not registered",
         )
     
-    # Use mock adapter for challenge storage (in production this would be Redis/DB)
-    if not mock_adapter:
-        # Return empty list if no adapter configured
-        return ChallengeListResponse(challenges=[], count=0)
-    
-    challenges = await mock_adapter.get_pending_challenges(device_id)
+    challenges = await challenge_store.get_pending_challenges(device_id)
     
     return ChallengeListResponse(
         challenges=[
@@ -646,7 +747,7 @@ async def respond_to_challenge(
     challenge_id: Annotated[str, Path(description="Challenge ID to respond to")],
     device_id: Annotated[str, Query(description="Device ID responding")],
     request: ChallengeResponseRequest,
-    mock_adapter: Optional[MockNotificationAdapter] = Depends(get_mock_adapter),
+    challenge_store: ChallengeStore = Depends(get_challenge_store),
     registry: DeviceRegistry = Depends(get_device_registry),
 ) -> dict[str, Any]:
     """Respond to a push challenge."""
@@ -667,23 +768,11 @@ async def respond_to_challenge(
         except Exception as e:
             logger.warning(f"Could not get public key for signature verification: {e}")
     
-    if not mock_adapter:
-        # Without a challenge store, we can't verify the challenge exists
-        # Return success but indicate unverified
-        return {
-            "success": True,
-            "challenge_id": challenge_id,
-            "response": request.response,
-            "signature_verified": False,
-            "warning": "No challenge store configured",
-        }
-    
-    success, error = await mock_adapter.respond_to_challenge(
+    success, error = await challenge_store.respond_to_challenge(
         device_id=device_id,
         challenge_id=challenge_id,
         response=request.response,
         signature=request.signature,
-        public_key_der=public_key_der,
     )
     
     if not success:
@@ -703,130 +792,6 @@ async def respond_to_challenge(
         "response": request.response,
         "signature_verified": bool(public_key_der and request.signature),
     }
-
-
-# =============================================================================
-# Test-Only Endpoints (only available in test mode)
-# =============================================================================
-
-test_router = APIRouter(prefix="/api/test/notifications", tags=["test-notifications"])
-
-
-@test_router.post(
-    "/challenges",
-    response_model=PushChallengeResponse,
-    status_code=status.HTTP_201_CREATED,
-    summary="[TEST] Create a push challenge",
-    description="Create a push challenge for testing. Only available in test mode.",
-)
-async def create_push_challenge(
-    device_id: Annotated[str, Query(description="Target device ID")],
-    request: PushChallengeRequest,
-    mock_adapter: Optional[MockNotificationAdapter] = Depends(get_mock_adapter),
-) -> PushChallengeResponse:
-    """Create a push challenge for testing."""
-    if not mock_adapter:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Test endpoints only available in test mode",
-        )
-    
-    challenge_data = {
-        "title": request.title,
-        "question": request.question,
-        "nonce": request.nonce,
-        "credential_id": request.credential_id,
-        "data": request.data,
-    }
-    
-    challenge_id = await mock_adapter.create_push_challenge(
-        device_id=device_id,
-        challenge_data=challenge_data,
-        ttl_seconds=request.ttl_seconds,
-    )
-    
-    now = datetime.now(timezone.utc)
-    
-    return PushChallengeResponse(
-        challenge_id=challenge_id,
-        device_id=device_id,
-        created_at=now,
-        expires_at=datetime.fromtimestamp(
-            now.timestamp() + request.ttl_seconds, tz=timezone.utc
-        ),
-    )
-
-
-@test_router.get(
-    "",
-    summary="[TEST] Get all stored notifications",
-    description="Retrieve all notifications stored by mock adapter. For test assertions.",
-)
-async def get_all_notifications(
-    limit: Annotated[int, Query(ge=1, le=100)] = 50,
-    event_type: Annotated[Optional[str], Query(description="Filter by event type")] = None,
-    mock_adapter: Optional[MockNotificationAdapter] = Depends(get_mock_adapter),
-) -> dict[str, Any]:
-    """Get all stored notifications."""
-    if not mock_adapter:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Test endpoints only available in test mode",
-        )
-    
-    if event_type:
-        notifications = await mock_adapter.get_notifications_by_event_type(
-            event_type=event_type,
-            limit=limit,
-        )
-    else:
-        notifications = await mock_adapter.get_all_notifications(limit=limit)
-    
-    return {
-        "notifications": notifications,
-        "count": len(notifications),
-    }
-
-
-@test_router.delete(
-    "",
-    status_code=status.HTTP_204_NO_CONTENT,
-    response_model=None,
-    summary="[TEST] Clear all stored notifications",
-    description="Clear all notifications from mock storage. For test cleanup.",
-)
-async def clear_all_notifications(
-    mock_adapter: Optional[MockNotificationAdapter] = Depends(get_mock_adapter),
-):
-    """Clear all stored notifications."""
-    if not mock_adapter:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Test endpoints only available in test mode",
-        )
-    
-    await mock_adapter.clear_all_notifications()
-
-
-@test_router.delete(
-    "/challenges",
-    status_code=status.HTTP_204_NO_CONTENT,
-    response_model=None,
-    summary="[TEST] Clear all push challenges",
-    description="Clear all push challenges from mock storage.",
-)
-async def clear_all_challenges(
-    device_id: Annotated[Optional[str], Query(description="Device ID to clear, or all if not specified")] = None,
-    mock_adapter: Optional[MockNotificationAdapter] = Depends(get_mock_adapter),
-):
-    """Clear push challenges."""
-    if not mock_adapter:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Test endpoints only available in test mode",
-        )
-    
-    await mock_adapter.clear_challenges(device_id=device_id)
 
 
 # =============================================================================

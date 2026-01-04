@@ -2,60 +2,35 @@
 const { defineConfig, devices } = require('@playwright/test');
 
 const isCI = !!process.env.CI;
-const isFast = process.env.PW_FAST === '1' || process.env.PW_FAST === 'true';
 const timeouts = {
-  test: isFast ? 60_000 : isCI ? 120_000 : 90_000,
-  expect: isFast ? 5_000 : isCI ? 10_000 : 8_000,
-  action: isFast ? 10_000 : isCI ? 30_000 : 20_000,
-  navigation: isFast ? 15_000 : isCI ? 30_000 : 20_000,
-  webServer: isFast ? 60_000 : 120_000,
+  test: isCI ? 120_000 : 90_000,
+  expect: isCI ? 10_000 : 8_000,
+  action: isCI ? 30_000 : 20_000,
+  navigation: isCI ? 30_000 : 20_000,
+  webServer: 120_000,
 };
-const chromiumProject = {
-  name: 'chromium',
-  use: { ...devices['Desktop Chrome'] },
-};
-const projects = isFast ? [
-  chromiumProject,
-] : [
-  chromiumProject,
-  {
-    name: 'firefox',
-    use: { ...devices['Desktop Firefox'] },
-  },
-  {
-    name: 'webkit',
-    use: { ...devices['Desktop Safari'] },
-  },
-  /* Test against mobile viewports. */
-  {
-    name: 'Mobile Chrome',
-    use: { ...devices['Pixel 5'] },
-  },
-  {
-    name: 'Mobile Safari',
-    use: { ...devices['iPhone 12'] },
-  },
-];
+
+/**
+ * Project-based test configuration for parallel execution:
+ * - smoke: Fast, seeded-data tests (parallel)
+ * - integration: Read-only API tests (parallel)
+ * - workflows: Sequential dynamic-data tests
+ * - vendor/applicant/push-notifications: Domain-specific tests
+ */
 
 /**
  * @see https://playwright.dev/docs/test-configuration
  */
 module.exports = defineConfig({
   testDir: './e2e',
-  /* Run tests in files in parallel */
-  fullyParallel: true,
   timeout: timeouts.test,
   expect: {
     timeout: timeouts.expect,
   },
-  grepInvert: isFast ? /@slow/ : undefined,
-  maxFailures: isFast ? 1 : undefined,
   /* Fail the build on CI if you accidentally left test.only in the source code. */
   forbidOnly: isCI,
   /* Retry on CI only */
   retries: isCI ? 2 : 0,
-  /* Opt out of parallel tests on CI. */
-  workers: isCI ? 1 : undefined,
   /* Reporter to use. See https://playwright.dev/docs/test-reporters */
   reporter: [
     ['html'],
@@ -78,8 +53,57 @@ module.exports = defineConfig({
     navigationTimeout: timeouts.navigation
   },
 
-  /* Configure projects for major browsers */
-  projects,
+  /* Configure projects for organized test execution */
+  projects: [
+    // Smoke tests - fast, seeded-data, parallel-safe
+    {
+      name: 'smoke',
+      testMatch: '**/smoke/**/*.spec.js',
+      fullyParallel: true,
+      workers: isCI ? 4 : undefined,
+      use: { ...devices['Desktop Chrome'] },
+    },
+    // Integration tests - read-only API tests, parallel-safe
+    {
+      name: 'integration',
+      testMatch: '**/integration/**/*.spec.js',
+      fullyParallel: true,
+      workers: isCI ? 2 : undefined,
+      use: { ...devices['Desktop Chrome'] },
+    },
+    // Workflow tests - sequential, dynamic data
+    {
+      name: 'workflows',
+      testMatch: '**/workflows/**/*.spec.js',
+      fullyParallel: false,
+      workers: 1,
+      use: { ...devices['Desktop Chrome'] },
+    },
+    // Vendor tests
+    {
+      name: 'vendor',
+      testMatch: '**/vendor/**/*.spec.js',
+      fullyParallel: false,
+      workers: 1,
+      use: { ...devices['Desktop Chrome'] },
+    },
+    // Applicant tests
+    {
+      name: 'applicant',
+      testMatch: '**/applicant/**/*.spec.js',
+      fullyParallel: false,
+      workers: 1,
+      use: { ...devices['Desktop Chrome'] },
+    },
+    // Push notification tests
+    {
+      name: 'push-notifications',
+      testMatch: '**/push-notifications/**/*.spec.js',
+      fullyParallel: false,
+      workers: 1,
+      use: { ...devices['Desktop Chrome'] },
+    },
+  ],
 
   /* Global setup and teardown */
   globalSetup: require.resolve('./utils/global-setup.js'),

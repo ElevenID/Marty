@@ -2,7 +2,6 @@
 resolver = "2"
 members = [
     "src-tauri",
-    "crates/marty-secure-storage",
     "crates/marty-license",
     "crates/marty-biometrics",
     "crates/marty-sync",
@@ -69,9 +68,12 @@ uuid = { version = "1.11", features = ["v4", "serde"] }
 # HTTP client (for sync)
 reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
 
+# External crates from marty-core
+marty-crypto = { path = "../../marty-core/marty-crypto" }
+marty-verification = { path = "../../marty-core/marty-verification", features = ["serde"] }
+marty-secure-storage = { path = "../../marty-core/marty-secure-storage" }
+
 # Internal crates
-marty-verification = { path = "../rust/marty-verification" }
-marty-secure-storage = { path = "crates/marty-secure-storage" }
 marty-license = { path = "crates/marty-license" }
 marty-biometrics = { path = "crates/marty-biometrics" }
 marty-sync = { path = "crates/marty-sync" }

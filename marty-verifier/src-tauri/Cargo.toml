@@ -58,8 +58,9 @@ marty-sync.workspace = true
 marty-biometrics = { workspace = true, optional = true }
 marty-reporting = { workspace = true, optional = true }
 
-# Verification (from parent workspace)
-marty-verification = { path = "../../rust/marty-verification", default-features = false, features = ["iaca", "csca", "serde"] }
+# Verification crates from marty-core (via workspace)
+marty-verification.workspace = true
+marty-crypto.workspace = true
 
 [build-dependencies]
 tauri-build.workspace = true

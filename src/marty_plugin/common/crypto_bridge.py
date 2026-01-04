@@ -55,10 +55,13 @@ try:
         # ECDSA signing
         ecdsa_p256_generate as _ecdsa_p256_generate,
         ecdsa_p384_generate as _ecdsa_p384_generate,
+        ecdsa_p521_generate as _ecdsa_p521_generate,
         ecdsa_p256_sign as _ecdsa_p256_sign,
         ecdsa_p384_sign as _ecdsa_p384_sign,
+        ecdsa_p521_sign as _ecdsa_p521_sign,
         ecdsa_p256_verify as _ecdsa_p256_verify,
         ecdsa_p384_verify as _ecdsa_p384_verify,
+        ecdsa_p521_verify as _ecdsa_p521_verify,
         # RSA signing
         rsa_generate as _rsa_generate,
         rsa_pkcs1_sha256_sign as _rsa_pkcs1_sha256_sign,
@@ -164,10 +167,13 @@ except ImportError:
         p256_agree as _p256_agree,
         ecdsa_p256_generate as _ecdsa_p256_generate,
         ecdsa_p384_generate as _ecdsa_p384_generate,
+        ecdsa_p521_generate as _ecdsa_p521_generate,
         ecdsa_p256_sign as _ecdsa_p256_sign,
         ecdsa_p384_sign as _ecdsa_p384_sign,
+        ecdsa_p521_sign as _ecdsa_p521_sign,
         ecdsa_p256_verify as _ecdsa_p256_verify,
         ecdsa_p384_verify as _ecdsa_p384_verify,
+        ecdsa_p521_verify as _ecdsa_p521_verify,
         rsa_generate as _rsa_generate,
         rsa_pkcs1_sha256_sign as _rsa_pkcs1_sha256_sign,
         rsa_pkcs1_sha384_sign as _rsa_pkcs1_sha384_sign,
@@ -948,6 +954,49 @@ def ecdsa_p384_verify(public_key: bytes, message: bytes, signature: bytes) -> bo
         True if signature is valid, False otherwise
     """
     return _ecdsa_p384_verify(public_key, message, signature)
+
+
+def ecdsa_p521_generate() -> tuple[bytes, bytes]:
+    """
+    Generate a new ECDSA P-521 key pair.
+
+    Returns:
+        Tuple of (private_key, public_key)
+        Private key is 66 bytes, public key is 133 bytes (uncompressed)
+    """
+    result = _ecdsa_p521_generate()
+    return (bytes(result[0]), bytes(result[1]))
+
+
+def ecdsa_p521_sign(private_key: bytes, message: bytes) -> bytes:
+    """
+    Sign a message with ECDSA P-521 SHA-512 (ES512).
+
+    Args:
+        private_key: 66-byte private key scalar
+        message: Message to sign
+
+    Returns:
+        DER-encoded signature
+    """
+    return bytes(_ecdsa_p521_sign(private_key, message))
+
+
+def ecdsa_p521_verify(public_key: bytes, message: bytes, signature: bytes) -> bool:
+    """
+    Verify an ECDSA P-521 SHA-512 signature.
+
+    Args:
+        public_key: 133-byte uncompressed public key
+        message: Message that was signed
+        signature: DER-encoded signature
+
+    Returns:
+        True if signature is valid, False otherwise
+    """
+    return _ecdsa_p521_verify(public_key, message, signature)
+
+
 # =============================================================================
 # RSA Signing
 # =============================================================================

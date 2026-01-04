@@ -11,7 +11,7 @@ This module provides a comprehensive, production-ready MRZ parser that includes:
 - Performance optimizations for production use
 
 Features:
-- Checksum algorithms per ICAO Doc 9303 specifications
+- Checksum algorithms per ICAO Doc 9303 specifications (via Rust marty_rs)
 - Date normalization with leap year and range validation
 - Filler handling with proper padding and truncation
 - Structured errors with suggested fixes
@@ -27,6 +27,10 @@ from calendar import isleap
 from datetime import date, datetime
 from typing import Any, Optional, Tuple, Union
 
+from marty_plugin.common.crypto_bridge import (
+    compute_check_digit as _rust_compute_check_digit,
+    validate_check_digit as _rust_validate_check_digit,
+)
 from marty_plugin.common.models.mrz_validation import (
     MRZCharacterValidation,
     MRZDocumentType,
@@ -61,15 +65,20 @@ class HardenedMRZException(Exception):
 
 
 class MRZChecksumValidator:
-    """Advanced checksum validation following ICAO Doc 9303 specifications."""
+    """Advanced checksum validation following ICAO Doc 9303 specifications.
+    
+    Uses Rust bindings from marty_rs for correctness and performance.
+    """
 
-    # ICAO weight pattern: 7, 3, 1, 7, 3, 1, ...
+    # ICAO weight pattern: 7, 3, 1, 7, 3, 1, ... (kept for documentation)
     WEIGHT_PATTERN = [7, 3, 1]
 
     @classmethod
     def calculate_check_digit(cls, data: str) -> str:
         """
         Calculate check digit using ICAO algorithm.
+
+        Uses Rust implementation via marty_rs for correctness and performance.
 
         Args:
             data: Input string for checksum calculation
@@ -79,30 +88,14 @@ class MRZChecksumValidator:
         """
         if not data:
             return "0"
-
-        total = 0
-        for i, char in enumerate(data):
-            weight = cls.WEIGHT_PATTERN[i % 3]
-
-            if char == "<":
-                value = 0
-            elif char.isdigit():
-                value = int(char)
-            elif char.isalpha():
-                # A=10, B=11, ..., Z=35
-                value = ord(char.upper()) - ord("A") + 10
-            else:
-                # Invalid character treated as 0
-                value = 0
-
-            total += value * weight
-
-        return str(total % 10)
+        return _rust_compute_check_digit(data)
 
     @classmethod
     def validate_check_digit(cls, data: str, check_digit: str) -> tuple[bool, str]:
         """
         Validate a check digit against input data.
+
+        Uses Rust implementation via marty_rs for correctness and performance.
 
         Args:
             data: Input data string
@@ -111,8 +104,11 @@ class MRZChecksumValidator:
         Returns:
             Tuple of (is_valid, calculated_check_digit)
         """
-        calculated = cls.calculate_check_digit(data)
-        return calculated == check_digit, calculated
+        if not data:
+            return check_digit == "0", "0"
+        calculated = _rust_compute_check_digit(data)
+        is_valid = _rust_validate_check_digit(data, check_digit)
+        return is_valid, calculated
 
     @classmethod
     def validate_composite_checksum(

@@ -23,6 +23,7 @@ from fastapi import APIRouter, Cookie, Depends, HTTPException, Request, Response
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
 
+from .cache import AuthCacheService, AuthCacheConfig, create_auth_cache_service
 from .config import AuthConfig, CookieConfig, OIDCConfig
 from .provisioning import JITProvisioningService, OIDCUserInfo
 
@@ -92,6 +93,23 @@ async def get_session_manager():
     )
 
 
+# Auth cache service singleton
+_auth_cache_service: AuthCacheService | None = None
+
+
+async def get_auth_cache_service() -> AuthCacheService:
+    """
+    Get auth cache service instance.
+    
+    Uses MMF's cache infrastructure for PKCE state storage,
+    providing consistent metrics and namespace isolation.
+    """
+    global _auth_cache_service
+    if _auth_cache_service is None:
+        _auth_cache_service = await create_auth_cache_service()
+    return _auth_cache_service
+
+
 async def get_provisioning_service():
     """Get JIT provisioning service."""
     from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
@@ -150,16 +168,13 @@ async def login(
     # Generate state for CSRF protection
     state = secrets.token_urlsafe(32)
 
-    # Store state data (code_verifier + original redirect) temporarily
-    # In production, use Redis; for simplicity, encode in state
-    # We'll use a signed state that includes the verifier
-    redis = await get_redis_client()
-    state_data = {
-        "code_verifier": code_verifier,
-        "redirect_uri": redirect_uri or "/",
-        "created_at": datetime.now(timezone.utc).isoformat(),
-    }
-    await redis.setex(f"auth_state:{state}", 600, str(state_data))  # 10 min TTL
+    # Store state data using MMF cache infrastructure
+    auth_cache = await get_auth_cache_service()
+    await auth_cache.store_pkce_state(
+        state=state,
+        code_verifier=code_verifier,
+        redirect_uri=redirect_uri or "/",
+    )
 
     # Build authorization URL
     params = {
@@ -196,14 +211,13 @@ async def register(
     # Generate state for CSRF protection
     state = secrets.token_urlsafe(32)
 
-    # Store state data (code_verifier + original redirect) temporarily
-    redis = await get_redis_client()
-    state_data = {
-        "code_verifier": code_verifier,
-        "redirect_uri": redirect_uri or "/",
-        "created_at": datetime.now(timezone.utc).isoformat(),
-    }
-    await redis.setex(f"auth_state:{state}", 600, str(state_data))  # 10 min TTL
+    # Store state data using MMF cache infrastructure
+    auth_cache = await get_auth_cache_service()
+    await auth_cache.store_pkce_state(
+        state=state,
+        code_verifier=code_verifier,
+        redirect_uri=redirect_uri or "/",
+    )
 
     # Build registration URL - use /registrations endpoint instead of /auth
     # This takes the user directly to the registration form
@@ -263,12 +277,11 @@ async def callback(
             status_code=302
         )
     
-    redis = await get_redis_client()
-
-    # Retrieve and validate state
-    state_key = f"auth_state:{state}"
-    state_data_str = await redis.get(state_key)
-    if not state_data_str:
+    # Consume PKCE state using MMF cache infrastructure (single-use pattern)
+    auth_cache = await get_auth_cache_service()
+    pkce_state = await auth_cache.consume_pkce_state(state)
+    
+    if not pkce_state:
         logger.warning(f"Invalid or expired state: {state[:20]}...")
         # Redirect to home with friendly error instead of showing JSON error
         return RedirectResponse(
@@ -276,19 +289,8 @@ async def callback(
             status_code=302
         )
 
-    # Delete state to prevent replay
-    await redis.delete(state_key)
-
-    # Parse state data
-    import ast
-
-    try:
-        state_data = ast.literal_eval(state_data_str)
-    except (ValueError, SyntaxError):
-        raise HTTPException(status_code=400, detail="Invalid state data")
-
-    code_verifier = state_data.get("code_verifier")
-    original_redirect = state_data.get("redirect_uri", "/")
+    code_verifier = pkce_state.code_verifier
+    original_redirect = pkce_state.redirect_uri
 
     # Exchange code for tokens
     async with httpx.AsyncClient() as client:
@@ -571,3 +573,53 @@ async def _refresh_access_token(
 
     logger.debug(f"Refreshed access token for session {session_id}")
     return True
+
+
+# =============================================================================
+# Role-Based Access Dependencies
+# =============================================================================
+
+
+async def require_authenticated(
+    request: Request,
+    config: AuthConfig = Depends(get_auth_config),
+) -> AuthStatusResponse:
+    """Require authenticated user, returns user info or raises 401."""
+    auth_status = await get_current_user(request, config)
+    if not auth_status.authenticated or not auth_status.user:
+        raise HTTPException(
+            status_code=401,
+            detail="Authentication required",
+        )
+    return auth_status
+
+
+async def require_org_admin(
+    request: Request,
+    config: AuthConfig = Depends(get_auth_config),
+) -> AuthStatusResponse:
+    """Require organization admin, returns user info or raises 403.
+    
+    Checks that the user is authenticated and has admin/owner role
+    in their organization, or is a platform admin.
+    """
+    auth_status = await require_authenticated(request, config)
+    user = auth_status.user
+    
+    # Platform admins have full access (check multiple role names used across Keycloak configs)
+    roles = user.roles or []
+    if "platform_admin" in roles or "admin" in roles or "administrator" in roles:
+        return auth_status
+    
+    # Check for org admin/owner role
+    if "org_admin" in roles or "org_owner" in roles or "owner" in roles or "vendor" in roles:
+        return auth_status
+    
+    # Check if user has an organization and is admin there
+    if user.organization_id and ("admin" in roles or "owner" in roles or "vendor" in roles):
+        return auth_status
+    
+    raise HTTPException(
+        status_code=403,
+        detail="Organization admin access required",
+    )

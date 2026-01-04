@@ -1,5 +1,5 @@
 const { test, expect } = require('@playwright/test');
-const { DemoTestHelpers, mockApiResponses } = require('../utils/test-helpers');
+const { DemoTestHelpers, mockApiResponses } = require('../../utils/test-helpers');
 
 // SKIPPED: These tests are for the OpenWallet Foundation mDoc/mDL Demo UI
 // which has an "Enhanced" tab with Age Verification, Offline QR, Certificate Monitoring, and Policy Engine.

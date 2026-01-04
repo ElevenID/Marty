@@ -10,7 +10,6 @@ Python async HTTP handling for network operations.
 
 from __future__ import annotations
 
-import hashlib
 import logging
 from datetime import datetime, timezone
 from sqlalchemy import text  # Added for raw SQL queries
@@ -25,13 +24,14 @@ from cryptography.x509.oid import ExtensionOID
 from .database import DatabaseManager
 from .models import RevocationStatus
 
-# Import Rust bindings for OCSP/CRL operations (required)
+# Import Rust bindings for OCSP/CRL operations and crypto
 from marty_plugin.common.crypto_bridge import (
     parse_crl as rust_parse_crl,
     build_ocsp_request as rust_build_ocsp_request,
     parse_ocsp_response as rust_parse_ocsp_response,
     get_ocsp_responder_url as rust_get_ocsp_responder_url,
     check_certificate_revocation as rust_check_revocation,
+    sha256,
 )
 
 logger = logging.getLogger(__name__)
@@ -85,8 +85,8 @@ class RevocationProcessor:
             except x509.ExtensionNotFound:
                 pass
 
-            # Generate CRL hash
-            crl_hash = hashlib.sha256(crl_data).hexdigest()
+            # Generate CRL hash using Rust sha256
+            crl_hash = sha256(crl_data).hex()
 
             # Store CRL in cache
             crl_cache_data = {
@@ -216,8 +216,8 @@ class RevocationProcessor:
                 revocation_date = None
                 reason_code = None
 
-            # Update DSC status
-            cert_hash = hashlib.sha256(cert_der).hexdigest()
+            # Update DSC status using Rust sha256
+            cert_hash = sha256(cert_der).hex()
             await self.db_manager.update_dsc_revocation_status(
                 cert_hash, status, revocation_date, reason_code, "OCSP"
             )

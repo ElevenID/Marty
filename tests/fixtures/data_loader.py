@@ -57,41 +57,31 @@ class TestDataLoader:
         else:
             logger.info("Generated test data not found at: %s", self.generated_data_root)
 
-        # Initialize PassportGenerator for realistic fallback data
+        # Initialize PassportGenerator for generating test data
         self._passport_generator = None
         if PASSPORT_GENERATOR_AVAILABLE:
             try:
                 self._passport_generator = PassportGenerator()
-                logger.info("PassportGenerator initialized for realistic fallback data")
+                logger.info("PassportGenerator initialized for test data generation")
             except (ImportError, AttributeError, TypeError) as e:
                 logger.warning("Failed to initialize PassportGenerator: %s", e)
                 self._passport_generator = None
 
-    def _get_fallback_passport_data(self) -> dict[str, Any]:
-        """Provide fallback passport data when scraped data is not available."""
-        if self._passport_generator is not None:
-            return self._generate_realistic_passport_data()
+    def _require_data(self, description: str) -> None:
+        """Raise error when required test data is not available."""
+        raise FileNotFoundError(
+            f"Required test data not found: {description}. "
+            f"Ensure test data is available in {self.data_root} or {self.generated_data_root}. "
+            "Run 'make generate-test-data' to generate required fixtures."
+        )
 
-        # Basic fallback if PassportGenerator is not available
-        return {
-            "passport_number": "P12345678",
-            "issue_date": "2024-01-01",
-            "expiry_date": "2034-01-01",
-            "data_groups": {
-                "DG1": "MRZ-DATA-FALLBACK",
-                "DG2": "PHOTO-DATA-FALLBACK",
-                "DG3": "FINGERPRINT-DATA-FALLBACK",
-                "DG4": "IRIS-DATA-FALLBACK",
-            },
-            "sod": "FALLBACK_SOD_DATA",
-            "_is_fallback": True,
-        }
-
-    def _generate_realistic_passport_data(self) -> dict[str, Any]:
-        """Generate realistic passport data using PassportGenerator."""
+    def _generate_passport_data(self) -> dict[str, Any]:
+        """Generate passport data using PassportGenerator. Fails if unavailable."""
         if self._passport_generator is None:
-            logger.warning("PassportGenerator not available, using basic fallback")
-            return self._get_basic_fallback_data()
+            raise RuntimeError(
+                "PassportGenerator is required but not available. "
+                "Ensure tests/generators/passport_generator.py is accessible."
+            )
 
         try:
             # Define variations for different passport types
@@ -141,7 +131,7 @@ class TestDataLoader:
             # Select a random variation
             variation = passport_variations[secrets.randbelow(len(passport_variations))]
 
-            # Generate realistic passport data using PassportGenerator
+            # Generate passport data using PassportGenerator
             raw_passport_data = self._passport_generator.generate_passport(**variation)
 
             # Convert to format matching scraped data structure
@@ -156,8 +146,7 @@ class TestDataLoader:
                 "data_groups": raw_passport_data.get("data_groups", {}),
                 "sod": raw_passport_data.get("sod", f"GENERATED_SOD_{secrets.token_hex(16)}"),
                 "_generated_by": "PassportGenerator",
-                "_is_fallback": True,
-                "_is_realistic": True,
+                "_is_generated": True,
                 "_country": variation["issuing_country"],
                 "_type": prefix,
             }
@@ -178,38 +167,22 @@ class TestDataLoader:
                     converted_data["data_groups"][dg_key] = default_value
 
             logger.debug(
-                "Generated realistic passport data for country: %s", variation["issuing_country"]
+                "Generated passport data for country: %s", variation["issuing_country"]
             )
-        except (AttributeError, TypeError, KeyError) as e:
-            logger.warning("Error generating realistic passport data: %s", e)
-            return self._get_basic_fallback_data()
-        else:
             return converted_data
+        except (AttributeError, TypeError, KeyError) as e:
+            raise RuntimeError(f"Failed to generate passport data: {e}") from e
 
-    def _get_basic_fallback_data(self) -> dict[str, Any]:
-        """Get basic hardcoded fallback data as last resort."""
-        return {
-            "passport_number": "P12345678",
-            "issue_date": "2024-01-01",
-            "expiry_date": "2034-01-01",
-            "data_groups": {
-                "DG1": "MRZ-DATA-FALLBACK",
-                "DG2": "PHOTO-DATA-FALLBACK",
-                "DG3": "FINGERPRINT-DATA-FALLBACK",
-                "DG4": "IRIS-DATA-FALLBACK",
-            },
-            "sod": "FALLBACK_SOD_DATA",
-            "_is_fallback": True,
-        }
-
-    def _generate_realistic_passport_collection(self, count: int = 5) -> list[dict[str, Any]]:
-        """Generate a collection of realistic passport data using PassportGenerator."""
+    def _generate_passport_collection(self, count: int = 5) -> list[dict[str, Any]]:
+        """Generate a collection of passport data using PassportGenerator."""
         if self._passport_generator is None:
-            logger.warning("PassportGenerator not available, using basic fallback collection")
-            return [self._get_basic_fallback_data()]
+            raise RuntimeError(
+                "PassportGenerator is required but not available. "
+                "Ensure tests/generators/passport_generator.py is accessible."
+            )
 
         try:
-            # Generate multiple realistic passports with different countries and data
+            # Generate multiple passports with different countries and data
             passport_variations = [
                 {
                     "issuing_country": "USA",
@@ -281,20 +254,18 @@ class TestDataLoader:
                 variation["expiry_date"] = expiry_date
 
                 passport_data = self._passport_generator.generate_passport(**variation)
-                passport_data["_is_fallback"] = True
+                passport_data["_is_generated"] = True
                 passport_data["_generated_by"] = "PassportGenerator"
                 passport_data["_collection_index"] = i
 
                 passports.append(passport_data)
 
             logger.debug(
-                "Generated realistic passport collection with %d passports", len(passports)
+                "Generated passport collection with %d passports", len(passports)
             )
-        except (AttributeError, TypeError, KeyError) as e:
-            logger.warning("Error generating realistic passport collection: %s", e)
-            return [self._get_basic_fallback_data()]
-        else:
             return passports
+        except (AttributeError, TypeError, KeyError) as e:
+            raise RuntimeError(f"Failed to generate passport collection: {e}") from e
 
     def _load_json_file(self, file_path: Path) -> dict[str, Any] | None:
         """Safely load a JSON file, returning None on error."""
@@ -311,19 +282,14 @@ class TestDataLoader:
         return passport_files[secrets.randbelow(len(passport_files))]
 
     def load_passport_data(self, passport_number: str | None = None) -> dict[str, Any]:
-        """Load passport data from scraped/generated files or fallback data."""
-        fallback = self._get_fallback_passport_data()
-
+        """Load passport data from scraped/generated files. Fails if not found."""
         if passport_number:
             # Look for specific passport in both scraped and generated data
             data = self._find_passport_by_number(passport_number)
             if data is not None:
                 return data
 
-            logger.warning(
-                "Passport data for %s not found in any source, using fallback", passport_number
-            )
-            return fallback
+            self._require_data(f"passport data for {passport_number}")
 
         # Load random passport from combined sources
         all_passport_files = []
@@ -361,8 +327,7 @@ class TestDataLoader:
                 data["_source_type"] = source_type
                 return data
 
-        logger.info("No passport data files found, using fallback generation")
-        return fallback
+        self._require_data("passport data files")
 
     def _find_passport_by_number(self, passport_number: str) -> dict[str, Any] | None:
         """Find a specific passport by number in both scraped and generated data."""
@@ -402,10 +367,9 @@ class TestDataLoader:
             passport_data.extend(generated_data)
             logger.info("Loaded %d generated passport data files", len(generated_data))
 
-        # If no data available, use fallback generation
+        # Fail if no data available
         if not passport_data:
-            logger.warning("No passport data available, using fallback generation")
-            return self._generate_realistic_passport_collection()
+            self._require_data("passport data collection")
 
         logger.info("Total passport data loaded: %d files", len(passport_data))
         return passport_data
@@ -515,59 +479,32 @@ class TestDataLoader:
         return invalid_data
 
     def load_csca_lifecycle_data(self) -> dict[str, Any]:
-        """Load CSCA certificate lifecycle event data or return fallback."""
-        fallback_data = {
-            "certificate_events": {
-                "cert_fallback_001": [
-                    {
-                        "timestamp": "2024-01-01T00:00:00.000000+00:00",
-                        "event_type": "created",
-                        "days_remaining": 365,
-                    }
-                ]
-            },
-            "_is_fallback": True,
-        }
-
+        """Load CSCA certificate lifecycle event data. Fails if not found."""
         if not self.has_scraped_data:
-            logger.info("Using fallback CSCA lifecycle data")
-            return fallback_data
+            self._require_data("CSCA lifecycle data (scraped data directory)")
 
         csca_file = self.data_root / "csca" / "lifecycle_events.json"
 
         if csca_file.exists():
             data = self._load_json_file(csca_file)
-            return data if data is not None else fallback_data
+            if data is not None:
+                return data
 
-        logger.warning("CSCA lifecycle data not found, using fallback")
-        return fallback_data
+        self._require_data(f"CSCA lifecycle data at {csca_file}")
 
     def load_trust_store_data(self) -> dict[str, Any]:
-        """Load trust store configuration data or return fallback."""
-        fallback_data = {
-            "trusted_entities": {
-                "csca-service": True,
-                "document-signer": True,
-                "inspection-system": True,
-                "passport-engine": True,
-                "test-entity": True,
-            },
-            "revoked_entities": [],
-            "_is_fallback": True,
-        }
-
+        """Load trust store configuration data. Fails if not found."""
         if not self.has_scraped_data:
-            logger.info("Using fallback trust store data")
-            return fallback_data
+            self._require_data("trust store data (scraped data directory)")
 
         trust_file = self.data_root / "trust_store.json"
 
         if trust_file.exists():
             data = self._load_json_file(trust_file)
-            return data if data is not None else fallback_data
+            if data is not None:
+                return data
 
-        logger.warning("Trust store data not found, using fallback")
-        return fallback_data
+        self._require_data(f"trust store data at {trust_file}")
 
     def get_passport_by_type(self, passport_type: str) -> list[dict[str, Any]]:
         """Get passports by type (based on prefix) or return fallback data."""

@@ -1544,6 +1544,35 @@ fn ecdsa_p384_verify(public_key: &[u8], message: &[u8], signature: &[u8]) -> PyR
         .map_err(|e| PyErr::from(e))
 }
 
+/// Generate a P-521 ECDSA key pair for signing.
+#[pyfunction]
+fn ecdsa_p521_generate<'py>(
+    py: Python<'py>,
+) -> PyResult<(Bound<'py, PyBytes>, Bound<'py, PyBytes>)> {
+    let (secret, public) =
+        crate::crypto::ecdsa::generate_p521_keypair().map_err(|e| PyErr::from(e))?;
+    Ok((PyBytes::new(py, &secret), PyBytes::new(py, &public)))
+}
+
+/// Sign a message with ECDSA P-521 SHA-512 (ES512).
+#[pyfunction]
+fn ecdsa_p521_sign<'py>(
+    py: Python<'py>,
+    secret_key: &[u8],
+    message: &[u8],
+) -> PyResult<Bound<'py, PyBytes>> {
+    let signature =
+        crate::crypto::ecdsa::sign_p521_sha512(secret_key, message).map_err(|e| PyErr::from(e))?;
+    Ok(PyBytes::new(py, &signature))
+}
+
+/// Verify an ECDSA P-521 SHA-512 signature.
+#[pyfunction]
+fn ecdsa_p521_verify(public_key: &[u8], message: &[u8], signature: &[u8]) -> PyResult<bool> {
+    crate::crypto::ecdsa::verify_p521_sha512(public_key, message, signature)
+        .map_err(|e| PyErr::from(e))
+}
+
 // ============================================================================
 // RSA Signing Bindings
 // ============================================================================
@@ -2849,10 +2878,13 @@ pub fn marty_verification(m: &Bound<'_, PyModule>) -> PyResult<()> {
     // Crypto Operations - ECDSA Signing
     m.add_function(wrap_pyfunction!(ecdsa_p256_generate, m)?)?;
     m.add_function(wrap_pyfunction!(ecdsa_p384_generate, m)?)?;
+    m.add_function(wrap_pyfunction!(ecdsa_p521_generate, m)?)?;
     m.add_function(wrap_pyfunction!(ecdsa_p256_sign, m)?)?;
     m.add_function(wrap_pyfunction!(ecdsa_p384_sign, m)?)?;
+    m.add_function(wrap_pyfunction!(ecdsa_p521_sign, m)?)?;
     m.add_function(wrap_pyfunction!(ecdsa_p256_verify, m)?)?;
     m.add_function(wrap_pyfunction!(ecdsa_p384_verify, m)?)?;
+    m.add_function(wrap_pyfunction!(ecdsa_p521_verify, m)?)?;
 
     // Crypto Operations - RSA Signing
     m.add_function(wrap_pyfunction!(rsa_generate, m)?)?;
@@ -3028,10 +3060,13 @@ pub fn register_marty_verification(m: &Bound<'_, PyModule>) -> PyResult<()> {
     // Crypto Operations - ECDSA Signing
     m.add_function(wrap_pyfunction!(ecdsa_p256_generate, m)?)?;
     m.add_function(wrap_pyfunction!(ecdsa_p384_generate, m)?)?;
+    m.add_function(wrap_pyfunction!(ecdsa_p521_generate, m)?)?;
     m.add_function(wrap_pyfunction!(ecdsa_p256_sign, m)?)?;
     m.add_function(wrap_pyfunction!(ecdsa_p384_sign, m)?)?;
+    m.add_function(wrap_pyfunction!(ecdsa_p521_sign, m)?)?;
     m.add_function(wrap_pyfunction!(ecdsa_p256_verify, m)?)?;
     m.add_function(wrap_pyfunction!(ecdsa_p384_verify, m)?)?;
+    m.add_function(wrap_pyfunction!(ecdsa_p521_verify, m)?)?;
 
     // Crypto Operations - RSA Signing
     m.add_function(wrap_pyfunction!(rsa_generate, m)?)?;
