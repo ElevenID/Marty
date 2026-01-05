@@ -9,6 +9,13 @@ Key Principles:
 2. Wallet/holder keys must be completely isolated from issuer/verifier keys
 3. All private key operations must go through KMS/HSM providers
 4. Verification outcomes must be signed for tamper-evident audit logs
+
+Key ID Namespacing:
+- auth:* - MMF authentication keys (device identity, sessions, API tokens)
+- cred:* - Marty credential keys (issuer signing, holder binding, VDS-NC)
+
+The cred:* namespace is enforced by this module for all credential operations.
+MMF handles auth:* keys separately via IAuthKeyManager.
 """
 
 from __future__ import annotations
@@ -22,6 +29,11 @@ from typing import Any, Dict, Optional, Protocol, Union
 
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec, rsa
+
+
+# Key ID namespace constants
+CREDENTIAL_KEY_PREFIX = "cred:"
+AUTH_KEY_PREFIX = "auth:"
 
 
 class CryptoRole(Enum):
@@ -300,3 +312,99 @@ def create_evidence_key_identity(service_id: str) -> KeyIdentity:
         purpose=KeyPurpose.EVIDENCE_SIGNING,
         key_id=f"evidence-{service_id}",
     )
+
+
+# =============================================================================
+# Key ID Namespace Utilities
+# =============================================================================
+
+
+def is_credential_key(key_id: str) -> bool:
+    """Check if a key ID belongs to the credential namespace (cred:*)."""
+    return key_id.startswith(CREDENTIAL_KEY_PREFIX)
+
+
+def is_auth_key(key_id: str) -> bool:
+    """Check if a key ID belongs to the authentication namespace (auth:*)."""
+    return key_id.startswith(AUTH_KEY_PREFIX)
+
+
+def validate_credential_key_namespace(key_id: str) -> None:
+    """
+    Validate that a key ID uses the credential namespace.
+
+    Raises:
+        ValueError: If the key ID doesn't start with 'cred:'
+    """
+    if not is_credential_key(key_id):
+        if is_auth_key(key_id):
+            raise ValueError(
+                f"Key '{key_id}' is an authentication key (auth:*). "
+                "Use MMF's IAuthKeyManager for auth keys, not credential operations."
+            )
+        raise ValueError(
+            f"Key '{key_id}' must use the credential namespace (cred:*). "
+            "Valid prefixes: cred:issuer:, cred:holder:, cred:vdsnc:, cred:evidence:"
+        )
+
+
+def get_credential_key_type(key_id: str) -> str | None:
+    """
+    Extract the credential key type from a key ID.
+
+    Examples:
+        - "cred:issuer:US:key1" -> "issuer"
+        - "cred:holder:device123:cred456" -> "holder"
+        - "auth:device:123" -> None (not a credential key)
+    """
+    if not is_credential_key(key_id):
+        return None
+    parts = key_id.split(":")
+    if len(parts) >= 2:
+        return parts[1]  # issuer, holder, vdsnc, evidence, etc.
+    return None
+
+
+def credential_key_to_role(key_id: str) -> CryptoRole | None:
+    """
+    Map a credential key ID to its corresponding CryptoRole.
+
+    Returns:
+        CryptoRole for the key, or None if not a valid credential key
+    """
+    key_type = get_credential_key_type(key_id)
+    if key_type is None:
+        return None
+
+    mapping = {
+        "issuer": CryptoRole.DSC,
+        "csca": CryptoRole.CSCA,
+        "holder": CryptoRole.HOLDER,
+        "wallet": CryptoRole.WALLET,
+        "vdsnc": CryptoRole.DSC,
+        "evidence": CryptoRole.EVIDENCE,
+        "audit": CryptoRole.AUDIT,
+    }
+    return mapping.get(key_type)
+
+
+def make_credential_key_id(
+    key_type: str,
+    *parts: str,
+) -> str:
+    """
+    Create a properly namespaced credential key ID.
+
+    Args:
+        key_type: Type of credential key (issuer, holder, vdsnc, evidence)
+        *parts: Additional key ID components
+
+    Returns:
+        Fully qualified key ID with cred: prefix
+
+    Examples:
+        make_credential_key_id("issuer", "US", "key1") -> "cred:issuer:US:key1"
+        make_credential_key_id("holder", "device123", "cred456") -> "cred:holder:device123:cred456"
+    """
+    return f"{CREDENTIAL_KEY_PREFIX}{key_type}:{':'.join(parts)}"
+

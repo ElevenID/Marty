@@ -8,6 +8,12 @@
 		},
 		{
 			"path": "../product-catalog"
+		},
+		{
+			"path": "../marty-core"
+		},
+		{
+			"path": "../marty-credentials"
 		}
 	],
 	"settings": {}

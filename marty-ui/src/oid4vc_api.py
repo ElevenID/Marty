@@ -295,7 +295,8 @@ def _get_adapters():
     """Lazy initialization of adapters."""
     global _key_manager, _issuer, _wallet, _verifier
     if _key_manager is None:
-        from mmf.adapters.credentials import (
+        # Import from Marty application layer (not MMF - vendor implementations belong in Marty)
+        from marty_plugin.adapters.credentials import (
             get_issuer,
             get_key_manager,
             get_verifier,

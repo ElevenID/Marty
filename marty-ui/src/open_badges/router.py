@@ -16,6 +16,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from subscription.database import get_db_session
 from subscription.models import CredentialType, CredentialTypeConfiguration
 
+# Status integration for credential revocation/suspension support
+from open_badges.status_integration import (
+    inject_credential_status,
+    is_credential_status_enabled,
+)
+
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/open-badges", tags=["Open Badges"])
 
@@ -58,6 +64,14 @@ class IssueOpenBadgeRequest(BaseModel):
     include_document_store: bool = Field(
         True,
         description="Include verification document_store in response",
+    )
+    include_revocation_status: bool = Field(
+        True,
+        description="Include revocation status in credential (V3 only)",
+    )
+    include_suspension_status: bool = Field(
+        True,
+        description="Include suspension status in credential (V3 only)",
     )
 
 
@@ -270,6 +284,18 @@ async def issue_open_badge(
             if _MARTY_RS_AVAILABLE
             else _open_badge_ob3_issue
         )
+        
+        # Inject credential status for V3 credentials (revocation/suspension support)
+        credential_id = request["credential"]["id"]
+        issuer_did = issuer_key["did"]
+        request["credential"], status_warnings = await inject_credential_status(
+            credential=request["credential"],
+            credential_id=credential_id,
+            issuer_id=issuer_did,
+            include_revocation=body.include_revocation_status,
+            include_suspension=body.include_suspension_status,
+        )
+        warnings.extend(status_warnings)
     else:
         request, store = _build_ob2_issue_request(body, issuer_key)
         default_version = "2.0"
