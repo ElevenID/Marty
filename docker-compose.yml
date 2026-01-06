@@ -29,12 +29,12 @@ x-test-env: &test-env
   PW_FAST: ${PW_FAST:-}
   TEST_PROVIDER: mailhog
   MAILHOG_URL: http://mailhog:8025
-  # Browser-accessible URLs via host.docker.internal
-  BASE_URL: http://host.docker.internal:9080
-  API_URL: http://host.docker.internal:8000
-  KEYCLOAK_URL: http://host.docker.internal:8180
-  OIDC_ISSUER_URL: http://host.docker.internal:8180/realms/marty
-  WALLET_URL: http://host.docker.internal:9081
+  # Browser-accessible URLs - use Docker service names since browser runs in container
+  BASE_URL: http://ui-test:80
+  API_URL: http://oid4vc-api-test:8000
+  KEYCLOAK_URL: http://keycloak:8080
+  OIDC_ISSUER_URL: http://keycloak:8080/realms/marty
+  WALLET_URL: http://wallet-simulator:80
 
 x-keycloak-env: &keycloak-env
   KEYCLOAK_ADMIN: admin
@@ -46,9 +46,9 @@ x-keycloak-env: &keycloak-env
   KC_HEALTH_ENABLED: "true"
   KC_METRICS_ENABLED: "true"
   # Hostname configuration - ensures tokens have consistent issuer
-  # Use localhost for native development (browser access)
-  KC_HOSTNAME: localhost
-  KC_HOSTNAME_PORT: "8180"
+  # Use keycloak service name for Docker network (test containers)
+  KC_HOSTNAME: keycloak
+  KC_HOSTNAME_PORT: "8080"
   KC_HOSTNAME_STRICT: "false"
   KC_HOSTNAME_STRICT_BACKCHANNEL: "false"
   KC_HTTP_ENABLED: "true"
@@ -222,15 +222,15 @@ services:
       # Document Signer gRPC connection
       DOCUMENT_SIGNER_HOST: document-signer
       DOCUMENT_SIGNER_PORT: "8082"
-      # Authentication - browser uses host.docker.internal for redirects
+      # Authentication - browser uses Docker service names (runs in container)
       # OIDC_ISSUER_URL is what gets returned to the browser for OIDC redirects
-      OIDC_ISSUER_URL: http://host.docker.internal:8180/realms/marty
+      OIDC_ISSUER_URL: http://keycloak:8080/realms/marty
       # OIDC_BACKEND_ISSUER_URL must match the issuer in tokens (Keycloak's KC_HOSTNAME)
-      OIDC_BACKEND_ISSUER_URL: http://host.docker.internal:8180/realms/marty
+      OIDC_BACKEND_ISSUER_URL: http://keycloak:8080/realms/marty
       OIDC_CLIENT_ID: marty-ui
-      # Callback URLs also need to be accessible from browser - use host.docker.internal
-      OIDC_REDIRECT_URI: http://host.docker.internal:9080/auth/callback
-      OIDC_POST_LOGOUT_REDIRECT_URI: http://host.docker.internal:9080
+      # Callback URLs also need to be accessible from browser - use Docker service names
+      OIDC_REDIRECT_URI: http://ui-test:80/auth/callback
+      OIDC_POST_LOGOUT_REDIRECT_URI: http://ui-test:80
       # Redis & Session
       REDIS_URL: redis://redis:6379/0
       SESSION_SECRET: ${SESSION_SECRET:-dev-session-secret-change-in-production}
