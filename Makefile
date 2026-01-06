@@ -107,6 +107,10 @@ test: _ensure-wallet ## Run E2E tests (full browser matrix)
 	$(COMPOSE) --profile test up -d oid4vc-api-test ui-test wallet-simulator
 	@echo "$(BLUE)⏳ Waiting for services to be healthy...$(NC)"
 	@sleep 10
+	@echo "$(BLUE)🌱 Seeding demo data...$(NC)"
+	@$(COMPOSE) cp marty-ui/scripts/seed_demo_data.py oid4vc-api-test:/tmp/seed_demo_data.py
+	@$(COMPOSE) exec -T oid4vc-api-test python /tmp/seed_demo_data.py
+	@echo "$(GREEN)✅ Demo data seeded!$(NC)"
 	$(COMPOSE) --profile test up playwright --exit-code-from playwright
 	@echo "$(GREEN)✅ E2E tests completed!$(NC)"
 
@@ -118,6 +122,10 @@ test-local: _ensure-wallet ## Run fast Chromium-only E2E tests
 	$(COMPOSE) --profile test-local up -d oid4vc-api-test ui-test wallet-simulator
 	@echo "$(BLUE)⏳ Waiting for services to be healthy...$(NC)"
 	@sleep 10
+	@echo "$(BLUE)🌱 Seeding demo data...$(NC)"
+	@$(COMPOSE) cp marty-ui/scripts/seed_demo_data.py oid4vc-api-test:/tmp/seed_demo_data.py
+	@$(COMPOSE) exec -T oid4vc-api-test python /tmp/seed_demo_data.py
+	@echo "$(GREEN)✅ Demo data seeded!$(NC)"
 	$(COMPOSE) --profile test-local up playwright-local --exit-code-from playwright-local
 	@echo "$(GREEN)✅ Chromium tests completed!$(NC)"
 
