@@ -4,6 +4,8 @@ const axios = require('axios');
 async function globalSetup() {
   console.log('🚀 Starting E2E test setup...');
 
+  const base = process.env.BASE_URL || 'http://localhost:9080';
+
   // Wait for demo application to be ready
   const maxRetries = 30;
   const retryDelay = 2000; // 2 seconds
@@ -13,8 +15,7 @@ async function globalSetup() {
       console.log(`⏳ Checking if demo is ready (attempt ${i + 1}/${maxRetries})...`);
 
       // Check main UI
-  const base = process.env.BASE_URL || 'http://localhost:9080';
-  await axios.get(base, { timeout: 5000 });
+      await axios.get(base, { timeout: 5000 });
 
       // Check backend services
       const services = [
@@ -33,6 +34,10 @@ async function globalSetup() {
       }
 
       console.log('✅ Demo application is ready!');
+      
+      // Generate test signing keys
+      await generateTestKeys(base);
+      
       return;
     } catch (error) {
       if (i === maxRetries - 1) {
@@ -43,6 +48,46 @@ async function globalSetup() {
       }
       console.log(`⏳ Demo not ready yet, retrying in ${retryDelay}ms...`);
       await new Promise(resolve => setTimeout(resolve, retryDelay));
+    }
+  }
+}
+
+/**
+ * Generate fresh signing keys for credential issuance tests.
+ * 
+ * This ensures keys are available in Redis for all credential formats:
+ * - ES256: SD-JWT-VC
+ * - RS256: JWT VC JSON
+ * - P-256: mDL/mso_mdoc
+ */
+async function generateTestKeys(baseUrl) {
+  console.log('🔑 Generating test signing keys...');
+  
+  try {
+    const response = await axios.post(
+      `${baseUrl.replace(/\/$/, '')}/api/issuance/test-keys`,
+      {
+        organization_id: 'test-org',
+        algorithms: ['ES256', 'RS256', 'P-256'],
+        force_regenerate: false,  // Only generate if not already present
+      },
+      { timeout: 10000 }
+    );
+    
+    const { generated_keys, message } = response.data;
+    console.log(`✅ Test keys ready: ${message}`);
+    
+    for (const key of generated_keys) {
+      console.log(`   ${key.algorithm}:${key.key_id} - ${key.status}`);
+    }
+  } catch (error) {
+    // Log but don't fail - keys might already exist or endpoint not available
+    if (error.response?.status === 403) {
+      console.log('⚠️  Test key generation not available (non-test environment)');
+    } else if (error.response?.status === 404) {
+      console.log('⚠️  Test key endpoint not available yet');
+    } else {
+      console.log(`⚠️  Could not generate test keys: ${error.message}`);
     }
   }
 }

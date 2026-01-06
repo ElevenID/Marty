@@ -3,10 +3,10 @@ const { defineConfig, devices } = require('@playwright/test');
 
 const isCI = !!process.env.CI;
 const timeouts = {
-  test: isCI ? 120_000 : 90_000,
-  expect: isCI ? 10_000 : 8_000,
-  action: isCI ? 30_000 : 20_000,
-  navigation: isCI ? 30_000 : 20_000,
+  test: isCI ? 120_000 : 30_000,      // Reduced from 90s to 30s for faster failures
+  expect: isCI ? 10_000 : 5_000,      // Reduced from 8s to 5s
+  action: isCI ? 30_000 : 10_000,     // Reduced from 20s to 10s
+  navigation: isCI ? 30_000 : 10_000, // Reduced from 20s to 10s
   webServer: 120_000,
 };
 
