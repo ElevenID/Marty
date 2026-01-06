@@ -1,30 +1,38 @@
 """Credential signing service.
 
 Handles cryptographic signing of verifiable credentials using
-organization-specific keys from IssuerKeyConfig.
+SpruceIDKeyManager for key generation and storage.
 """
+
+from __future__ import annotations
 
 import base64
 import hashlib
 import json
 import logging
 import secrets
-from datetime import datetime, timedelta
-from typing import Any, Optional
+from datetime import datetime, timedelta, timezone
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
 
 class CredentialSigner:
-    """Signs verifiable credentials using organization keys.
+    """Signs verifiable credentials using SpruceIDKeyManager.
     
     Supports multiple credential formats:
-    - vc+sd-jwt: SD-JWT Verifiable Credentials (default)
-    - jwt_vc_json: JWT-encoded Verifiable Credentials
-    - mso_mdoc: Mobile Security Object (ISO 18013-5)
+    - vc+sd-jwt: SD-JWT Verifiable Credentials (default) - uses ES256
+    - jwt_vc_json: JWT-encoded Verifiable Credentials - uses RS256
+    - mso_mdoc: Mobile Security Object (ISO 18013-5) - uses P-256/ES256
+    
+    Keys are generated and cached using SpruceIDKeyManager via get_key_manager().
+    Key IDs follow the pattern: {organization_id}-{algorithm.lower()}-test
     """
 
-    def __init__(self, issuer_url: str = "http://localhost:8000"):
+    def __init__(
+        self,
+        issuer_url: str = "http://localhost:8000",
+    ):
         self.issuer_url = issuer_url
 
     async def sign_credential(
@@ -50,8 +58,8 @@ class CredentialSigner:
         Returns:
             Signed credential in the specified format
         """
-        # Get the organization's signing key
-        signing_key = await self._get_signing_key(organization_id)
+        # Get the organization's signing key for this format
+        signing_key = await self._get_signing_key(organization_id, credential_format)
         
         if credential_format == "vc+sd-jwt":
             return await self._sign_sd_jwt(
@@ -80,72 +88,77 @@ class CredentialSigner:
         else:
             raise ValueError(f"Unsupported credential format: {credential_format}")
 
-    async def _get_signing_key(self, organization_id: str) -> dict:
-        """Get the organization's active signing key.
+    async def _get_signing_key(
+        self, 
+        organization_id: str,
+        credential_format: str = "vc+sd-jwt",
+    ) -> dict:
+        """Get or generate the organization's signing key using SpruceIDKeyManager.
         
         Args:
             organization_id: Organization ID
+            credential_format: Credential format to determine algorithm
             
         Returns:
             Signing key configuration with JWK
         """
-        # TODO: Look up from IssuerKeyConfig database
-        # For now, return a demo key
-        from trust.router import _org_trust_configs
+        from marty_plugin.adapters.credentials.spruceid import get_key_manager
+        from mmf.core.credentials.ports import KeyAlgorithm
         
-        config = _org_trust_configs.get(organization_id)
-        if config and config.signing_keys:
-            # Get the first active key
-            active_keys = [k for k in config.signing_keys if k.get("is_active", True)]
-            if active_keys:
-                return active_keys[0]
+        # Determine algorithm based on credential format
+        format_algorithms = {
+            "vc+sd-jwt": KeyAlgorithm.ES256,
+            "jwt_vc_json": KeyAlgorithm.RS256,
+            "mso_mdoc": KeyAlgorithm.ES256,  # P-256 uses ES256 algorithm
+        }
+        algorithm = format_algorithms.get(credential_format, KeyAlgorithm.ES256)
         
-        # Fallback: generate ephemeral demo key
-        logger.warning(
-            f"No signing key found for organization {organization_id}, using demo key"
-        )
-        return await self._generate_demo_key()
+        # Build key ID pattern: {org_id}-{algorithm.lower()}-test
+        key_id = f"{organization_id}-{algorithm.value.lower()}-test"
+        
+        # Get the key manager singleton
+        key_manager = get_key_manager()
+        
+        # Try to get existing key from cache
+        key_pair = key_manager.get_key(key_id)
+        
+        if key_pair:
+            logger.debug(f"Found cached key: {key_id}")
+            jwk_dict = json.loads(key_pair.jwk_json) if isinstance(key_pair.jwk_json, str) else key_pair.jwk_json
+            return {
+                "key_id": key_id,
+                "algorithm": algorithm.value,
+                "private_key_jwk": jwk_dict,
+                "public_key_jwk": self._extract_public_key(jwk_dict),
+                "did": key_pair.did,
+            }
+        
+        # Generate new key and cache it
+        logger.info(f"Generating new signing key for {organization_id} ({algorithm.value})")
+        key_pair = key_manager.generate_key(algorithm)
+        key_manager.store_key(key_id, key_pair)
+        
+        jwk_dict = json.loads(key_pair.jwk_json) if isinstance(key_pair.jwk_json, str) else key_pair.jwk_json
+        return {
+            "key_id": key_id,
+            "algorithm": algorithm.value,
+            "private_key_jwk": jwk_dict,
+            "public_key_jwk": self._extract_public_key(jwk_dict),
+            "did": key_pair.did,
+        }
 
-    async def _generate_demo_key(self) -> dict:
-        """Generate a demo signing key for testing."""
-        try:
-            from cryptography.hazmat.primitives.asymmetric import ec
-            from cryptography.hazmat.backends import default_backend
+    def _extract_public_key(self, jwk: dict) -> dict:
+        """Extract public key components from a JWK.
+        
+        Args:
+            jwk: Full JWK (may contain private key)
             
-            # Generate P-256 key
-            private_key = ec.generate_private_key(ec.SECP256R1(), default_backend())
-            public_key = private_key.public_key()
-            
-            # Get raw key bytes
-            public_numbers = public_key.public_numbers()
-            private_numbers = private_key.private_numbers()
-            
-            # Convert to JWK
-            def _b64url(data: bytes) -> str:
-                return base64.urlsafe_b64encode(data).rstrip(b"=").decode()
-            
-            x_bytes = public_numbers.x.to_bytes(32, byteorder="big")
-            y_bytes = public_numbers.y.to_bytes(32, byteorder="big")
-            d_bytes = private_numbers.private_value.to_bytes(32, byteorder="big")
-            
-            return {
-                "key_id": "demo-key",
-                "algorithm": "ES256",
-                "private_key_jwk": {
-                    "kty": "EC",
-                    "crv": "P-256",
-                    "x": _b64url(x_bytes),
-                    "y": _b64url(y_bytes),
-                    "d": _b64url(d_bytes),
-                },
-            }
-        except ImportError:
-            # Fallback if cryptography not available
-            return {
-                "key_id": "demo-key",
-                "algorithm": "ES256",
-                "private_key_jwk": None,
-            }
+        Returns:
+            JWK with only public key components
+        """
+        # Private key fields to remove
+        private_fields = {"d", "p", "q", "dp", "dq", "qi", "oth"}
+        return {k: v for k, v in jwk.items() if k not in private_fields}
 
     async def _sign_sd_jwt(
         self,
@@ -159,7 +172,7 @@ class CredentialSigner:
         
         SD-JWT format: <issuer-jwt>~<disclosure1>~<disclosure2>~...
         """
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         exp = now + timedelta(days=validity_days)
         
         # Build JWT header
@@ -396,12 +409,15 @@ class CredentialSigner:
             return "placeholder_signature"
 
 
-# Singleton instance
-_credential_signer: Optional[CredentialSigner] = None
+# Singleton instances
+_credential_signer: CredentialSigner | None = None
 
 
 def get_credential_signer() -> CredentialSigner:
-    """Get the credential signer singleton."""
+    """Get the credential signer singleton.
+    
+    Uses SpruceIDKeyManager for key generation and caching.
+    """
     global _credential_signer
     if _credential_signer is None:
         _credential_signer = CredentialSigner()
