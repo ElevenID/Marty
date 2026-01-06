@@ -14,6 +14,12 @@
 		},
 		{
 			"path": "../marty-credentials"
+		},
+		{
+			"path": "../marty-verifier"
+		},
+		{
+			"path": "../ui-navgraph"
 		}
 	],
 	"settings": {}
