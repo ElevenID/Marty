@@ -97,7 +97,8 @@ async def _trigger_credential_issuance(application) -> None:
     Trigger credential issuance after an application is approved.
     
     Creates a credential offer for the applicant that can be picked up
-    via OID4VCI protocol.
+    via OID4VCI protocol. Attempts to find the user's registered device
+    for push notification delivery via SSE.
     """
     try:
         from issuance.service import get_issuance_service
@@ -112,24 +113,82 @@ async def _trigger_credential_issuance(application) -> None:
             "approved_at": application.approved_at.isoformat() if application.approved_at else None,
         }
         
+        # Get the applicant's user_id
+        user_id = application.applicant.user_id if application.applicant else str(application.applicant_id)
+        organization_id = application.organization_id or "default"
+        
+        # Look up the user's registered device for push notifications
+        device_id = await _get_user_device_id(organization_id, user_id)
+        
         # Create credential offer
         session = await issuance_service.create_offer_for_application(
-            organization_id=application.organization_id or "default",
+            organization_id=organization_id,
             application_id=str(application.id),
             credential_config_id=application.credential_type or "default_credential",
-            applicant_id=application.applicant.user_id if application.applicant else str(application.applicant_id),
+            applicant_id=user_id,
             credential_data=credential_data,
-            device_id=None,  # Will be looked up from device registration
-            deferred=True,  # Use async credential generation
+            device_id=device_id,
         )
         
         logger.info(
             f"Created credential offer for application {application.application_number}, "
-            f"transaction_id={session.transaction_id}"
+            f"transaction_id={session.transaction_id}, device_id={device_id}"
         )
     except Exception as e:
         # Log but don't fail the approval - credential issuance can be retried
         logger.error(f"Failed to trigger credential issuance for application {application.id}: {e}")
+
+
+async def _get_user_device_id(tenant_id: str, user_id: str) -> Optional[str]:
+    """
+    Get the user's active device ID for push notifications.
+    
+    Looks up the user's registered devices and returns the most recently
+    active one. Returns None if no devices are registered.
+    
+    Args:
+        tenant_id: The organization/tenant ID
+        user_id: The user ID
+        
+    Returns:
+        Device ID if found, None otherwise
+    """
+    try:
+        from notifications_local import get_notification_hub
+        
+        hub = get_notification_hub()
+        if not hub or not hub._registry:
+            logger.debug(f"No notification hub available for device lookup")
+            return None
+        
+        # Find user's registered devices
+        registrations = await hub._registry._repository.find_by_user(
+            tenant_id=tenant_id,
+            user_id=user_id,
+        )
+        
+        if not registrations:
+            logger.debug(f"No devices registered for user {user_id}")
+            return None
+        
+        # Get the most recently active device (prefer FCM devices)
+        active_devices = [r for r in registrations if r.is_active]
+        if not active_devices:
+            return None
+        
+        # Sort by last_used_at (most recent first)
+        active_devices.sort(
+            key=lambda r: r.last_used_at or r.created_at,
+            reverse=True,
+        )
+        
+        device = active_devices[0]
+        logger.debug(f"Found device for user {user_id}: {device.device_id}")
+        return device.device_id
+        
+    except Exception as e:
+        logger.warning(f"Failed to lookup device for user {user_id}: {e}")
+        return None
 
 
 @router.on_event("startup")
