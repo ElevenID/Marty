@@ -3,18 +3,24 @@
 Business logic for creating credential offers and managing the
 issuance lifecycle. Integrates with the applicant service for
 approval-triggered issuance.
+
+Uses hexagonal architecture with IIssuanceStorage port for persistent
+storage via Redis. Key management is handled by SpruceIDKeyManager.
 """
+
+from __future__ import annotations
 
 import logging
 import secrets
 import uuid
-from datetime import datetime, timedelta
-from typing import Optional
+from datetime import datetime, timedelta, timezone
+from typing import TYPE_CHECKING, Optional
 
-from subscription.models import (
-    CredentialOffer,
-    IssuanceSession,
-    IssuanceStatus,
+from subscription.models import IssuanceStatus
+from issuance.ports import (
+    IIssuanceStorage,
+    StoredOffer,
+    StoredSession,
 )
 
 logger = logging.getLogger(__name__)
@@ -24,12 +30,6 @@ logger = logging.getLogger(__name__)
 OFFER_EXPIRY_SECONDS = 300  # 5 minutes for real-time
 DEFERRED_EXPIRY_SECONDS = 86400  # 24 hours for deferred
 TRANSACTION_ID_LENGTH = 32
-
-
-# In-memory storage (shared with router for now)
-# TODO: Move to database
-_issuance_sessions: dict[str, IssuanceSession] = {}
-_credential_offers: dict[str, CredentialOffer] = {}
 
 
 def _generate_transaction_id() -> str:
@@ -43,10 +43,27 @@ def _generate_pre_authorized_code() -> str:
 
 
 class IssuanceService:
-    """Service for managing credential issuance."""
+    """Service for managing credential issuance.
+    
+    Uses injected storage port for persistence:
+    - IIssuanceStorage: Sessions and offers
+    
+    Key management is handled by SpruceIDKeyManager via CredentialSigner.
+    """
 
-    def __init__(self, issuer_url: str = "http://localhost:8000"):
+    def __init__(
+        self,
+        issuance_storage: IIssuanceStorage,
+        issuer_url: str = "http://localhost:8000",
+    ):
+        """Initialize the issuance service.
+        
+        Args:
+            issuance_storage: Storage port for sessions and offers
+            issuer_url: Base URL for the credential issuer
+        """
         self.issuer_url = issuer_url
+        self._storage = issuance_storage
 
     async def create_offer_for_application(
         self,
@@ -59,7 +76,7 @@ class IssuanceService:
         device_id: Optional[str] = None,
         credential_format: str = "vc+sd-jwt",
         auto_accept: bool = True,  # Auto-accept since holder already applied
-    ) -> IssuanceSession:
+    ) -> StoredSession:
         """Create a credential offer for an approved application.
 
         This is the main integration point called after an application
@@ -80,7 +97,7 @@ class IssuanceService:
             auto_accept: Auto-accept the offer (default True for application flow)
 
         Returns:
-            The created IssuanceSession with transaction_id and offer_uri
+            The created StoredSession with transaction_id and offer_uri
         """
         session_id = str(uuid.uuid4())
         transaction_id = _generate_transaction_id()
@@ -88,41 +105,46 @@ class IssuanceService:
 
         # For auto-accept (application flow), credential is generated immediately
         # and pushed to the authenticator - no user action needed
-        expiry = datetime.utcnow() + timedelta(seconds=DEFERRED_EXPIRY_SECONDS)
+        expiry = datetime.now(timezone.utc) + timedelta(seconds=DEFERRED_EXPIRY_SECONDS)
+        now = datetime.now(timezone.utc)
 
-        # Create issuance session
-        session = IssuanceSession()
-        session.id = session_id
-        session.transaction_id = transaction_id
-        session.organization_id = organization_id
-        session.application_id = application_id
-        session.credential_config_id = credential_config_id
-        session.applicant_id = applicant_id
-        session.device_id = device_id
-        session.status = IssuanceStatus.PENDING
-        session.pre_authorized_code = pre_authorized_code
-        session.credential_format = credential_format
-        session.credential_data = credential_data
-        session.expires_at = expiry
-        session.created_at = datetime.utcnow()
+        # Create issuance session using StoredSession (cache-friendly dataclass)
+        session = StoredSession(
+            id=session_id,
+            transaction_id=transaction_id,
+            organization_id=organization_id,
+            credential_config_id=credential_config_id,
+            applicant_id=applicant_id,
+            status=IssuanceStatus.PENDING.value,
+            credential_format=credential_format,
+            pre_authorized_code=pre_authorized_code,
+            application_id=application_id,
+            device_id=device_id,
+            credential_data=credential_data,
+            expires_at=expiry.isoformat(),
+            created_at=now.isoformat(),
+        )
 
-        _issuance_sessions[transaction_id] = session
+        # Store in Redis via storage port
+        await self._storage.store_session(session, ttl_seconds=DEFERRED_EXPIRY_SECONDS)
 
         # Build credential offer
         offer_payload = self._build_credential_offer(session)
         offer_uri = self._build_credential_offer_uri(session_id)
 
-        # Create offer record
-        offer = CredentialOffer()
-        offer.id = str(uuid.uuid4())
-        offer.issuance_session_id = session_id
-        offer.offer_uri = offer_uri
-        offer.offer_payload = offer_payload
-        offer.is_active = True
-        offer.expires_at = expiry
-        offer.created_at = datetime.utcnow()
+        # Create offer record using StoredOffer (cache-friendly dataclass)
+        offer = StoredOffer(
+            id=str(uuid.uuid4()),
+            issuance_session_id=session_id,
+            offer_uri=offer_uri,
+            offer_payload=offer_payload,
+            is_active=True,
+            expires_at=expiry.isoformat(),
+            created_at=now.isoformat(),
+        )
 
-        _credential_offers[offer.id] = offer
+        # Store offer in Redis
+        await self._storage.store_offer(offer, ttl_seconds=OFFER_EXPIRY_SECONDS)
 
         logger.info(
             f"Created issuance session {session_id} for application {application_id}, "
@@ -130,13 +152,16 @@ class IssuanceService:
         )
 
         # Generate the credential immediately
-        await self._queue_credential_generation(session)
+        session = await self._queue_credential_generation(session)
 
         if auto_accept:
             # Auto-accept: mark as accepted and issued, push credential to authenticator
-            session.status = IssuanceStatus.ISSUED
-            session.accepted_at = datetime.utcnow()
-            session.issued_at = datetime.utcnow()
+            session.status = IssuanceStatus.ISSUED.value
+            session.accepted_at = now.isoformat()
+            session.issued_at = now.isoformat()
+            
+            # Update session in storage
+            await self._storage.update_session(session)
             
             # Push the actual credential to the authenticator (not just an offer)
             if device_id:
@@ -148,16 +173,19 @@ class IssuanceService:
 
         return session
 
-    async def get_session(self, transaction_id: str) -> Optional[IssuanceSession]:
+    async def get_session(self, transaction_id: str) -> Optional[StoredSession]:
         """Get issuance session by transaction ID."""
-        return _issuance_sessions.get(transaction_id)
+        return await self._storage.get_session_by_transaction_id(transaction_id)
 
-    async def get_session_by_application(self, application_id: str) -> Optional[IssuanceSession]:
-        """Get issuance session by application ID."""
-        for session in _issuance_sessions.values():
-            if session.application_id == application_id:
-                return session
-        return None
+    async def get_session_by_id(self, session_id: str) -> Optional[StoredSession]:
+        """Get issuance session by session ID."""
+        return await self._storage.get_session_by_id(session_id)
+
+    async def get_session_by_pre_auth_code(
+        self, pre_authorized_code: str
+    ) -> Optional[StoredSession]:
+        """Get issuance session by pre-authorized code."""
+        return await self._storage.get_session_by_pre_auth_code(pre_authorized_code)
 
     async def update_session_status(
         self,
@@ -165,30 +193,30 @@ class IssuanceService:
         status: IssuanceStatus,
         credential: Optional[str] = None,
         error_message: Optional[str] = None,
-    ) -> Optional[IssuanceSession]:
+    ) -> Optional[StoredSession]:
         """Update issuance session status.
 
         Called by the credential generation worker when async processing completes.
         """
-        session = _issuance_sessions.get(transaction_id)
+        session = await self._storage.get_session_by_transaction_id(transaction_id)
         if not session:
             return None
 
-        session.status = status
-        session.updated_at = datetime.utcnow()
+        now = datetime.now(timezone.utc)
+        session.status = status.value
 
         if credential:
             session.issued_credential = credential
-            session.issued_at = datetime.utcnow()
+            session.issued_at = now.isoformat()
 
-        if error_message:
-            session.error_message = error_message
+        # Note: error_message would need to be added to StoredSession if needed
 
+        await self._storage.update_session(session)
         logger.info(f"Updated issuance session {transaction_id} to status {status}")
 
         return session
 
-    def _build_credential_offer(self, session: IssuanceSession) -> dict:
+    def _build_credential_offer(self, session: StoredSession) -> dict:
         """Build OID4VCI credential offer payload."""
         return {
             "credential_issuer": self.issuer_url,
@@ -209,7 +237,7 @@ class IssuanceService:
         params = urlencode({"credential_offer_uri": offer_endpoint})
         return f"openid-credential-offer://?{params}"
 
-    async def _queue_credential_generation(self, session: IssuanceSession) -> None:
+    async def _queue_credential_generation(self, session: StoredSession) -> StoredSession:
         """Queue async credential generation.
 
         In production, this would:
@@ -218,6 +246,9 @@ class IssuanceService:
            and call update_session_status
 
         For now, we perform immediate signing.
+        
+        Returns:
+            Updated session with credential or error status
         """
         logger.info(f"Generating credential for session {session.id}")
 
@@ -234,20 +265,26 @@ class IssuanceService:
                 credential_format=session.credential_format or "vc+sd-jwt",
             )
             
-            session.status = IssuanceStatus.READY
+            now = datetime.now(timezone.utc)
+            session.status = IssuanceStatus.READY.value
             session.issued_credential = credential
-            session.issued_at = datetime.utcnow()
+            session.issued_at = now.isoformat()
+            
+            # Update in storage
+            await self._storage.update_session(session)
             
             logger.info(f"Credential generated for session {session.id}")
             
         except Exception as e:
             logger.error(f"Failed to generate credential for session {session.id}: {e}")
-            session.status = IssuanceStatus.FAILED
-            session.error_message = str(e)
+            session.status = IssuanceStatus.FAILED.value
+            await self._storage.update_session(session)
+        
+        return session
 
     async def _push_credential_to_authenticator(
         self,
-        session: IssuanceSession,
+        session: StoredSession,
     ) -> bool:
         """Push the credential directly to the authenticator.
 
@@ -285,7 +322,7 @@ class IssuanceService:
                 "credential_format": session.credential_format,
                 "credential": session.issued_credential,
                 "credential_data": session.credential_data,
-                "issued_at": session.issued_at.isoformat() if session.issued_at else None,
+                "issued_at": session.issued_at,  # Already ISO string
             },
             "priority": "high",
         }
@@ -321,7 +358,7 @@ class IssuanceService:
 
     async def _send_credential_ready_notification(
         self,
-        session: IssuanceSession,
+        session: StoredSession,
         credential_offer_uri: str,
     ) -> bool:
         """Send push notification that credential offer is ready.
@@ -345,44 +382,28 @@ class IssuanceService:
             )
             return False
 
-    def _generate_placeholder_credential(self, session: IssuanceSession) -> str:
-        """Generate a placeholder credential for testing.
-
-        In production, this would:
-        1. Fetch the organization's signing key
-        2. Build the credential claims from session.credential_data
-        3. Sign using the appropriate format (SD-JWT, jwt_vc_json, mso_mdoc)
-        """
-        # Placeholder SD-JWT structure
-        import json
-        import base64
-
-        header = {"alg": "ES256", "typ": "vc+sd-jwt"}
-        payload = {
-            "iss": self.issuer_url,
-            "sub": session.applicant_id,
-            "iat": int(datetime.utcnow().timestamp()),
-            "exp": int((datetime.utcnow() + timedelta(days=365)).timestamp()),
-            "vc": {
-                "type": ["VerifiableCredential"],
-                "credentialSubject": session.credential_data or {},
-            },
-        }
-
-        # Encode (not a real JWT - placeholder only)
-        header_b64 = base64.urlsafe_b64encode(json.dumps(header).encode()).decode().rstrip("=")
-        payload_b64 = base64.urlsafe_b64encode(json.dumps(payload).encode()).decode().rstrip("=")
-
-        return f"{header_b64}.{payload_b64}.placeholder_signature"
-
 
 # Singleton instance
 _issuance_service: Optional[IssuanceService] = None
+_issuance_storage: Optional[IIssuanceStorage] = None
+
+
+def get_issuance_storage() -> IIssuanceStorage:
+    """Get or create the issuance storage singleton."""
+    global _issuance_storage
+    if _issuance_storage is None:
+        from issuance.adapters import create_issuance_storage
+        _issuance_storage = create_issuance_storage()
+    return _issuance_storage
 
 
 def get_issuance_service() -> IssuanceService:
-    """Get the issuance service singleton."""
+    """Get the issuance service singleton.
+    
+    Uses Redis-backed storage via IIssuanceStorage port.
+    """
     global _issuance_service
     if _issuance_service is None:
-        _issuance_service = IssuanceService()
+        storage = get_issuance_storage()
+        _issuance_service = IssuanceService(issuance_storage=storage)
     return _issuance_service
