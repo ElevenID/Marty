@@ -41,21 +41,56 @@ def _get_marty_rs():
 
 
 class SpruceIDKeyManager:
-    """Key manager implementation using SpruceID's SSI library."""
+    """Key manager implementation using SpruceID's SSI library.
+    
+    Supports the following key algorithms:
+    - ES256 (P-256): SD-JWT-VC, JWT VC JSON
+    - ES384 (P-384): JWT VC with higher security
+    - RS256 (RSA PKCS#1 2048-bit): JWT VC JSON
+    - RS384 (RSA PKCS#1 3072-bit): JWT VC JSON
+    - RS512 (RSA PKCS#1 4096-bit): JWT VC JSON
+    - PS256 (RSA-PSS 2048-bit): JWT VC with PSS padding
+    - PS384 (RSA-PSS 3072-bit): JWT VC with PSS padding
+    - PS512 (RSA-PSS 4096-bit): JWT VC with PSS padding
+    - EdDSA (Ed25519): DID-based signing
+    """
 
     def __init__(self) -> None:
         self._keys: dict[str, KeyPair] = {}
 
     def generate_key(self, algorithm: KeyAlgorithm = KeyAlgorithm.ES256) -> KeyPair:
-        """Generate a new key pair using SpruceID."""
+        """Generate a new key pair using SpruceID.
+        
+        Args:
+            algorithm: The key algorithm to use
+            
+        Returns:
+            A KeyPair containing DID, JWK, and metadata
+            
+        Raises:
+            ValueError: If algorithm is not supported
+        """
         marty_rs = _get_marty_rs()
 
         if algorithm == KeyAlgorithm.ES256:
             did, jwk_json = marty_rs.generate_p256_key()
+        elif algorithm == KeyAlgorithm.ES384:
+            did, jwk_json = marty_rs.generate_p384_key()
         elif algorithm == KeyAlgorithm.EDDSA:
             did, jwk_json = marty_rs.generate_did_key()
+        elif algorithm.value.startswith("RS"):
+            # RSA with PKCS#1 padding: RS256 (2048), RS384 (3072), RS512 (4096)
+            key_sizes = {"RS256": 2048, "RS384": 3072, "RS512": 4096}
+            key_size = key_sizes.get(algorithm.value, 2048)
+            did, jwk_json = marty_rs.generate_rsa_key(key_size=key_size, use_pss=False)
+        elif algorithm.value.startswith("PS"):
+            # RSA-PSS padding: PS256 (2048), PS384 (3072), PS512 (4096)
+            key_sizes = {"PS256": 2048, "PS384": 3072, "PS512": 4096}
+            key_size = key_sizes.get(algorithm.value, 2048)
+            did, jwk_json = marty_rs.generate_rsa_key(key_size=key_size, use_pss=True)
         else:
-            raise ValueError(f"Unsupported algorithm: {algorithm}. Use ES256 or EdDSA.")
+            supported = ["ES256", "ES384", "RS256", "RS384", "RS512", "PS256", "PS384", "PS512", "EdDSA"]
+            raise ValueError(f"Unsupported algorithm: {algorithm}. Supported: {supported}")
 
         return KeyPair(
             did=did,
