@@ -10,3 +10,6 @@ export { default as InviteApplicants } from './InviteApplicants';
 export { default as ProcessingFeeConfig } from './ProcessingFeeConfig';
 export { default as CredentialConfigManager } from './CredentialConfigManager';
 export { default as MDocConfigManager } from './MDocConfigManager';
+export { default as VendorApplicationReview } from './VendorApplicationReview';
+export { default as TemplateCatalog } from './TemplateCatalog';
+export * from './TemplateActions';

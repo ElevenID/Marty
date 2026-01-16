@@ -348,14 +348,64 @@ class IssuanceService:
             logger.info(
                 f"Credential pushed to authenticator for session {session.id}"
             )
-            return True
             
+            # Emit SSE event for test observability
+            await self._emit_credential_issued_event(session)
+            
+            return True
         except Exception as e:
             logger.error(
                 f"Failed to push credential for session {session.id}: {e}"
             )
             return False
 
+    async def _emit_credential_issued_event(self, session: StoredSession) -> None:
+        """Emit SSE event for credential issuance (test observability)."""
+        try:
+            import sys
+            from pathlib import Path
+            from uuid import uuid4
+            from datetime import datetime, timezone
+            
+            # Add main src directory to path for notifications module
+            _main_src = Path(__file__).parent.parent.parent.parent / "src"
+            if _main_src.exists() and str(_main_src) not in sys.path:
+                sys.path.insert(0, str(_main_src))
+            sys.path.insert(0, '/app')  # For Docker context
+            
+            from notifications.adapters.sse import SSEAdapter
+            from notifications.types import NotificationPayload, NotificationTarget
+            from notifications.api import get_sse_adapter
+            
+            try:
+                sse_adapter = get_sse_adapter()
+            except Exception:
+                return
+            
+            payload = NotificationPayload(
+                id=uuid4(),
+                event_type="credential.issued",
+                title="Credential Issued",
+                body="A new credential has been issued",
+                data={
+                    "session_id": str(session.id),
+                    "transaction_id": session.transaction_id,
+                    "credential_config_id": session.credential_config_id,
+                    "application_id": session.application_id,
+                },
+                created_at=datetime.now(timezone.utc),
+                target=NotificationTarget(
+                    user_id=session.applicant_id,
+                    organization_id=UUID(session.organization_id) if session.organization_id else None,
+                ) if session.applicant_id else None,
+            )
+            
+            await sse_adapter.send(payload)
+            logger.debug(f"SSE event emitted: credential.issued for session {session.id}")
+            
+        except Exception as e:
+            logger.debug(f"Failed to emit credential.issued event: {e}")
+    
     async def _send_credential_ready_notification(
         self,
         session: StoredSession,

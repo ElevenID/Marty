@@ -2,10 +2,19 @@ import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { ThemeProvider, createTheme } from '@mui/material/styles';
 import CssBaseline from '@mui/material/CssBaseline';
-import { AppBar, Toolbar, Typography, Container, Box } from '@mui/material';
+import { AppBar, Toolbar, Typography, Container, Box, Button, Avatar, Chip, Tooltip } from '@mui/material';
+import LoginIcon from '@mui/icons-material/Login';
+import LogoutIcon from '@mui/icons-material/Logout';
+import AdminPanelSettingsIcon from '@mui/icons-material/AdminPanelSettings';
+import PersonIcon from '@mui/icons-material/Person';
+import BusinessIcon from '@mui/icons-material/Business';
+import StorefrontIcon from '@mui/icons-material/Storefront';
 
 import { AuthProvider } from './contexts/AuthContext';
 import { NotificationProvider } from './contexts/NotificationContext';
+import { BrandingProvider } from './contexts/BrandingContext';
+import { useAuth } from './hooks/useAuth';
+import { useBranding } from './hooks/useBranding';
 import ErrorBoundary from './components/ErrorBoundary';
 import ProtectedRoute, { AdminRoute, ApplicantRoute, VendorRoute } from './components/ProtectedRoute';
 import LandingPage from './components/LandingPage';
@@ -32,40 +41,140 @@ import MyDocuments from './components/MyDocuments';
 import ProfilePage from './components/ProfilePage';
 import WalletSetup from './components/WalletSetup';
 import NotificationPreferences from './components/NotificationPreferences';
-import { VendorDashboard, APIKeyManager, CredentialConfigManager, MDocConfigManager, InviteApplicants } from './components/vendor';
+import { VendorDashboard, APIKeyManager, CredentialConfigManager, MDocConfigManager, InviteApplicants, VendorApplicationReview } from './components/vendor';
 import { ApplicationForm, CredentialCatalog } from './components/applicant';
 import InviteAcceptPage from './components/InviteAcceptPage';
 
-const theme = createTheme({
-  palette: {
-    primary: {
-      main: '#1976d2',
+// TODO: Future feature - Dynamic theme from org database settings
+// When org profile page is implemented, fetch theme colors from API
+// and update theme dynamically based on authenticated user's organization
+function createDynamicTheme(branding) {
+  return createTheme({
+    palette: {
+      primary: {
+        main: branding.primaryColor || '#1976d2',
+      },
+      secondary: {
+        main: branding.secondaryColor || '#dc004e',
+      },
     },
-    secondary: {
-      main: '#dc004e',
-    },
-  },
-});
+  });
+}
 
-function App() {
+function AppContent() {
+  const { isAuthenticated, isAdministrator, isApplicant, isVendor, organizationName, user, login, logout } = useAuth();
+  const { branding, isLoading } = useBranding();
+
+  // Create theme from branding config
+  const theme = React.useMemo(() => createDynamicTheme(branding), [branding]);
+
+  const getUserDisplayName = () => {
+    if (!user) return '';
+    return user.name || user.email || 'User';
+  };
+
+  const getUserTypeLabel = () => {
+    if (isAdministrator) return 'Administrator';
+    if (isVendor) return 'Vendor';
+    if (isApplicant) return 'Applicant';
+    return 'User';
+  };
+
+  const getUserTypeColor = () => {
+    if (isAdministrator) return 'primary';
+    if (isVendor) return 'secondary';
+    if (isApplicant) return 'info';
+    return 'default';
+  };
+
+  const getUserTypeIcon = () => {
+    if (isAdministrator) return <AdminPanelSettingsIcon />;
+    if (isVendor) return <StorefrontIcon />;
+    return <PersonIcon />;
+  };
+
   return (
     <ThemeProvider theme={theme}>
       <CssBaseline />
-      <ErrorBoundary>
-        <NotificationProvider>
-          <Router>
-            <AuthProvider>
-              <AppBar position="static">
-                <Toolbar>
-                  <Typography variant="h6" component="div" sx={{ flexGrow: 1 }}>
-                    Marty Trust Services
-                  </Typography>
-                </Toolbar>
-              </AppBar>
+      <AppBar position="static">
+        <Toolbar>
+          {branding.logoUrl && (
+            <Box component="img" src={branding.logoUrl} alt={branding.appName} sx={{ height: 32, mr: 2 }} />
+          )}
+          <Typography variant="h6" component="div" sx={{ flexGrow: 1 }}>
+            {branding.appName}
+          </Typography>
+          
+          {/* User Info & Auth Actions */}
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+            {isAuthenticated ? (
+              <>
+                {/* Organization Badge (for vendors) */}
+                {isVendor && organizationName && (
+                  <Tooltip title="Your Organization">
+                    <Chip
+                      icon={<BusinessIcon />}
+                      label={organizationName}
+                      size="small"
+                      variant="filled"
+                      sx={{ bgcolor: 'rgba(255, 255, 255, 0.2)', color: 'white' }}
+                    />
+                  </Tooltip>
+                )}
 
-              <Container maxWidth="lg">
-                <Box sx={{ my: 4 }}>
-                  <Navigation />
+                {/* User Type Badge */}
+                <Chip
+                  icon={getUserTypeIcon()}
+                  label={getUserTypeLabel()}
+                  size="small"
+                  variant="outlined"
+                  sx={{ borderColor: 'white', color: 'white' }}
+                  data-testid="user-type-badge"
+                />
+
+                {/* User Avatar & Name */}
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <Avatar sx={{ width: 32, height: 32, bgcolor: 'rgba(255, 255, 255, 0.3)' }}>
+                    {getUserDisplayName().charAt(0).toUpperCase()}
+                  </Avatar>
+                  <Typography variant="body2" sx={{ color: 'white' }}>
+                    {getUserDisplayName()}
+                  </Typography>
+                </Box>
+
+                {/* Logout Button */}
+                <Button
+                  variant="outlined"
+                  size="small"
+                  startIcon={<LogoutIcon />}
+                  onClick={logout}
+                  sx={{ borderColor: 'white', color: 'white', '&:hover': { borderColor: 'white', bgcolor: 'rgba(255, 255, 255, 0.1)' } }}
+                  data-testid="logout-button"
+                >
+                  Logout
+                </Button>
+              </>
+            ) : (
+              /* Login Button */
+              <Button
+                variant="contained"
+                size="small"
+                startIcon={<LoginIcon />}
+                onClick={login}
+                sx={{ bgcolor: 'white', color: 'primary.main', '&:hover': { bgcolor: 'rgba(255, 255, 255, 0.9)' } }}
+                data-testid="login-button"
+              >
+                Login
+              </Button>
+            )}
+          </Box>
+        </Toolbar>
+      </AppBar>
+
+      <Container maxWidth="lg">
+        <Box sx={{ my: 4 }}>
+          {/* Hide Navigation menu during onboarding */}
+          {isAuthenticated && !user?.needsOnboarding && <Navigation />}
 
                   <Routes>
                 {/* Public Routes */}
@@ -231,10 +340,26 @@ function App() {
                   }
                 />
                 <Route
+                  path="/vendor/settings"
+                  element={
+                    <VendorRoute>
+                      <MDocConfigManager />
+                    </VendorRoute>
+                  }
+                />
+                <Route
                   path="/vendor/invitations"
                   element={
                     <VendorRoute>
                       <InviteApplicants />
+                    </VendorRoute>
+                  }
+                />
+                <Route
+                  path="/vendor/applications"
+                  element={
+                    <VendorRoute>
+                      <VendorApplicationReview />
                     </VendorRoute>
                   }
                 />
@@ -313,13 +438,25 @@ function App() {
                 {/* Fallback - redirect unknown routes to home */}
                 <Route path="*" element={<Navigate to="/" replace />} />
               </Routes>
-            </Box>
-          </Container>
-        </AuthProvider>
-      </Router>
-        </NotificationProvider>
-      </ErrorBoundary>
+        </Box>
+      </Container>
     </ThemeProvider>
+  );
+}
+
+function App() {
+  return (
+    <ErrorBoundary>
+      <BrandingProvider>
+        <NotificationProvider>
+          <Router>
+            <AuthProvider>
+              <AppContent />
+            </AuthProvider>
+          </Router>
+        </NotificationProvider>
+      </BrandingProvider>
+    </ErrorBoundary>
   );
 }
 

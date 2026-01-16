@@ -14,9 +14,12 @@ import {
   CircularProgress,
   Tooltip,
   Fade,
+  Chip,
 } from '@mui/material';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
+import SecurityIcon from '@mui/icons-material/Security';
+import ScheduleIcon from '@mui/icons-material/Schedule';
 
 const CompletionStep = ({
   userType,
@@ -26,6 +29,8 @@ const CompletionStep = ({
   walletPaired,
   pairedDeviceId,
   existingOrganization = false,
+  trustConfigured = false,
+  trustSkipped = false,
 }) => {
   const copyInviteCode = () => {
     navigator.clipboard.writeText(resultInviteCode);
@@ -67,6 +72,39 @@ const CompletionStep = ({
               </Typography>
             </Paper>
           </Box>
+        )}
+
+        {/* Trust configuration status for vendors */}
+        {userType === 'vendor' && trustConfigured && (
+          <Alert 
+            severity="success" 
+            icon={<SecurityIcon />}
+            sx={{ maxWidth: 400, mx: 'auto', mb: 3 }}
+            data-testid="trust-configured-success"
+          >
+            <Typography variant="body2">
+              Trust profile configured and activated!
+              <Chip 
+                label="Ready to verify & issue" 
+                size="small" 
+                color="success"
+                sx={{ ml: 1 }}
+              />
+            </Typography>
+          </Alert>
+        )}
+
+        {userType === 'vendor' && trustSkipped && (
+          <Alert 
+            severity="info" 
+            icon={<ScheduleIcon />}
+            sx={{ maxWidth: 400, mx: 'auto', mb: 3 }}
+            data-testid="trust-skipped-info"
+          >
+            <Typography variant="body2">
+              Trust profile setup was skipped. You can configure it later from your organization settings.
+            </Typography>
+          </Alert>
         )}
 
         {userType === 'applicant' && membershipStatus === 'joined' && (

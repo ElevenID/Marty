@@ -22,9 +22,12 @@ import {
   Button,
   CircularProgress,
   Alert,
+  Tooltip,
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import RefreshIcon from '@mui/icons-material/Refresh';
+import EditIcon from '@mui/icons-material/Edit';
+import InfoIcon from '@mui/icons-material/Info';
 import { useAuth } from '../hooks/useAuth';
 
 // Application status colors
@@ -37,6 +40,7 @@ const STATUS_COLORS = {
   rejected: 'error',
   issued: 'success',
   completed: 'success',
+  needs_revision: 'warning',
 };
 
 // Application status labels
@@ -49,6 +53,7 @@ const STATUS_LABELS = {
   rejected: 'Rejected',
   issued: 'Issued',
   completed: 'Completed',
+  needs_revision: 'Needs Revision',
 };
 
 function MyApplications() {
@@ -185,6 +190,16 @@ function MyApplications() {
                       <Typography variant="body2" fontFamily="monospace">
                         {app.id?.slice(0, 8)}...
                       </Typography>
+                      {app.revision_notes && (
+                        <Tooltip title={app.revision_notes} arrow>
+                          <Box sx={{ display: 'flex', alignItems: 'center', mt: 0.5 }}>
+                            <InfoIcon fontSize="small" color="warning" sx={{ mr: 0.5 }} />
+                            <Typography variant="caption" color="warning.main">
+                              Revision requested
+                            </Typography>
+                          </Box>
+                        </Tooltip>
+                      )}
                     </TableCell>
                     <TableCell>{app.credential_display_name || app.document_type || 'Credential'}</TableCell>
                     <TableCell>{formatDate(app.submitted_at)}</TableCell>
@@ -197,7 +212,22 @@ function MyApplications() {
                     </TableCell>
                     <TableCell>{formatDate(app.updated_at)}</TableCell>
                     <TableCell align="right">
-                      <Button size="small">View Details</Button>
+                      <Box sx={{ display: 'flex', gap: 1, justifyContent: 'flex-end' }}>
+                        {app.status?.toLowerCase() === 'needs_revision' && (
+                          <Button
+                            size="small"
+                            variant="contained"
+                            color="warning"
+                            startIcon={<EditIcon />}
+                            onClick={() => navigate(`/application/${app.credential_configuration_id}`, {
+                              state: { applicationId: app.id, revisionData: app }
+                            })}
+                          >
+                            Edit & Resubmit
+                          </Button>
+                        )}
+                        <Button size="small">View Details</Button>
+                      </Box>
                     </TableCell>
                   </TableRow>
                 ))

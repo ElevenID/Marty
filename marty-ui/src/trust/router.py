@@ -5,21 +5,33 @@ for credential issuance, including trust framework selection and
 key management (Marty-hosted or BYOK).
 """
 
-import secrets
+import json
 import uuid
 from datetime import datetime, timedelta
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from auth.router import get_current_user, require_org_admin, AuthStatusResponse
+from subscription.database import get_db_session
 from subscription.models import (
     IssuerKeyConfig,
     IssuerKeySource,
     OrganizationTrustConfig,
     TrustFramework,
 )
+
+# Import marty-rs for key generation
+try:
+    import _marty_rs as marty_rs
+except ImportError as e:
+    raise RuntimeError(
+        "marty-rs is required for key generation. "
+        "Install it with: pip install marty-rs"
+    ) from e
 
 router = APIRouter(prefix="/api/organizations", tags=["trust-config"])
 
@@ -114,127 +126,92 @@ class GenerateKeyRequest(BaseModel):
 # ==================== Helper Functions ====================
 
 
-def _generate_ed25519_keypair() -> tuple[dict, dict]:
-    """Generate Ed25519 keypair as JWK.
-
-    Returns:
-        Tuple of (public_jwk, private_jwk)
-    """
-    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
-    from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat, PrivateFormat, NoEncryption
-    import base64
-
-    private_key = Ed25519PrivateKey.generate()
-    public_key = private_key.public_key()
-
-    # Get raw key bytes
-    private_bytes = private_key.private_bytes(Encoding.Raw, PrivateFormat.Raw, NoEncryption())
-    public_bytes = public_key.public_bytes(Encoding.Raw, PublicFormat.Raw)
-
-    kid = f"key-{secrets.token_urlsafe(8)}"
-
-    public_jwk = {
-        "kty": "OKP",
-        "crv": "Ed25519",
-        "x": base64.urlsafe_b64encode(public_bytes).rstrip(b"=").decode(),
-        "kid": kid,
-        "use": "sig",
-        "alg": "EdDSA",
-    }
-
-    private_jwk = {
-        **public_jwk,
-        "d": base64.urlsafe_b64encode(private_bytes).rstrip(b"=").decode(),
-    }
-
-    return public_jwk, private_jwk
-
-
 def _generate_es256_keypair() -> tuple[dict, dict]:
-    """Generate ES256 (P-256) keypair as JWK.
+    """Generate ES256 (P-256) keypair using marty-rs.
 
     Returns:
         Tuple of (public_jwk, private_jwk)
     """
-    from cryptography.hazmat.primitives.asymmetric import ec
-    from cryptography.hazmat.backends import default_backend
-    import base64
-
-    private_key = ec.generate_private_key(ec.SECP256R1(), default_backend())
-    public_key = private_key.public_key()
-
-    # Get the numbers
-    private_numbers = private_key.private_numbers()
-    public_numbers = private_numbers.public_numbers
-
-    # Convert to bytes (32 bytes for P-256)
-    x_bytes = public_numbers.x.to_bytes(32, byteorder="big")
-    y_bytes = public_numbers.y.to_bytes(32, byteorder="big")
-    d_bytes = private_numbers.private_value.to_bytes(32, byteorder="big")
-
-    kid = f"key-{secrets.token_urlsafe(8)}"
-
+    # marty-rs returns (did, jwk_json_string)
+    did, jwk_json = marty_rs.generate_p256_key()
+    jwk = json.loads(jwk_json)
+    
+    # Add kid from DID
+    kid = did.split(":")[-1]  # Extract from did:jwk:...
+    jwk["kid"] = kid
+    jwk["use"] = "sig"
+    jwk["alg"] = "ES256"
+    
+    # Split into public and private
     public_jwk = {
-        "kty": "EC",
-        "crv": "P-256",
-        "x": base64.urlsafe_b64encode(x_bytes).rstrip(b"=").decode(),
-        "y": base64.urlsafe_b64encode(y_bytes).rstrip(b"=").decode(),
+        "kty": jwk["kty"],
+        "crv": jwk["crv"],
+        "x": jwk["x"],
+        "y": jwk["y"],
         "kid": kid,
         "use": "sig",
         "alg": "ES256",
     }
+    
+    private_jwk = jwk  # Full JWK with private key
+    
+    return public_jwk, private_jwk
 
-    private_jwk = {
-        **public_jwk,
-        "d": base64.urlsafe_b64encode(d_bytes).rstrip(b"=").decode(),
+
+def _generate_ed25519_keypair() -> tuple[dict, dict]:
+    """Generate Ed25519 keypair using marty-rs.
+
+    Returns:
+        Tuple of (public_jwk, private_jwk)
+    """
+    # marty-rs returns (did, jwk_json_string)
+    did, jwk_json = marty_rs.generate_did_key()
+    jwk = json.loads(jwk_json)
+    
+    # Add kid from DID  
+    kid = did  # Use full did:key:z... as kid
+    jwk["kid"] = kid
+    jwk["use"] = "sig"
+    jwk["alg"] = "EdDSA"
+    
+    # Split into public and private
+    public_jwk = {
+        "kty": jwk["kty"],
+        "crv": jwk["crv"],
+        "x": jwk["x"],
+        "kid": kid,
+        "use": "sig",
+        "alg": "EdDSA",
     }
-
+    
+    private_jwk = jwk  # Full JWK with private key
+    
     return public_jwk, private_jwk
 
 
 def _generate_did_key(public_jwk: dict) -> str:
-    """Generate did:key from public JWK.
+    """Generate did:key or did:jwk from public JWK.
+
+    For EdDSA uses did:key format, for ES256 uses did:jwk format.
 
     Args:
         public_jwk: Public key as JWK
 
     Returns:
-        did:key identifier
+        did identifier
     """
-    import base64
-    import hashlib
-
-    # Simplified did:key generation using JWK thumbprint
-    # In production, use proper multicodec encoding
-    if public_jwk.get("kty") == "OKP" and public_jwk.get("crv") == "Ed25519":
-        # Ed25519 multicodec prefix: 0xed01
-        x_bytes = base64.urlsafe_b64decode(public_jwk["x"] + "==")
-        multicodec_bytes = bytes([0xed, 0x01]) + x_bytes
-    elif public_jwk.get("kty") == "EC" and public_jwk.get("crv") == "P-256":
-        # P-256 multicodec prefix: 0x1200
-        x_bytes = base64.urlsafe_b64decode(public_jwk["x"] + "==")
-        y_bytes = base64.urlsafe_b64decode(public_jwk["y"] + "==")
-        # Compressed point format
-        prefix = 0x02 if int.from_bytes(y_bytes, "big") % 2 == 0 else 0x03
-        multicodec_bytes = bytes([0x80, 0x24]) + bytes([prefix]) + x_bytes
+    alg = public_jwk.get("alg", "")
+    
+    if alg == "EdDSA":
+        # For EdDSA, the kid is already the did:key
+        return public_jwk.get("kid", "")
     else:
-        # Fallback: use JWK thumbprint
-        import json
-        canonical = json.dumps(public_jwk, sort_keys=True, separators=(",", ":"))
-        thumbprint = hashlib.sha256(canonical.encode()).digest()
-        return f"did:jwk:{base64.urlsafe_b64encode(thumbprint).rstrip(b'=').decode()}"
-
-    # Base58btc encoding (simplified)
-    import base58
-    encoded = base58.b58encode(multicodec_bytes).decode()
-    return f"did:key:z{encoded}"
-
-
-# ==================== In-Memory Storage (for now) ====================
-
-# TODO: Replace with proper database session
-_trust_configs: dict[str, OrganizationTrustConfig] = {}
-_issuer_keys: dict[str, IssuerKeyConfig] = {}
+        # For ES256 (P-256), generate did:jwk
+        jwk_copy = {k: v for k, v in public_jwk.items() if k not in ["d", "use", "kid", "alg"]}
+        jwk_str = json.dumps(jwk_copy, separators=(',', ':'), sort_keys=True)
+        import base64
+        encoded = base64.urlsafe_b64encode(jwk_str.encode()).decode().rstrip('=')
+        return f"did:jwk:{encoded}"
 
 
 # ==================== API Endpoints ====================
@@ -244,6 +221,7 @@ _issuer_keys: dict[str, IssuerKeyConfig] = {}
 async def get_trust_config(
     org_id: str,
     current_user: AuthStatusResponse = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
 ):
     """Get organization trust configuration.
 
@@ -265,7 +243,14 @@ async def get_trust_config(
             detail="Not authorized to access this organization's trust configuration",
         )
 
-    config = _trust_configs.get(org_id)
+    # Query database for trust config
+    result = await db.execute(
+        select(OrganizationTrustConfig).where(
+            OrganizationTrustConfig.organization_id == org_id
+        )
+    )
+    config = result.scalar_one_or_none()
+    
     if not config:
         # Return default unconfigured state
         return TrustConfigResponse(
@@ -278,6 +263,14 @@ async def get_trust_config(
             issuer_keys=[],
         )
 
+    # Query issuer keys for this trust config
+    keys_result = await db.execute(
+        select(IssuerKeyConfig).where(
+            IssuerKeyConfig.trust_config_id == config.id
+        )
+    )
+    keys = keys_result.scalars().all()
+    
     # Build issuer keys response
     issuer_keys = [
         IssuerKeyResponse(
@@ -293,8 +286,7 @@ async def get_trust_config(
             valid_until=key.valid_until,
             has_certificate=key.x509_certificate is not None,
         )
-        for key in _issuer_keys.values()
-        if key.trust_config_id == config.id
+        for key in keys
     ]
 
     return TrustConfigResponse(
@@ -319,6 +311,7 @@ async def update_trust_config(
     org_id: str,
     request: TrustConfigUpdate,
     current_user: AuthStatusResponse = Depends(require_org_admin),
+    db: AsyncSession = Depends(get_db_session),
 ):
     """Update organization trust configuration.
 
@@ -334,14 +327,25 @@ async def update_trust_config(
             detail="Not authorized to modify this organization's trust configuration",
         )
 
-    config = _trust_configs.get(org_id)
+    # Query for existing config
+    result = await db.execute(
+        select(OrganizationTrustConfig).where(
+            OrganizationTrustConfig.organization_id == org_id
+        )
+    )
+    config = result.scalar_one_or_none()
+    
     if not config:
         # Create new config
-        config = OrganizationTrustConfig()
-        config.id = str(uuid.uuid4())
-        config.organization_id = org_id
-        config.created_at = datetime.utcnow()
-        _trust_configs[org_id] = config
+        config = OrganizationTrustConfig(
+            id=str(uuid.uuid4()),
+            organization_id=org_id,
+            trust_framework=TrustFramework.MARTY_HOSTED,
+            key_source=IssuerKeySource.MARTY_GENERATED,
+            is_configured=False,
+            created_at=datetime.utcnow(),
+        )
+        db.add(config)
 
     # Update fields
     if request.trust_framework is not None:
@@ -367,31 +371,41 @@ async def update_trust_config(
         config.trust_framework == TrustFramework.MARTY_HOSTED
         and config.key_source == IssuerKeySource.MARTY_GENERATED
     ):
-        existing_keys = [k for k in _issuer_keys.values() if k.trust_config_id == config.id]
+        # Check for existing keys
+        keys_result = await db.execute(
+            select(IssuerKeyConfig).where(
+                IssuerKeyConfig.trust_config_id == config.id
+            )
+        )
+        existing_keys = keys_result.scalars().all()
+        
         if not existing_keys:
             # Generate default ES256 key
             public_jwk, private_jwk = _generate_es256_keypair()
             did = _generate_did_key(public_jwk)
 
-            key = IssuerKeyConfig()
-            key.id = str(uuid.uuid4())
-            key.trust_config_id = config.id
-            key.key_id = public_jwk["kid"]
-            key.algorithm = "ES256"
-            key.key_type = "EC"
-            key.did = did
-            key.did_method = "key"
-            key.jwk_public = public_jwk
-            key.jwk_private_encrypted = str(private_jwk)  # TODO: Encrypt in production
-            key.is_active = True
-            key.is_default = True
-            key.valid_from = datetime.utcnow()
-            key.valid_until = datetime.utcnow() + timedelta(days=365)
-            key.created_at = datetime.utcnow()
+            key = IssuerKeyConfig(
+                id=str(uuid.uuid4()),
+                trust_config_id=config.id,
+                key_id=public_jwk["kid"],
+                algorithm="ES256",
+                key_type="EC",
+                did=did,
+                did_method="key",
+                jwk_public=public_jwk,
+                jwk_private_encrypted=json.dumps(private_jwk),  # TODO: Storage layer should encrypt automatically
+                is_active=True,
+                is_default=True,
+                valid_from=datetime.utcnow(),
+                valid_until=datetime.utcnow() + timedelta(days=365),
+                created_at=datetime.utcnow(),
+            )
+            db.add(key)
 
-            _issuer_keys[key.id] = key
-
-    return await get_trust_config(org_id, current_user)
+    await db.commit()
+    await db.refresh(config)
+    
+    return await get_trust_config(org_id, current_user, db)
 
 
 @router.post("/{org_id}/trust-config/keys", response_model=IssuerKeyResponse)
@@ -399,6 +413,7 @@ async def generate_signing_key(
     org_id: str,
     request: GenerateKeyRequest,
     current_user: AuthStatusResponse = Depends(require_org_admin),
+    db: AsyncSession = Depends(get_db_session),
 ):
     """Generate a new Marty-hosted signing key.
 
@@ -414,7 +429,14 @@ async def generate_signing_key(
             detail="Not authorized to manage this organization's keys",
         )
 
-    config = _trust_configs.get(org_id)
+    # Query for trust config
+    result = await db.execute(
+        select(OrganizationTrustConfig).where(
+            OrganizationTrustConfig.organization_id == org_id
+        )
+    )
+    config = result.scalar_one_or_none()
+    
     if not config:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -448,28 +470,35 @@ async def generate_signing_key(
 
     # If setting as default, unset current default
     if request.set_as_default:
-        for key in _issuer_keys.values():
-            if key.trust_config_id == config.id and key.is_default:
-                key.is_default = False
+        keys_result = await db.execute(
+            select(IssuerKeyConfig).where(
+                IssuerKeyConfig.trust_config_id == config.id,
+                IssuerKeyConfig.is_default == True,
+            )
+        )
+        for existing_key in keys_result.scalars().all():
+            existing_key.is_default = False
 
     # Create key config
-    key = IssuerKeyConfig()
-    key.id = str(uuid.uuid4())
-    key.trust_config_id = config.id
-    key.key_id = public_jwk["kid"]
-    key.algorithm = request.algorithm
-    key.key_type = key_type
-    key.did = did
-    key.did_method = request.did_method
-    key.jwk_public = public_jwk
-    key.jwk_private_encrypted = str(private_jwk)  # TODO: Encrypt in production
-    key.is_active = True
-    key.is_default = request.set_as_default
-    key.valid_from = datetime.utcnow()
-    key.valid_until = datetime.utcnow() + timedelta(days=request.validity_days)
-    key.created_at = datetime.utcnow()
-
-    _issuer_keys[key.id] = key
+    key = IssuerKeyConfig(
+        id=str(uuid.uuid4()),
+        trust_config_id=config.id,
+        key_id=public_jwk["kid"],
+        algorithm=request.algorithm,
+        key_type=key_type,
+        did=did,
+        did_method=request.did_method,
+        jwk_public=public_jwk,
+        jwk_private_encrypted=json.dumps(private_jwk),  # TODO: Storage layer should encrypt automatically
+        is_active=True,
+        is_default=request.set_as_default,
+        valid_from=datetime.utcnow(),
+        valid_until=datetime.utcnow() + timedelta(days=request.validity_days),
+        created_at=datetime.utcnow(),
+    )
+    db.add(key)
+    await db.commit()
+    await db.refresh(key)
 
     return IssuerKeyResponse(
         id=key.id,

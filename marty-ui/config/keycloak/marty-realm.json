@@ -208,13 +208,13 @@
       "clientAuthenticatorType": "client-secret",
       "redirectUris": [
         "http://localhost:9080/*",
-        "http://localhost:3000/*",
+        "${UI_BASE_URL}/*",
         "http://host.docker.internal:9080/*",
         "https://*.marty.demo/*"
       ],
       "webOrigins": [
         "http://localhost:9080",
-        "http://localhost:3000",
+        "${UI_BASE_URL}",
         "http://host.docker.internal:9080",
         "https://*.marty.demo"
       ],
@@ -228,7 +228,7 @@
       "fullScopeAllowed": true,
       "attributes": {
         "pkce.code.challenge.method": "S256",
-        "post.logout.redirect.uris": "http://localhost:9080/*##http://localhost:3000/*##http://host.docker.internal:9080/*##https://*.marty.demo/*"
+        "post.logout.redirect.uris": "http://localhost:9080/*##${UI_BASE_URL}/*##http://host.docker.internal:9080/*##https://*.marty.demo/*"
       },
       "defaultClientScopes": [
         "openid",
@@ -587,8 +587,8 @@
     "contentSecurityPolicyReportOnly": "",
     "xContentTypeOptions": "nosniff",
     "xRobotsTag": "none",
-    "xFrameOptions": "SAMEORIGIN",
-    "contentSecurityPolicy": "frame-src 'self'; frame-ancestors 'self'; object-src 'none';",
+    "xFrameOptions": "ALLOW-FROM http://localhost:9080",
+    "contentSecurityPolicy": "frame-src 'self'; frame-ancestors 'self' http://localhost:*; object-src 'none';",
     "xXSSProtection": "1; mode=block",
     "strictTransportSecurity": "max-age=31536000; includeSubDomains"
   },

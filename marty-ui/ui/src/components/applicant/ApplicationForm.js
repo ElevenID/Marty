@@ -1,11 +1,12 @@
 /**
  * Application Form Component
  *
- * Multi-step wizard for applicants to apply for credentials (mDL, etc.)
- * Steps: Personal Info → Address → License Details → Photo Upload → Review & Submit
+ * Dynamic multi-step wizard for applicants to apply for credentials.
+ * Dynamically renders fields based on credential configuration's
+ * required_fields, optional_fields, and custom_fields.
  */
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import {
   Box,
@@ -42,79 +43,57 @@ import PhotoCameraIcon from '@mui/icons-material/PhotoCamera';
 import DeleteIcon from '@mui/icons-material/Delete';
 import UploadFileIcon from '@mui/icons-material/UploadFile';
 import { useAuth } from '../../hooks/useAuth';
+import { DynamicFieldRenderer, DynamicFieldGroup } from './DynamicFieldRenderer';
+
 
 const API_URL = process.env.REACT_APP_API_URL || '';
 
-// US States
-const US_STATES = [
-  { value: 'AL', label: 'Alabama' },
-  { value: 'AK', label: 'Alaska' },
-  { value: 'AZ', label: 'Arizona' },
-  { value: 'AR', label: 'Arkansas' },
-  { value: 'CA', label: 'California' },
-  { value: 'CO', label: 'Colorado' },
-  { value: 'CT', label: 'Connecticut' },
-  { value: 'DE', label: 'Delaware' },
-  { value: 'FL', label: 'Florida' },
-  { value: 'GA', label: 'Georgia' },
-  { value: 'HI', label: 'Hawaii' },
-  { value: 'ID', label: 'Idaho' },
-  { value: 'IL', label: 'Illinois' },
-  { value: 'IN', label: 'Indiana' },
-  { value: 'IA', label: 'Iowa' },
-  { value: 'KS', label: 'Kansas' },
-  { value: 'KY', label: 'Kentucky' },
-  { value: 'LA', label: 'Louisiana' },
-  { value: 'ME', label: 'Maine' },
-  { value: 'MD', label: 'Maryland' },
-  { value: 'MA', label: 'Massachusetts' },
-  { value: 'MI', label: 'Michigan' },
-  { value: 'MN', label: 'Minnesota' },
-  { value: 'MS', label: 'Mississippi' },
-  { value: 'MO', label: 'Missouri' },
-  { value: 'MT', label: 'Montana' },
-  { value: 'NE', label: 'Nebraska' },
-  { value: 'NV', label: 'Nevada' },
-  { value: 'NH', label: 'New Hampshire' },
-  { value: 'NJ', label: 'New Jersey' },
-  { value: 'NM', label: 'New Mexico' },
-  { value: 'NY', label: 'New York' },
-  { value: 'NC', label: 'North Carolina' },
-  { value: 'ND', label: 'North Dakota' },
-  { value: 'OH', label: 'Ohio' },
-  { value: 'OK', label: 'Oklahoma' },
-  { value: 'OR', label: 'Oregon' },
-  { value: 'PA', label: 'Pennsylvania' },
-  { value: 'RI', label: 'Rhode Island' },
-  { value: 'SC', label: 'South Carolina' },
-  { value: 'SD', label: 'South Dakota' },
-  { value: 'TN', label: 'Tennessee' },
-  { value: 'TX', label: 'Texas' },
-  { value: 'UT', label: 'Utah' },
-  { value: 'VT', label: 'Vermont' },
-  { value: 'VA', label: 'Virginia' },
-  { value: 'WA', label: 'Washington' },
-  { value: 'WV', label: 'West Virginia' },
-  { value: 'WI', label: 'Wisconsin' },
-  { value: 'WY', label: 'Wyoming' },
-];
-
-// License classes
-const LICENSE_CLASSES = [
-  { value: 'A', label: 'Class A - Commercial (Combination Vehicles)' },
-  { value: 'B', label: 'Class B - Commercial (Single Vehicles)' },
-  { value: 'C', label: 'Class C - Standard (Non-Commercial)' },
-  { value: 'M', label: 'Class M - Motorcycle' },
-];
-
-const STEPS = ['Personal Information', 'Address', 'License Details', 'Photo Upload', 'Review & Submit'];
+/**
+ * Group fields into logical steps based on their names/prefixes
+ */
+function groupFieldsIntoSteps(requiredFields = [], optionalFields = [], customFields = []) {
+  const steps = [];
+  
+  // Define standard field categories
+  const personalFields = ['first_name', 'last_name', 'family_name', 'given_name', 'date_of_birth', 'birth_date', 'email', 'phone', 'nationality', 'sex', 'gender'];
+  const addressFields = ['street', 'city', 'state', 'zip', 'postal_code', 'country', 'address'];
+  const documentFields = ['document_number', 'license_class', 'driving_privileges', 'restrictions', 'issue_date', 'expiry_date'];
+  const photoFields = ['portrait', 'signature', 'photo'];
+  
+  const allFields = [
+    ...requiredFields.map(f => ({ name: typeof f === 'string' ? f : f.name, required: true, ...f })),
+    ...optionalFields.map(f => ({ name: typeof f === 'string' ? f : f.name, required: false, ...f })),
+    ...customFields.map(f => ({ name: f.name, required: false, ...f })),
+  ];
+  
+  // Categorize fields
+  const personal = allFields.filter(f => personalFields.some(pf => f.name.toLowerCase().includes(pf)));
+  const address = allFields.filter(f => addressFields.some(af => f.name.toLowerCase().includes(af)));
+  const document = allFields.filter(f => documentFields.some(df => f.name.toLowerCase().includes(df)));
+  const photo = allFields.filter(f => photoFields.some(pf => f.name.toLowerCase().includes(pf)));
+  const other = allFields.filter(f => 
+    !personal.includes(f) && 
+    !address.includes(f) && 
+    !document.includes(f) && 
+    !photo.includes(f)
+  );
+  
+  if (personal.length > 0) steps.push({ label: 'Personal Information', fields: personal });
+  if (address.length > 0) steps.push({ label: 'Address', fields: address });
+  if (document.length > 0) steps.push({ label: 'Document Details', fields: document });
+  if (other.length > 0) steps.push({ label: 'Additional Information', fields: other });
+  if (photo.length > 0) steps.push({ label: 'Photos & Documents', fields: photo });
+  steps.push({ label: 'Review & Submit', fields: [] });
+  
+  return steps;
+}
 
 export default function ApplicationForm() {
   const { credentialType: credentialConfigId } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
   const { user, organizationId } = useAuth();
-  const fileInputRef = useRef(null);
+  const fileInputRefs = useRef({});
 
   const [activeStep, setActiveStep] = useState(0);
   const [submitting, setSubmitting] = useState(false);
@@ -126,35 +105,33 @@ export default function ApplicationForm() {
   );
   const [configLoading, setConfigLoading] = useState(false);
 
-  // Form data
+  // Dynamic form data (keys based on credential config)
   const [formData, setFormData] = useState({
-    // Personal Info
-    firstName: '',
-    lastName: '',
-    dateOfBirth: '',
-    email: user?.email || '',
-    
-    // Address
-    street: '',
-    city: '',
-    state: '',
-    zip: '',
-    
-    // License Details
-    licenseClass: 'C',
-    documentNumber: '',
-    restrictions: '',
-    
-    // Photo
-    portrait: null,
-    portraitPreview: null,
-    
-    // Terms
     acceptTerms: false,
   });
 
   // Validation errors
   const [validationErrors, setValidationErrors] = useState({});
+  
+  // Compute steps dynamically from credential config
+  const steps = useMemo(() => {
+    if (!credentialConfig) return [{ label: 'Review & Submit', fields: [] }];
+    
+    return groupFieldsIntoSteps(
+      credentialConfig.required_fields || [],
+      credentialConfig.optional_fields || [],
+      credentialConfig.custom_fields || []
+    );
+  }, [credentialConfig]);
+  
+  // Flatten all fields for validation
+  const allFields = useMemo(() => {
+    return steps.slice(0, -1).flatMap(step => step.fields);
+  }, [steps]);
+  
+  const requiredFieldNames = useMemo(() => {
+    return allFields.filter(f => f.required).map(f => f.name);
+  }, [allFields]);
 
   const fetchApplicantById = async (applicantId) => {
     if (!applicantId) {
@@ -200,7 +177,7 @@ export default function ApplicationForm() {
     return byUser || null;
   };
 
-  const createApplicant = async (address) => {
+  const createApplicant = async (applicantData) => {
     if (!user?.user_id) {
       throw new Error('Unable to resolve applicant profile');
     }
@@ -209,15 +186,7 @@ export default function ApplicationForm() {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       credentials: 'include',
-      body: JSON.stringify({
-        user_id: user.user_id,
-        given_name: formData.firstName,
-        family_name: formData.lastName,
-        email: formData.email || user.email,
-        date_of_birth: formData.dateOfBirth,
-        nationality: 'USA',
-        address,
-      }),
+      body: JSON.stringify(applicantData),
     });
 
     if (!response.ok) {
@@ -276,94 +245,72 @@ export default function ApplicationForm() {
   }, [credentialConfigId, credentialConfig, organizationId]);
 
   useEffect(() => {
-    // Pre-fill user email
-    if (user?.email) {
+    // Pre-fill user email if email field exists
+    if (user?.email && allFields.some(f => f.name === 'email')) {
       setFormData(prev => ({ ...prev, email: user.email }));
     }
-  }, [user]);
+  }, [user, allFields]);
 
-  const handleInputChange = (field) => (event) => {
+  const handleFieldChange = (fieldName, value) => {
     setFormData(prev => ({
       ...prev,
-      [field]: event.target.value
+      [fieldName]: value
     }));
     // Clear validation error when field is edited
-    if (validationErrors[field]) {
-      setValidationErrors(prev => ({ ...prev, [field]: null }));
+    if (validationErrors[fieldName]) {
+      setValidationErrors(prev => ({ ...prev, [fieldName]: null }));
     }
   };
 
-  const handlePhotoUpload = (event) => {
-    const file = event.target.files[0];
-    if (file) {
-      // Validate file type
-      if (!file.type.startsWith('image/')) {
-        setError('Please upload an image file');
-        return;
-      }
-      // Validate file size (max 5MB)
-      if (file.size > 5 * 1024 * 1024) {
-        setError('Photo must be less than 5MB');
-        return;
-      }
-
-      setFormData(prev => ({
-        ...prev,
-        portrait: file,
-        portraitPreview: URL.createObjectURL(file)
-      }));
-      setError(null);
-    }
-  };
-
-  const handleRemovePhoto = () => {
-    if (formData.portraitPreview) {
-      URL.revokeObjectURL(formData.portraitPreview);
-    }
-    setFormData(prev => ({
-      ...prev,
-      portrait: null,
-      portraitPreview: null
-    }));
-  };
-
-  const validateStep = (step) => {
+  const validateStep = (stepIndex) => {
     const errors = {};
     
-    switch (step) {
-      case 0: // Personal Info
-        if (!formData.firstName.trim()) errors.firstName = 'First name is required';
-        if (!formData.lastName.trim()) errors.lastName = 'Last name is required';
-        if (!formData.dateOfBirth) errors.dateOfBirth = 'Date of birth is required';
-        if (!formData.email.trim()) errors.email = 'Email is required';
-        break;
-        
-      case 1: // Address
-        if (!formData.street.trim()) errors.street = 'Street address is required';
-        if (!formData.city.trim()) errors.city = 'City is required';
-        if (!formData.state) errors.state = 'State is required';
-        if (!formData.zip.trim()) errors.zip = 'ZIP code is required';
-        if (formData.zip && !/^\d{5}(-\d{4})?$/.test(formData.zip)) {
-          errors.zip = 'Invalid ZIP code format';
-        }
-        break;
-        
-      case 2: // License Details
-        if (!formData.licenseClass) errors.licenseClass = 'License class is required';
-        if (!formData.documentNumber.trim()) errors.documentNumber = 'Document number is required';
-        break;
-        
-      case 3: // Photo
-        if (!formData.portrait) errors.portrait = 'Portrait photo is required';
-        break;
-        
-      case 4: // Review
-        if (!formData.acceptTerms) errors.acceptTerms = 'You must accept the terms';
-        break;
-        
-      default:
-        break;
+    // Last step is review - just check terms
+    if (stepIndex === steps.length - 1) {
+      if (!formData.acceptTerms) {
+        errors.acceptTerms = 'You must accept the terms';
+      }
+      setValidationErrors(errors);
+      return Object.keys(errors).length === 0;
     }
+    
+    // Validate fields in current step
+    const currentStepFields = steps[stepIndex]?.fields || [];
+    const validationRules = credentialConfig?.field_validation_rules || {};
+    
+    currentStepFields.forEach(field => {
+      const fieldName = field.name;
+      const value = formData[fieldName];
+      const rules = validationRules[fieldName];
+      
+      // Check required
+      if (field.required && !value) {
+        errors[fieldName] = `${field.label || fieldName.replace(/_/g, ' ')} is required`;
+        return;
+      }
+      
+      // Skip validation if field is empty and not required
+      if (!value && !field.required) return;
+      
+      // Apply validation rules
+      if (rules) {
+        if (rules.min_length && value.length < rules.min_length) {
+          errors[fieldName] = `Minimum length is ${rules.min_length}`;
+        }
+        if (rules.max_length && value.length > rules.max_length) {
+          errors[fieldName] = `Maximum length is ${rules.max_length}`;
+        }
+        if (rules.pattern && !new RegExp(rules.pattern).test(value)) {
+          errors[fieldName] = rules.pattern_description || 'Invalid format';
+        }
+        if (rules.min_value !== undefined && value < rules.min_value) {
+          errors[fieldName] = `Minimum value is ${rules.min_value}`;
+        }
+        if (rules.max_value !== undefined && value > rules.max_value) {
+          errors[fieldName] = `Maximum value is ${rules.max_value}`;
+        }
+      }
+    });
     
     setValidationErrors(errors);
     return Object.keys(errors).length === 0;
@@ -389,19 +336,35 @@ export default function ApplicationForm() {
       if (!credentialConfig?.id && !credentialConfigId) {
         throw new Error('Please select a credential to apply for.');
       }
-      const address = {
-        street_line1: formData.street,
-        city: formData.city,
-        state_province: formData.state,
-        postal_code: formData.zip,
-        country: 'USA',
+      
+      // Build applicant data from form
+      const applicantData = {
+        user_id: user.user_id,
+        given_name: formData.given_name || formData.first_name || '',
+        family_name: formData.family_name || formData.last_name || '',
+        email: formData.email || user.email,
+        date_of_birth: formData.date_of_birth || formData.birth_date,
+        nationality: formData.nationality || 'USA',
       };
+      
+      // Build address from form (if address fields exist)
+      const address = {};
+      if (formData.street) address.street_line1 = formData.street;
+      if (formData.city) address.city = formData.city;
+      if (formData.state) address.state_province = formData.state;
+      if (formData.zip || formData.postal_code) address.postal_code = formData.zip || formData.postal_code;
+      if (formData.country) address.country = formData.country;
+      else address.country = 'USA';
+      
+      if (Object.keys(address).length > 0) {
+        applicantData.address = address;
+      }
 
       let applicantId = await resolveApplicantId();
       let applicantCreated = false;
 
       if (!applicantId) {
-        applicantId = await createApplicant(address);
+        applicantId = await createApplicant(applicantData);
         applicantCreated = true;
       }
 
@@ -414,11 +377,7 @@ export default function ApplicationForm() {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           credentials: 'include',
-          body: JSON.stringify({
-            given_name: formData.firstName,
-            family_name: formData.lastName,
-            address,
-          }),
+          body: JSON.stringify(applicantData),
         });
 
         if (!updateResponse.ok) {
@@ -427,7 +386,7 @@ export default function ApplicationForm() {
             if (fallbackApplicantId) {
               applicantId = fallbackApplicantId;
             } else {
-              applicantId = await createApplicant(address);
+              applicantId = await createApplicant(applicantData);
               applicantCreated = true;
             }
             if (!applicantId) {
@@ -481,30 +440,32 @@ export default function ApplicationForm() {
 
       const submittedApplication = await submitResponse.json();
 
-      const imageBase64 = formData.portrait
-        ? await readFileAsBase64(formData.portrait)
-        : null;
-      const templateBase64 = imageBase64 || btoa('test-biometric-template');
+      // Upload portrait if present
+      const portraitField = allFields.find(f => f.name === 'portrait' || f.type === 'file');
+      if (portraitField && formData[portraitField.name]) {
+        const imageBase64 = await readFileAsBase64(formData[portraitField.name]);
+        const templateBase64 = imageBase64 || btoa('test-biometric-template');
 
-      const biometricResponse = await fetch(
-        `${API_URL}/api/applicants/${applicantId}/biometrics`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'include',
-          body: JSON.stringify({
-            biometric_type: 'FACIAL',
-            template_data_base64: templateBase64,
-            image_data_base64: imageBase64,
-            is_live_capture: true,
-            capture_device_id: 'web-form',
-          }),
+        const biometricResponse = await fetch(
+          `${API_URL}/api/applicants/${applicantId}/biometrics`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({
+              biometric_type: 'FACIAL',
+              template_data_base64: templateBase64,
+              image_data_base64: imageBase64,
+              is_live_capture: true,
+              capture_device_id: 'web-form',
+            }),
+          }
+        );
+
+        if (!biometricResponse.ok) {
+          const data = await biometricResponse.json();
+          throw new Error(data.detail || 'Failed to enroll biometric');
         }
-      );
-
-      if (!biometricResponse.ok) {
-        const data = await biometricResponse.json();
-        throw new Error(data.detail || 'Failed to enroll biometric');
       }
 
       setApplicationId(submittedApplication.id);
@@ -522,282 +483,32 @@ export default function ApplicationForm() {
     }
   };
 
-  const renderPersonalInfoStep = () => (
-    <Box data-testid="personal-info-step">
-      <Typography variant="h6" gutterBottom>
-        Personal Information
-      </Typography>
-      <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-        Enter your personal details as they appear on your government-issued ID.
-      </Typography>
+  // Render a dynamic step based on fields
+  const renderDynamicStep = (stepIndex) => {
+    const step = steps[stepIndex];
+    if (!step) return null;
 
-      <Grid container spacing={3}>
-        <Grid item xs={12} md={6}>
-          <TextField
-            fullWidth
-            required
-            label="First Name"
-            value={formData.firstName}
-            onChange={handleInputChange('firstName')}
-            error={!!validationErrors.firstName}
-            helperText={validationErrors.firstName}
-            data-testid="first-name-input"
-          />
-        </Grid>
-        <Grid item xs={12} md={6}>
-          <TextField
-            fullWidth
-            required
-            label="Last Name"
-            value={formData.lastName}
-            onChange={handleInputChange('lastName')}
-            error={!!validationErrors.lastName}
-            helperText={validationErrors.lastName}
-            data-testid="last-name-input"
-          />
-        </Grid>
-        <Grid item xs={12} md={6}>
-          <TextField
-            fullWidth
-            required
-            type="date"
-            label="Date of Birth"
-            value={formData.dateOfBirth}
-            onChange={handleInputChange('dateOfBirth')}
-            error={!!validationErrors.dateOfBirth}
-            helperText={validationErrors.dateOfBirth}
-            InputLabelProps={{ shrink: true }}
-            data-testid="dob-input"
-          />
-        </Grid>
-        <Grid item xs={12} md={6}>
-          <TextField
-            fullWidth
-            required
-            type="email"
-            label="Email Address"
-            value={formData.email}
-            onChange={handleInputChange('email')}
-            error={!!validationErrors.email}
-            helperText={validationErrors.email}
-            data-testid="email-input"
-          />
-        </Grid>
-      </Grid>
-    </Box>
-  );
+    return (
+      <Box data-testid={`step-${stepIndex}`}>
+        <Typography variant="h6" gutterBottom>
+          {step.label}
+        </Typography>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+          {credentialConfig?.submission_instructions || 'Please fill in all required fields.'}
+        </Typography>
 
-  const renderAddressStep = () => (
-    <Box data-testid="address-step">
-      <Typography variant="h6" gutterBottom>
-        Residential Address
-      </Typography>
-      <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-        Enter your current residential address.
-      </Typography>
-
-      <Grid container spacing={3}>
-        <Grid item xs={12}>
-          <TextField
-            fullWidth
-            required
-            label="Street Address"
-            value={formData.street}
-            onChange={handleInputChange('street')}
-            error={!!validationErrors.street}
-            helperText={validationErrors.street}
-            data-testid="street-input"
-          />
-        </Grid>
-        <Grid item xs={12} md={5}>
-          <TextField
-            fullWidth
-            required
-            label="City"
-            value={formData.city}
-            onChange={handleInputChange('city')}
-            error={!!validationErrors.city}
-            helperText={validationErrors.city}
-            data-testid="city-input"
-          />
-        </Grid>
-        <Grid item xs={12} md={4}>
-          <FormControl fullWidth required error={!!validationErrors.state}>
-            <InputLabel>State</InputLabel>
-            <Select
-              value={formData.state}
-              onChange={handleInputChange('state')}
-              label="State"
-              data-testid="state-select"
-            >
-              {US_STATES.map(s => (
-                <MenuItem key={s.value} value={s.value}>{s.label}</MenuItem>
-              ))}
-            </Select>
-          </FormControl>
-        </Grid>
-        <Grid item xs={12} md={3}>
-          <TextField
-            fullWidth
-            required
-            label="ZIP Code"
-            value={formData.zip}
-            onChange={handleInputChange('zip')}
-            error={!!validationErrors.zip}
-            helperText={validationErrors.zip}
-            data-testid="zip-input"
-          />
-        </Grid>
-      </Grid>
-    </Box>
-  );
-
-  const renderLicenseStep = () => (
-    <Box data-testid="license-step">
-      <Typography variant="h6" gutterBottom>
-        License Details
-      </Typography>
-      <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-        Enter your driving license information.
-      </Typography>
-
-      <Grid container spacing={3}>
-        <Grid item xs={12} md={6}>
-          <FormControl fullWidth required error={!!validationErrors.licenseClass}>
-            <InputLabel>License Class</InputLabel>
-            <Select
-              value={formData.licenseClass}
-              onChange={handleInputChange('licenseClass')}
-              label="License Class"
-              data-testid="license-class-select"
-            >
-              {LICENSE_CLASSES.map(lc => (
-                <MenuItem key={lc.value} value={lc.value}>{lc.label}</MenuItem>
-              ))}
-            </Select>
-          </FormControl>
-        </Grid>
-        <Grid item xs={12} md={6}>
-          <TextField
-            fullWidth
-            required
-            label="Document Number"
-            value={formData.documentNumber}
-            onChange={handleInputChange('documentNumber')}
-            error={!!validationErrors.documentNumber}
-            helperText={validationErrors.documentNumber || 'Your current license number'}
-            data-testid="document-number-input"
-          />
-        </Grid>
-        <Grid item xs={12}>
-          <TextField
-            fullWidth
-            label="Restrictions (if any)"
-            value={formData.restrictions}
-            onChange={handleInputChange('restrictions')}
-            placeholder="e.g., Corrective lenses required"
-            data-testid="restrictions-input"
-          />
-        </Grid>
-      </Grid>
-    </Box>
-  );
-
-  const renderPhotoStep = () => (
-    <Box data-testid="photo-step">
-      <Typography variant="h6" gutterBottom>
-        Portrait Photo
-      </Typography>
-      <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-        Upload a recent passport-style photo. Face must be clearly visible with neutral expression.
-      </Typography>
-
-      <Grid container spacing={3}>
-        <Grid item xs={12} md={6}>
-          <Card variant="outlined" sx={{ p: 3, textAlign: 'center' }}>
-            {formData.portraitPreview ? (
-              <Box>
-                <Avatar
-                  src={formData.portraitPreview}
-                  sx={{ width: 150, height: 150, mx: 'auto', mb: 2 }}
-                  data-testid="photo-preview"
-                />
-                <Button
-                  variant="outlined"
-                  color="error"
-                  startIcon={<DeleteIcon />}
-                  onClick={handleRemovePhoto}
-                  sx={{ mr: 1 }}
-                >
-                  Remove
-                </Button>
-                <Button
-                  variant="outlined"
-                  startIcon={<PhotoCameraIcon />}
-                  onClick={() => fileInputRef.current?.click()}
-                >
-                  Change
-                </Button>
-              </Box>
-            ) : (
-              <Box>
-                <Avatar sx={{ width: 150, height: 150, mx: 'auto', mb: 2, bgcolor: 'grey.200' }}>
-                  <PhotoCameraIcon sx={{ fontSize: 60, color: 'grey.400' }} />
-                </Avatar>
-                <Button
-                  variant="contained"
-                  startIcon={<UploadFileIcon />}
-                  onClick={() => fileInputRef.current?.click()}
-                >
-                  Upload Photo
-                </Button>
-              </Box>
-            )}
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/*"
-              hidden
-              onChange={handlePhotoUpload}
-              data-testid="portrait-upload-input"
-            />
-            {validationErrors.portrait && (
-              <Alert severity="error" sx={{ mt: 2 }}>
-                {validationErrors.portrait}
-              </Alert>
-            )}
-          </Card>
-        </Grid>
-        <Grid item xs={12} md={6}>
-          <Card variant="outlined" sx={{ p: 2 }}>
-            <Typography variant="subtitle2" gutterBottom>
-              Photo Requirements:
-            </Typography>
-            <List dense>
-              <ListItem>
-                <ListItemText primary="• Clear, focused image" />
-              </ListItem>
-              <ListItem>
-                <ListItemText primary="• Full face visible, eyes open" />
-              </ListItem>
-              <ListItem>
-                <ListItemText primary="• Neutral expression" />
-              </ListItem>
-              <ListItem>
-                <ListItemText primary="• Plain white or light background" />
-              </ListItem>
-              <ListItem>
-                <ListItemText primary="• No hats or head coverings (except religious)" />
-              </ListItem>
-              <ListItem>
-                <ListItemText primary="• Maximum file size: 5MB" />
-              </ListItem>
-            </List>
-          </Card>
-        </Grid>
-      </Grid>
-    </Box>
-  );
+        <DynamicFieldGroup
+          fields={step.fields}
+          values={formData}
+          onChange={handleFieldChange}
+          errors={validationErrors}
+          requiredFields={requiredFieldNames}
+          validationRules={credentialConfig?.field_validation_rules}
+          fileInputRefs={fileInputRefs.current}
+        />
+      </Box>
+    );
+  };
 
   const renderReviewStep = () => (
     <Box data-testid="review-step">
@@ -809,80 +520,44 @@ export default function ApplicationForm() {
       </Typography>
 
       <Grid container spacing={3}>
-        <Grid item xs={12} md={8}>
-          <Card variant="outlined" sx={{ mb: 2 }}>
-            <CardContent>
-              <Typography variant="subtitle2" color="text.secondary" gutterBottom>
-                Personal Information
-              </Typography>
-              <Grid container spacing={2}>
-                <Grid item xs={6}>
-                  <Typography variant="body2" color="text.secondary">First Name</Typography>
-                  <Typography data-testid="review-first-name">{formData.firstName}</Typography>
+        <Grid item xs={12}>
+          {steps.slice(0, -1).map((step, idx) => (
+            <Card key={idx} variant="outlined" sx={{ mb: 2 }}>
+              <CardContent>
+                <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+                  {step.label}
+                </Typography>
+                <Grid container spacing={2}>
+                  {step.fields.map((field) => {
+                    const fieldName = field.name;
+                    const value = formData[fieldName];
+                    
+                    // Skip empty optional fields
+                    if (!value && !field.required) return null;
+                    
+                    // Format value for display
+                    let displayValue = value;
+                    if (field.type === 'file') {
+                      displayValue = value?.name || 'Uploaded';
+                    } else if (field.type === 'address') {
+                      displayValue = value ? `${value.street}, ${value.city}, ${value.state} ${value.zip}` : '';
+                    } else if (field.type === 'boolean') {
+                      displayValue = value ? 'Yes' : 'No';
+                    }
+                    
+                    return (
+                      <Grid item xs={12} sm={6} key={fieldName}>
+                        <Typography variant="body2" color="text.secondary">
+                          {field.label || fieldName.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
+                        </Typography>
+                        <Typography>{displayValue || '-'}</Typography>
+                      </Grid>
+                    );
+                  })}
                 </Grid>
-                <Grid item xs={6}>
-                  <Typography variant="body2" color="text.secondary">Last Name</Typography>
-                  <Typography data-testid="review-last-name">{formData.lastName}</Typography>
-                </Grid>
-                <Grid item xs={6}>
-                  <Typography variant="body2" color="text.secondary">Date of Birth</Typography>
-                  <Typography>{formData.dateOfBirth}</Typography>
-                </Grid>
-                <Grid item xs={6}>
-                  <Typography variant="body2" color="text.secondary">Email</Typography>
-                  <Typography>{formData.email}</Typography>
-                </Grid>
-              </Grid>
-            </CardContent>
-          </Card>
-
-          <Card variant="outlined" sx={{ mb: 2 }}>
-            <CardContent>
-              <Typography variant="subtitle2" color="text.secondary" gutterBottom>
-                Address
-              </Typography>
-              <Typography>{formData.street}</Typography>
-              <Typography>{formData.city}, {formData.state} {formData.zip}</Typography>
-            </CardContent>
-          </Card>
-
-          <Card variant="outlined" sx={{ mb: 2 }}>
-            <CardContent>
-              <Typography variant="subtitle2" color="text.secondary" gutterBottom>
-                License Details
-              </Typography>
-              <Grid container spacing={2}>
-                <Grid item xs={6}>
-                  <Typography variant="body2" color="text.secondary">License Class</Typography>
-                  <Typography>{formData.licenseClass}</Typography>
-                </Grid>
-                <Grid item xs={6}>
-                  <Typography variant="body2" color="text.secondary">Document Number</Typography>
-                  <Typography>{formData.documentNumber}</Typography>
-                </Grid>
-                {formData.restrictions && (
-                  <Grid item xs={12}>
-                    <Typography variant="body2" color="text.secondary">Restrictions</Typography>
-                    <Typography>{formData.restrictions}</Typography>
-                  </Grid>
-                )}
-              </Grid>
-            </CardContent>
-          </Card>
-        </Grid>
-
-        <Grid item xs={12} md={4}>
-          {formData.portraitPreview && (
-            <Card variant="outlined" sx={{ p: 2, textAlign: 'center' }}>
-              <Typography variant="subtitle2" color="text.secondary" gutterBottom>
-                Portrait Photo
-              </Typography>
-              <Avatar
-                src={formData.portraitPreview}
-                sx={{ width: 120, height: 120, mx: 'auto' }}
-              />
+              </CardContent>
             </Card>
-          )}
+          ))}
         </Grid>
 
         <Grid item xs={12}>
@@ -914,7 +589,7 @@ export default function ApplicationForm() {
           Application Submitted!
         </Typography>
         <Typography variant="body1" color="text.secondary" sx={{ mb: 2 }}>
-          Your mDL application has been submitted successfully.
+          Your application has been submitted successfully.
         </Typography>
         
         {applicationId && (
@@ -942,13 +617,14 @@ export default function ApplicationForm() {
     </Fade>
   );
 
-  const stepContent = [
-    renderPersonalInfoStep,
-    renderAddressStep,
-    renderLicenseStep,
-    renderPhotoStep,
-    renderReviewStep,
-  ];
+  // Use dynamic rendering for all steps
+  const getStepContent = (stepIndex) => {
+    // Last step is always review
+    if (stepIndex === steps.length - 1) {
+      return renderReviewStep();
+    }
+    return renderDynamicStep(stepIndex);
+  };
 
   if (submitted) {
     return (
@@ -1003,9 +679,9 @@ export default function ApplicationForm() {
       {/* Stepper */}
       <Paper sx={{ p: 3, mb: 3 }}>
         <Stepper activeStep={activeStep} alternativeLabel>
-          {STEPS.map((label) => (
-            <Step key={label}>
-              <StepLabel>{label}</StepLabel>
+          {steps.map((step, idx) => (
+            <Step key={idx}>
+              <StepLabel>{step.label}</StepLabel>
             </Step>
           ))}
         </Stepper>
@@ -1020,7 +696,7 @@ export default function ApplicationForm() {
 
       {/* Form Content */}
       <Paper sx={{ p: 4, mb: 3 }}>
-        {stepContent[activeStep]()}
+        {getStepContent(activeStep)}
       </Paper>
 
       {/* Navigation */}
@@ -1034,7 +710,7 @@ export default function ApplicationForm() {
             Back
           </Button>
 
-          {activeStep < STEPS.length - 1 ? (
+          {activeStep < steps.length - 1 ? (
             <Button
               variant="contained"
               onClick={handleNext}

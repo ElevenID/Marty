@@ -116,6 +116,29 @@ except ImportError as e:
     OPEN_BADGES_AVAILABLE = False
     logging.warning(f"Open Badges service not available: {e}")
 
+# Status List service imports
+try:
+    from status_list.infrastructure.persistence.database import (
+        init_status_list_db,
+        get_session_factory as get_status_list_session_factory,
+    )
+    from status_list.infrastructure.security import SymmetricEncryption
+    from status_list.infrastructure.adapters.issuer_key_registry import IssuerKeyRegistry
+    from status_list.infrastructure.adapters.lazy_signing_adapter import LazySigningAdapter
+    from status_list.infrastructure.adapters.rest_adapter import create_status_list_router
+    from status_list.application.services.status_list_service import StatusListService
+    from status_list.application.services.credential_status_service import CredentialStatusService
+    from status_list.application.services.status_list_credential_service import StatusListCredentialService
+    from status_list.infrastructure.persistence.repository import (
+        StatusListRepository,
+        StatusEntryRepository,
+    )
+    from open_badges.status_integration import configure_credential_status_service
+    STATUS_LIST_AVAILABLE = True
+except ImportError as e:
+    STATUS_LIST_AVAILABLE = False
+    logging.warning(f"Status List service not available: {e}")
+
 # Notifications API imports (local notification storage/retrieval)
 try:
     from notifications_local.api import router as notifications_router
@@ -290,6 +313,76 @@ async def startup_event():
                 logger.info(f"SSE adapter not started (NOTIFICATION_ADAPTER={notification_adapter})")
         except Exception as e:
             logger.error(f"Failed to initialize SSE adapter: {e}")
+    
+    # Initialize Status List service (fail-fast pattern)
+    if STATUS_LIST_AVAILABLE:
+        try:
+            # Initialize database tables
+            await init_status_list_db()
+            logger.info("Status list database tables created")
+            
+            # Create encryption service for key protection
+            encryption_service = SymmetricEncryption.from_env("STATUS_LIST_MASTER_KEY")
+            logger.info("Status list encryption service initialized")
+            
+            # Create session factory for repositories
+            status_session_factory = get_status_list_session_factory()
+            
+            # Create issuer key registry with factory pattern
+            def create_key_registry() -> IssuerKeyRegistry:
+                return IssuerKeyRegistry(status_session_factory, encryption_service)
+            
+            # Create lazy signing adapter (keys loaded on-demand)
+            signing_adapter = LazySigningAdapter(
+                key_registry_factory=create_key_registry,
+                default_proof_type="DataIntegrityProof",
+                default_cryptosuite="eddsa-rdfc-2022",
+            )
+            logger.info("Lazy signing adapter created (keys load on-demand)")
+            
+            # Create repositories
+            status_list_repo = StatusListRepository(status_session_factory)
+            status_entry_repo = StatusEntryRepository(status_session_factory)
+            
+            # Initialize application services
+            # Note: event_publisher=None is supported - events are optional per status_list_service.py
+            status_list_service = StatusListService(
+                status_list_repository=status_list_repo,
+                status_entry_repository=status_entry_repo,
+                event_publisher=None,  # Events optional - observability only
+            )
+            
+            base_url = os.getenv("STATUS_LIST_BASE_URL", "http://localhost:8000")
+            credential_status_service = CredentialStatusService(
+                status_list_service=status_list_service,
+                base_url=base_url,
+            )
+
+            
+            status_list_credential_service = StatusListCredentialService(
+                status_list_repository=status_list_repo,
+                signing_service=signing_adapter,
+                base_url=base_url,
+            )
+            
+            # Create and mount REST router
+            status_list_router = create_status_list_router(
+                status_list_service=status_list_service,
+                credential_status_service=credential_status_service,
+                status_list_credential_service=status_list_credential_service,
+            )
+            app.include_router(status_list_router, tags=["Status Lists"])
+            logger.info("Status list REST endpoints registered")
+            
+            # Configure global service for Open Badges integration
+            configure_credential_status_service(credential_status_service)
+            logger.info("Status list service configured for Open Badges")
+            
+        except Exception as e:
+            logger.error(f"Failed to initialize status list service: {e}")
+            # Fail fast - status list is critical infrastructure
+            raise
+
 
 def _get_adapters():
     """Lazy initialization of adapters."""

@@ -9,11 +9,31 @@ FROM python:3.11-slim AS builder
 
 WORKDIR /app
 
-# Install system dependencies for building
+# Install system dependencies for building (add Rust toolchain and glibc-dev)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
+    libc6-dev \
     libpq-dev \
-    && rm -rf /var/lib/apt/lists/*
+    pkg-config \
+    libssl-dev \
+    curl \
+    && rm -rf /var/lib/apt/lists/* \
+    && curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable --profile minimal
+
+ENV PATH="/root/.cargo/bin:${PATH}"
+
+# Copy rust directory
+COPY rust/ /build/rust/
+
+# Build marty-rs Python wheel
+WORKDIR /build/rust/marty-rs
+RUN --mount=type=cache,target=/root/.cargo/registry \
+    --mount=type=cache,target=/root/.cargo/git \
+    pip install maturin && \
+    maturin build --release --features python --strip && \
+    pip install --no-cache-dir ../target/wheels/*.whl
+
+WORKDIR /app
 
 # Copy requirements first for layer caching
 COPY marty-ui/src/requirements.txt .
@@ -39,13 +59,20 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Create non-root user
 RUN groupadd -r marty && useradd -r -g marty marty
 
-# Copy installed packages from builder
+# Copy installed packages from builder (including marty-rs wheel)
 COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
 COPY --from=builder /usr/local/bin /usr/local/bin
 
 # Copy MMF framework
 COPY marty-microservices-framework/ /app/marty-microservices-framework/
-ENV PYTHONPATH="${PYTHONPATH}:/app/marty-microservices-framework"
+
+# Copy status_list module from main Marty/src
+COPY src/status_list/ /app/status_list/
+
+# Copy marty_plugin module from main Marty/src
+COPY src/marty_plugin/ /app/marty_plugin/
+
+ENV PYTHONPATH="${PYTHONPATH}:/app/marty-microservices-framework:/app"
 
 # Copy application code
 COPY marty-ui/src/ /app/src/

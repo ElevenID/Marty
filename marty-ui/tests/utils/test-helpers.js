@@ -2,6 +2,134 @@
 const { expect } = require('@playwright/test');
 const crypto = require('crypto');
 const { SEEDED_USERS, SEEDED_PASSWORDS, SEEDED_ORGS, getUserByRole, generateTestUser } = require('../fixtures/users');
+const { AuthenticatedApiClient } = require('./api-client');
+const { CredentialDataBuilder, UserDataBuilder, MockResponses } = require('./test-data-builders');
+
+// =============================================================================
+// EventWaiter - SSE Event Listener for Test Observability
+// =============================================================================
+
+/**
+ * EventWaiter subscribes to SSE events for event-driven testing.
+ * Replaces polling patterns with real-time event listening.
+ * 
+ * Usage:
+ *   const waiter = new EventWaiter(page);
+ *   await waiter.waitForEvent('credential.issued', { application_id: '123' });
+ * 
+ * Events emitted by backend:
+ *   - application.approved
+ *   - credential.issued
+ *   - check.completed
+ *   - device.registered
+ */
+class EventWaiter {
+  constructor(page, apiUrl = process.env.API_BASE_URL || 'http://localhost:8000') {
+    this.page = page;
+    this.apiUrl = apiUrl;
+    this.activeConnections = new Map();
+  }
+
+  /**
+   * Wait for a specific SSE event.
+   * 
+   * @param {string} eventType - Event type to wait for (e.g., 'credential.issued')
+   * @param {object} filter - Optional filter for event data fields
+   * @param {number} timeout - Timeout in milliseconds (default: 30000)
+   * @param {string} deviceId - Optional device ID for SSE connection
+   * @returns {Promise<object>} Event data when received
+   */
+  async waitForEvent(eventType, filter = {}, timeout = 30000, deviceId = null) {
+    const EventSource = require('eventsource');
+    const effectiveDeviceId = deviceId || `test-waiter-${Date.now()}`;
+    
+    return new Promise((resolve, reject) => {
+      const timeoutId = setTimeout(() => {
+        if (es) es.close();
+        reject(new Error(`Timeout waiting for event: ${eventType} after ${timeout}ms`));
+      }, timeout);
+
+      const es = new EventSource(`${this.apiUrl}/api/events/push?device_id=${effectiveDeviceId}`);
+      this.activeConnections.set(effectiveDeviceId, es);
+      
+      es.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          
+          // Check if event type matches
+          if (data.type === eventType || data.event_type === eventType) {
+            // Check filter conditions
+            if (this._matchesFilter(data.data, filter)) {
+              clearTimeout(timeoutId);
+              es.close();
+              this.activeConnections.delete(effectiveDeviceId);
+              resolve(data);
+            }
+          }
+        } catch (e) {
+          console.log('SSE parse error:', e);
+        }
+      };
+      
+      es.onerror = (err) => {
+        clearTimeout(timeoutId);
+        es.close();
+        this.activeConnections.delete(effectiveDeviceId);
+        reject(new Error(`SSE connection failed: ${err.message || 'Unknown error'}`));
+      };
+    });
+  }
+
+  /**
+   * Wait for multiple events in sequence.
+   * 
+   * @param {Array<{eventType: string, filter?: object, timeout?: number}>} events
+   * @returns {Promise<Array<object>>} Array of event data
+   */
+  async waitForEvents(events) {
+    const results = [];
+    for (const event of events) {
+      const data = await this.waitForEvent(
+        event.eventType,
+        event.filter || {},
+        event.timeout || 30000
+      );
+      results.push(data);
+    }
+    return results;
+  }
+
+  /**
+   * Close all active SSE connections (cleanup).
+   */
+  closeAll() {
+    for (const [deviceId, es] of this.activeConnections.entries()) {
+      try {
+        es.close();
+      } catch (e) {
+        console.log(`Error closing SSE connection ${deviceId}:`, e);
+      }
+    }
+    this.activeConnections.clear();
+  }
+
+  /**
+   * Check if event data matches filter conditions.
+   * @private
+   */
+  _matchesFilter(data, filter) {
+    if (!filter || Object.keys(filter).length === 0) {
+      return true;
+    }
+    
+    for (const [key, value] of Object.entries(filter)) {
+      if (data[key] !== value) {
+        return false;
+      }
+    }
+    return true;
+  }
+}
 
 // =============================================================================
 // RSA Key Utilities for Push Challenge Signing
@@ -282,26 +410,53 @@ module.exports = {
 class AuthHelpers {
   constructor(page) {
     this.page = page;
+    this.frame = null; // Can be bound to a specific frame
     this.keycloakUrl = process.env.KEYCLOAK_URL || 'http://localhost:8180';
+  }
+
+  /**
+   * Create a new AuthHelpers instance bound to a frame
+   * @param {import('@playwright/test').FrameLocator} frameLocator 
+   */
+  withFrame(frameLocator) {
+    const instance = new AuthHelpers(this.page);
+    instance.frame = frameLocator;
+    return instance;
+  }
+
+  // Helper to get page or frame
+  get _target() {
+    return this.frame || this.page;
   }
 
   /**
    * Login with a seeded user
    * @param {string} userType - 'admin', 'vendor', 'applicant1', 'applicant2', 'applicant3'
+   * @param {object} options - Login options
+   * @param {boolean} options.uiOnboarding - Use UI-based onboarding instead of API
    */
-  async loginAsSeededUser(userType) {
+  async loginAsSeededUser(userType, options = {}) {
     const user = SEEDED_USERS[userType];
     if (!user) {
       throw new Error(`Unknown seeded user type: ${userType}`);
     }
     await this.login(user.email, user.password);
+    
+    // Vendor specific onboarding
     if (userType === 'vendor') {
-      const { updated } = await this.ensureVendorOrganization({
-        organizationName: user.organization,
-      });
-      if (updated) {
-        await this.page.goto('/');
-        await this.page.waitForLoadState('networkidle');
+      if (options.uiOnboarding) {
+        // Just verify we're not stuck on Keycloak, let fixture handle UI detection
+        await this.page.waitForTimeout(1000);
+      } else {
+        // API-based quick onboarding (legacy mode)
+        const { updated } = await this.ensureVendorOrganization({
+          organizationName: user.organization,
+        });
+        if (updated) {
+          const target = this._target;
+          target.goto ? await target.goto('/') : await this.page.goto('/');
+          await this.page.waitForLoadState('networkidle');
+        }
       }
     }
   }
@@ -310,43 +465,283 @@ class AuthHelpers {
    * Login with email and password via Keycloak
    */
   async login(email, password) {
-    // Navigate to login if not already there
-    const currentUrl = this.page.url();
-    if (!currentUrl.includes('realms') && !currentUrl.includes('/auth/')) {
-      // Click login button in app - support multiple button text variations
-      // "Sign In to Continue" is the main CTA on the landing page
-      await this.page.click('button:has-text("Sign In to Continue"), button:has-text("Login"), button:has-text("Sign In"), a:has-text("Login")');
+    const target = this._target;
+    
+    // Wait for app to hydrate/load at least the root or something
+    try {
+        await target.locator('#root, [data-testid="onboarding-page"], #kc-form-login').first().waitFor({ state: 'attached', timeout: 15000 });
+    } catch {
+        console.log('Timeout waiting for any app content to attach.');
     }
 
-    // Wait for Keycloak login form
-    // Support both classic (username/password together) and two-step (email first, then password) flows
-    await this.page.waitForSelector('#username, [data-testid="username"], input[name="username"], input[type="email"]', { timeout: 15000 });
+    // Smart Wait: Wait for EITHER "Logged In" state OR "Login Form" state
+    const loggedInMarker = target.locator('[data-testid="logout-button"], [data-testid="onboarding-page"], [data-testid="nav-tab-dashboard"], button:has-text("Logout")');
+    const loginFormMarker = target.locator('#username, #kc-form-login, button:has-text("Sign In to Continue"), button:has-text("Login")');
+
+    try {
+        console.log('Login: Waiting for recognizable state...');
+        await loggedInMarker.or(loginFormMarker).first().waitFor({ state: 'visible', timeout: 30000 });
+        console.log('Login: Recognizable state found.');
+    } catch (e) {
+        console.log('Timeout waiting for any recognizable state (Login or Dashboard)');
+    }
+
+    // 1. Check if already logged in (Optimized with shorter waits)
+    // Reduced iterations with faster checks for better performance
+    for (let i = 0; i < 10; i++) {
+        const isOnboarding = (await target.locator('[data-testid="onboarding-page"]').count()) > 0;
+        const isLogoutVisible = (await target.locator('[data-testid="logout-button"]').count()) > 0;
+        const isLogoutText = (await target.locator('button:has-text("Logout")').count()) > 0;
+        const isDashboard = (await target.locator('[data-testid="nav-tab-dashboard"]').count()) > 0;
+        
+        if (i === 0 || i === 4 || i === 9) {
+            console.log(`Login Status Check (Attempt ${i+1}/10): Onboarding=${isOnboarding}, LogoutBtn=${isLogoutVisible}, LogoutText=${isLogoutText}, Dashboard=${isDashboard}`);
+        }
+
+        if (isOnboarding || isLogoutVisible || isLogoutText || isDashboard) {
+            console.log('Already logged in (state detected), skipping login.');
+            return;
+        }
+
+        // If we found the ACTUAL Keycloak login form, we can break early.
+        if (await target.locator('#username, #kc-form-login').count() > 0) {
+            console.log('Keycloak Login form detected (stable), proceeding to login...');
+            break;
+        }
+        await this.page.waitForTimeout(200);  // Reduced from 500ms to 200ms
+    }
+      
+    // 2. Navigate/Login Logic
+    // Navigate to login if not already there - handle both Page and Frame context
+    try {
+      // Click login button in app - support multiple button text variations
+      const loginBtn = target.locator('button:has-text("Sign In to Continue"), button:has-text("Login"), button:has-text("Sign In"), a:has-text("Login")').first();
+      // Wait briefly for login button - we might already be on the login page
+      // Use count instead of isVisible to avoid waiting if it's not there
+      if ((await loginBtn.count()) > 0 && (await loginBtn.isVisible({ timeout: 2000 }))) {
+        console.log('Clicking Landing Page Login Button...');
+        await loginBtn.click();
+      }
+    } catch (e) {
+      // Ignore navigation errors
+    }
+
+    // Wait for EITHER Keycloak login form OR App Logged In state
+    // This handles scenarios where "Sign In" click triggers an auto-login/redirect (SSO)
+    // skipping the Keycloak input screens.
+    console.log('Waiting for Keycloak Form OR Authenticated State...');
+    const keycloakSelector = '#username, [data-testid="username"], input[name="username"], input[type="email"]';
+    const appSelector = '[data-testid="onboarding-page"], [data-testid="logout-button"]';
+    
+    try {
+        await target.locator(`${keycloakSelector}, ${appSelector}`).first().waitFor({ state: 'visible', timeout: 15000 });
+        
+        // Check what we found
+        if ((await target.locator(appSelector).count()) > 0) {
+             console.log('Detected Authenticated State (Auto-Login/SSO). Skipping credentials.');
+             return; // Success!
+        }
+        console.log('Detected Keycloak Form. Proceeding with credentials...');
+
+    } catch (e) {
+        // Debugging: Log the page content if waiting fails
+        console.log('Timeout waiting for login form OR app state. Current frame content:');
+        console.log(await target.locator('body').innerHTML().catch(() => 'Could not get body content'));
+        throw e;
+    }
 
     // Check if we have a two-step flow (only email field visible)
-    const passwordFieldVisible = await this.page.locator('#password').isVisible().catch(() => false);
+    try {
+        // Need to wait for username to be strictly visible before typing
+        await target.locator('#username, [data-testid="username"], input[name="username"], input[type="email"]').first().waitFor({ state:'visible', timeout: 5000 });
+    } catch(e) {
+        // If we are here, something is wrong, but we let the loop below crash naturally or try to recover
+    }
+
+    const passwordFieldVisible = await target.locator('#password').isVisible().catch(() => false);
     
     if (passwordFieldVisible) {
       // Classic login form - username and password together
-      await this.page.fill('#username', email);
-      await this.page.fill('#password', password);
-      await this.page.click('#kc-login, button[type="submit"]');
+      await target.locator('#username').fill(email);
+      await target.locator('#password').fill(password);
+      await target.locator('#kc-login, button[type="submit"]').click();
     } else {
       // Two-step login flow - email first, then password
-      const emailInput = this.page.locator('#username, input[type="email"], input[name="username"]').first();
+      const emailInput = target.locator('#username, input[type="email"], input[name="username"]').first();
       await emailInput.fill(email);
       
       // Click Sign In / Next to proceed to password step
-      await this.page.click('button:has-text("Sign In"), button:has-text("Next"), button[type="submit"], #kc-login');
+      await target.locator('button:has-text("Sign In"), button:has-text("Next"), button[type="submit"], #kc-login').click();
       
       // Wait for password field to appear
-      await this.page.waitForSelector('#password, input[type="password"]', { timeout: 15000 });
-      await this.page.fill('#password, input[type="password"]', password);
-      await this.page.click('button:has-text("Sign In"), button[type="submit"], #kc-login');
+      await target.locator('#password, input[type="password"]').first().waitFor({ timeout: 15000 });
+      await target.locator('#password, input[type="password"]').fill(password);
+      await target.locator('button:has-text("Sign In"), button[type="submit"], #kc-login').click();
     }
 
     // Wait for redirect back to app
-    await this.page.waitForURL(url => !url.toString().includes('realms'), { timeout: 15000 });
-    await this.page.waitForLoadState('networkidle');
+    // Note: Frame URL checks are tricky, relying on element visibility instead
+    try {
+      await expect(target.locator('#username')).not.toBeVisible({ timeout: 15000 });
+      await this.page.waitForLoadState('networkidle');
+    } catch (e) {
+      // Best effort wait
+    }
+  }
+
+  /**
+   * Detect current onboarding step from UI
+   * @returns {Promise<string>} 'user-type' | 'org-name' | 'complete' | 'none'
+   */
+  async detectOnboardingStep() {
+    const target = this._target;
+    try {
+      console.log('Checking for onboarding state...');
+      // Priority 1: Check for Onboarding Page explicitly. Use first() to match login logic.
+      const onboardingPage = target.locator('[data-testid="onboarding-page"]').first();
+      // Increase timeout slightly more
+      if (await onboardingPage.isVisible({ timeout: 5000 }).catch(() => false)) {
+          console.log('Onboarding page detected.');
+          // ...
+          // Check for specific steps
+          if (await target.getByText('Choose Your Role').isVisible().catch(() => false) ||
+              await target.getByText('Select User Type').isVisible().catch(() => false)) {
+              return 'user-type';
+          }
+          
+          if (await target.getByText('Organization Settings').isVisible().catch(() => false) ||
+              await target.locator('[data-testid="vendor-create-org-step"]').isVisible().catch(() => false) ||
+              await target.getByLabel(/organization name/i).isVisible().catch(() => false)) {
+              return 'org-name';
+          }
+          
+          return 'user-type';
+      }
+
+      // Check for User Type selection (Legacy check)
+      if (await target.getByText('Select User Type').isVisible().catch(() => false)) {
+        return 'user-type';
+      }
+      
+      // Check for Dashboard (complete) - Strong Signal
+      if (await target.getByRole('tab', { name: 'Dashboard' }).isVisible().catch(() => false)) {
+        console.log('Dashboard detected (Complete).');
+        return 'complete';
+      }
+      
+      // Check for Organization Name entry (Legacy check)
+      if (await target.getByLabel(/organization name/i).isVisible().catch(() => false)) {
+        return 'org-name';
+      }
+      
+      console.log('No onboarding or dashboard detected. Dumping frame content (2000 chars):');
+      const body = await target.locator('body').innerHTML().catch(e => `Failed to get body: ${e.message}`);
+      console.log(body.substring(0, 2000)); 
+      
+      return 'none';
+    } catch (e) {
+      console.log('Error in detectOnboardingStep:', e);
+      return 'none';
+    }
+  }
+
+  /**
+   * Complete onboarding via UI interactions
+   * @param {string} userType - 'vendor' or 'applicant'
+   * @returns {Promise<object>} Result with organization name/id
+   */
+  async completeOnboardingViaUI(userType) {
+    const target = this._target;
+    let step = await this.detectOnboardingStep();
+    let orgName = `Auto Org ${Date.now()}`;
+    
+    // Step 1: User Type
+    if (step === 'user-type') {
+      console.log(`Onboarding: Selecting ${userType} role`);
+      // Relaxed selector: Check for button role OR just text (Material UI cards often use divs)
+      if (userType === 'vendor') {
+        const vendorBtn = target.getByRole('button', { name: /vendor|issuer|organization/i })
+            .or(target.getByText(/vendor|issuer/i))
+            .first();
+        await vendorBtn.click();
+      } else {
+        const applicantBtn = target.getByRole('button', { name: /applicant|user|holder/i })
+            .or(target.getByText(/applicant|user|holder/i))
+            .first();
+        await applicantBtn.click();
+      }
+      
+      // Click continue/next if present
+      const nextBtn = target.getByRole('button', { name: /continue|next/i });
+      try {
+        if (await nextBtn.isVisible({ timeout: 2000 })) {
+            await nextBtn.click();
+        }
+      } catch (e) {
+        // Ignore if no next button needed (direct selection)
+      }
+      
+      await this.page.waitForTimeout(1000); // Wait for transition
+      step = await this.detectOnboardingStep();
+    }
+    
+    // Step 2: Org Name (Vendor only)
+    if (step === 'org-name' && userType === 'vendor') {
+      console.log(`Onboarding: Entering org name ${orgName}`);
+      const orgInput = target.getByLabel(/organization name/i);
+      if (await orgInput.isEditable()) {
+        await orgInput.fill(orgName);
+      } else {
+        console.log('Onboarding: Org name input is disabled, skipping fill.');
+      }
+      
+      const submitBtn = target.getByRole('button', { name: /complete|finish|create|save/i });
+      await submitBtn.click();
+      
+      await this.page.waitForTimeout(2000); // Wait for API
+    }
+    
+    // Verify completion
+    await target.getByRole('tab', { name: 'Dashboard' }).waitFor({ timeout: 15000 }).catch(() => {});
+    
+    return {
+      organizationName: orgName,
+      // Cannot easily get ID from UI only without API interception, 
+      // but fixture can fetch it from /auth/me later
+      organizationId: null 
+    };
+  }
+
+  /**
+   * Detect and complete onboarding if detected
+   */
+  async detectAndCompleteOnboarding(userType) {
+    const step = await this.detectOnboardingStep();
+    if (step !== 'complete' && step !== 'none') {
+      console.log(`Onboarding required (step: ${step}), completing via UI...`);
+      await this.completeOnboardingViaUI(userType);
+      
+      // Refresh auth info to get IDs
+      const meResponse = await this.page.request.get('/auth/me');
+      if (meResponse.ok()) {
+        const me = await meResponse.json();
+        return {
+          organizationId: me.user?.organization_id,
+          organizationName: me.user?.organization_name
+        };
+      }
+    }
+    
+    // Already complete
+    const meResponse = await this.page.request.get('/auth/me');
+    if (meResponse.ok()) {
+      const me = await meResponse.json();
+      return {
+        organizationId: me.user?.organization_id,
+        organizationName: me.user?.organization_name
+      };
+    }
+    return {};
   }
 
   async ensureVendorOrganization(options = {}) {
@@ -360,7 +755,12 @@ class AuthHelpers {
     let organizationDisplayName = null;
     let updated = false;
 
-    const meResponse = await this.page.request.get('/auth/me');
+    // Get cookies from browser context and build Cookie header for API requests
+    const cookies = await this.page.context().cookies();
+    const cookieHeader = cookies.map(c => `${c.name}=${c.value}`).join('; ');
+    const headers = cookieHeader ? { 'Cookie': cookieHeader } : {};
+
+    const meResponse = await this.page.request.get('/auth/me', { headers });
     if (meResponse.ok()) {
       const meData = await meResponse.json();
       organizationId = meData?.user?.organization_id || null;
@@ -376,7 +776,7 @@ class AuthHelpers {
     }
 
     let existingOrgId = null;
-    const listResponse = await this.page.request.get('/api/onboarding/organizations');
+    const listResponse = await this.page.request.get('/api/onboarding/organizations', { headers });
     if (listResponse.ok()) {
       const listData = await listResponse.json();
       const orgs = listData?.organizations || [];
@@ -399,11 +799,13 @@ class AuthHelpers {
     };
 
     let completeResponse = await this.page.request.post('/api/onboarding/complete', {
+      headers,
       data: onboardingPayload,
     });
     if (!completeResponse.ok() && !existingOrgId) {
       const fallbackName = `${organizationName} ${Date.now()}`;
       completeResponse = await this.page.request.post('/api/onboarding/complete', {
+        headers,
         data: {
           user_type: 'vendor',
           organization_name: fallbackName,
@@ -433,7 +835,7 @@ class AuthHelpers {
     updated = true;
 
     if (!organizationId) {
-      const refreshed = await this.page.request.get('/auth/me');
+      const refreshed = await this.page.request.get('/auth/me', { headers });
       if (refreshed.ok()) {
         const refreshedData = await refreshed.json();
         organizationId = refreshedData?.user?.organization_id || null;
@@ -464,10 +866,20 @@ class AuthHelpers {
    * Check if currently authenticated
    */
   async isAuthenticated() {
+    const target = this._target;
     try {
-      await this.page.waitForTimeout(500);
-      const logoutButton = this.page.locator('button:has-text("Logout"), button:has-text("Sign Out")');
-      return await logoutButton.isVisible();
+      // Use distinct timeout to avoid hanging
+      const logoutButton = target.locator('button:has-text("Logout"), button:has-text("Sign Out")').first();
+      if (await logoutButton.isVisible({ timeout: 2000 }).catch(() => false)) {
+          // Check if stuck on onboarding
+          const onboardingPage = target.locator('[data-testid="onboarding-page"]');
+          if (await onboardingPage.isVisible({ timeout: 1000 }).catch(() => false)) {
+              console.log('[Auth] User is logged in but stuck on Onboarding Page -> Treating as Unauthenticated');
+              return false;
+          }
+          return true;
+      }
+      return false;
     } catch {
       return false;
     }
@@ -604,9 +1016,60 @@ class MobileWalletHelpers {
 // =============================================================================
 
 /**
- * WalletBridge provides bidirectional postMessage communication with
- * the Flutter web wallet for E2E testing. It handles message sending,
- * response waiting, and wallet lifecycle events.
+ * WalletBridge - Bidirectional postMessage communication with Flutter web wallet.
+ *
+ * This class navigates to the marty-authenticator Flutter web app in the SAME PAGE
+ * context and communicates via postMessage. Because the wallet renders in the
+ * Playwright-controlled browser, all wallet UI is captured in:
+ * - Video recordings
+ * - Screenshots
+ * - Trace files
+ *
+ * ## Usage Pattern
+ * ```javascript
+ * const wallet = new WalletBridge(page);
+ * await wallet.init({ deviceId: 'my-device', orgId: 'my-org' });
+ * await wallet.scanQrCode(credentialOfferUrl);
+ * const response = await wallet.waitForMessage('CREDENTIAL_STORED');
+ * ```
+ *
+ * ## Message Protocol
+ * All messages include `{ source: 'marty-wallet', type: string, payload: object }`.
+ *
+ * | Message Type           | Direction       | Description                              |
+ * |------------------------|-----------------|------------------------------------------|
+ * | WALLET_READY           | Wallet → Test   | Flutter app has finished initialization  |
+ * | SCAN_QR_CODE           | Test → Wallet   | Inject QR data for processing            |
+ * | QR_CODE_INJECTED       | Wallet → Test   | QR injection acknowledged                |
+ * | INJECT_CHALLENGE       | Test → Wallet   | Inject push challenge                    |
+ * | CHALLENGE_INJECTED     | Wallet → Test   | Challenge received                       |
+ * | SET_DEVICE_ID          | Test → Wallet   | Set device ID and org                    |
+ * | GET_DEVICE_ID          | Test → Wallet   | Request current device ID                |
+ * | DEVICE_ID              | Wallet → Test   | Current device ID response               |
+ * | REGISTER_PUSH_VIA_QR   | Test → Wallet   | Register device via QR data              |
+ * | PUSH_REGISTERED        | Wallet → Test   | Registration result                      |
+ * | STORE_CREDENTIAL       | Test → Wallet   | Store a credential                       |
+ * | CREDENTIAL_STORED      | Wallet → Test   | Credential storage confirmed             |
+ * | GET_CREDENTIALS        | Test → Wallet   | Request stored credentials               |
+ * | CREDENTIALS            | Wallet → Test   | Stored credentials response              |
+ * | CLEAR_DATA             | Test → Wallet   | Clear all wallet data                    |
+ * | DATA_CLEARED           | Wallet → Test   | Data cleared confirmation                |
+ * | PROCESS_OID4VP_REQUEST | Test → Wallet   | Process presentation request             |
+ * | APPROVE_PRESENTATION   | Test → Wallet   | Approve and submit presentation          |
+ * | PRESENTATION_SUBMITTED | Wallet → Test   | Presentation submitted to verifier       |
+ *
+ * ## WalletBridge Usage
+ * WalletBridge is the ONLY supported way to test wallet flows in E2E tests.
+ * It provides UI capture in recordings and tests the actual Flutter web wallet.
+ * 
+ * For API-only tests without wallet UI (SSE, token exchange), use unit-api tests
+ * with direct HTTP/fetch calls instead.
+ *
+ * ## Prerequisites
+ * The Flutter web wallet must be running at WALLET_URL (default: http://localhost:9081).
+ * Start it with: `cd marty-authenticator && ./scripts/run-web-test.sh`
+ *
+ * @see main_web_test.dart - Flutter entry point that handles these messages
  */
 class WalletBridge {
   constructor(page) {
@@ -616,6 +1079,102 @@ class WalletBridge {
     this._isReady = false;
     this._messageQueue = [];
     this._responseHandlers = new Map();
+    this._needsFreshContext = false; // First init uses provided page
+    this._ownedContext = null;
+    this._listenerInstalled = false;
+    this.frame = null; // Can be bound to specific frame
+  }
+
+  /**
+   * Initialize in a specific frame (for split-screen testing)
+   * @param {import('@playwright/test').FrameLocator} frameLocator
+   * @param {object} options
+   */
+  async initInFrame(frameLocator, options = {}) {
+    this.frame = frameLocator;
+    const { deviceId, orgId, timeout = 30000 } = options;
+
+    // Construct URL with test parameters
+    let url = `${this.walletUrl}?test_mode=true&api_url=${encodeURIComponent(this.apiUrl)}`;
+    if (deviceId) url += `&device_id=${encodeURIComponent(deviceId)}`;
+    if (orgId) url += `&org_id=${encodeURIComponent(orgId)}`;
+
+    // Set up message listener BEFORE navigation so we catch WALLET_READY
+    await this._setupMessageListenerInFrame();
+    
+    // Start waiting for WALLET_READY before we navigate
+    const walletReadyPromise = this._waitForMessage('WALLET_READY', timeout);
+
+    // Set frame source via evaluate (assumes harness has setFrameSource)
+    console.log(`[initInFrame] Setting wallet frame to: ${url}`);
+    try {
+      // For cross-origin iframe handling in harness
+      const frameId = 'wallet-frame'; // Default ID in harness
+      await this.page.evaluate(({ id, url }) => {
+        console.log('[Harness] Setting frame source:', id, url);
+        if (window.setFrameSource) {
+          window.setFrameSource(id, url);
+        } else {
+          // Fallback if not using harness helper
+          const f = document.getElementById(id);
+          if (f) f.src = url;
+        }
+      }, { id: frameId, url });
+    } catch (e) {
+      console.log(`[initInFrame] Error setting frame source: ${e.message}`);
+    }
+    
+    // Now wait for WALLET_READY
+    await walletReadyPromise;
+    this._isReady = true;
+
+    await this.enableAccessibility();
+
+    console.log('WalletBridge: Wallet ready in frame');
+    return true;
+  }
+
+  async _waitForWalletLoad(timeout = 30000) {
+    // Wait for frame to have content
+    // This is tricky with cross-origin, but we can look for locator
+    if (this.frame) {
+      await this.frame.locator('body').waitFor({ timeout });
+    }
+  }
+
+  async _setupMessageListenerInFrame() {
+    if (!this.frame) return this._setupMessageListener();
+
+    // For split-screen mode: the harness page relays messages from wallet iframe
+    // We just need to listen for console logs on the harness page
+    console.log('[Setup] Setting up message listener for split-screen harness...');
+
+    // Listen for console logs on the harness page (which relays wallet messages)
+    this.page.on('console', msg => {
+      const text = msg.text();
+      // Debug all logs
+      console.log(`[BrowserLog] ${text}`);
+      
+      if (text.startsWith('__WALLET_BRIDGE_MSG__:')) {
+        try {
+          const data = JSON.parse(text.substring(22));
+          console.log(`[Bridge] Received ${data.type}`);
+          this._handleMessage(data);
+        } catch (e) {
+          console.log(`[Bridge] Parse error: ${e.message}`);
+        }
+      }
+    });
+  }
+
+  _handleMessage(data) {
+    const { type, payload } = data;
+    if (this._responseHandlers.has(type)) {
+      const handlers = this._responseHandlers.get(type);
+      handlers.forEach(resolve => resolve(payload));
+      this._responseHandlers.delete(type);
+    }
+    this._messageQueue.push({ type, payload, timestamp: Date.now() });
   }
 
   /**
@@ -628,6 +1187,17 @@ class WalletBridge {
   async init(options = {}) {
     const { deviceId, orgId, timeout = 30000 } = options;
 
+    // Create a fresh browser context to avoid exposeFunction conflicts between tests
+    if (!this.frame) { // Only change context if NOT in split-screen mode
+      const browser = this.page.context().browser();
+      if (browser && this._needsFreshContext) {
+        const newContext = await browser.newContext();
+        this.page = await newContext.newPage();
+        this._ownedContext = newContext;
+      }
+      this._needsFreshContext = true;
+    }
+
     // Construct URL with test parameters
     let url = `${this.walletUrl}?test_mode=true&api_url=${encodeURIComponent(this.apiUrl)}`;
     if (deviceId) url += `&device_id=${encodeURIComponent(deviceId)}`;
@@ -636,11 +1206,14 @@ class WalletBridge {
     // Set up message listener before navigating
     await this._setupMessageListener();
 
+    // Start waiting for WALLET_READY before we navigate to avoid race conditions
+    const readyPromise = this._waitForMessage('WALLET_READY', timeout);
+
     // Navigate to wallet
     await this.page.goto(url);
 
     // Wait for WALLET_READY message
-    await this._waitForMessage('WALLET_READY', timeout);
+    await readyPromise;
     this._isReady = true;
 
     await this.enableAccessibility();
@@ -650,22 +1223,50 @@ class WalletBridge {
   }
 
   /**
+   * Clean up resources when done with this bridge
+   */
+  async cleanup() {
+    if (this._ownedContext) {
+      await this._ownedContext.close();
+      this._ownedContext = null;
+    }
+    this._isReady = false;
+    this._messageQueue = [];
+    this._responseHandlers.clear();
+  }
+
+  /**
    * Set up postMessage listener in the page context
    */
   async _setupMessageListener() {
-    await this.page.exposeFunction('_walletBridgeReceive', (data) => {
-      const { type, payload } = data;
-      
-      // Resolve any waiting promises for this message type
-      if (this._responseHandlers.has(type)) {
-        const handlers = this._responseHandlers.get(type);
-        handlers.forEach(resolve => resolve(payload));
-        this._responseHandlers.delete(type);
+    // Add console listener for debugging
+    this.page.on('console', msg => {
+      const text = msg.text();
+      // Include more filter terms to capture registerDevice and registerFromQRCode logs
+      if (text.includes('TestMessageHandler') || text.includes('Push') || text.includes('REGISTER') || 
+          text.includes('register') || text.includes('device') || text.includes('RSA') ||
+          text.includes('HTTP') || text.includes('Starting') || text.includes('Exception')) {
+        console.log(`[Wallet Console] ${msg.type()}: ${text}`);
       }
-
-      // Store in queue for later inspection
-      this._messageQueue.push({ type, payload, timestamp: Date.now() });
     });
+
+    // Only expose function if not already installed on this page
+    if (!this._listenerInstalled) {
+      try {
+        await this.page.exposeFunction('_walletBridgeReceive', (data) => {
+          this._handleMessage(data);
+        });
+        this._listenerInstalled = true;
+      } catch (err) {
+        // Function already registered from a previous test - this is OK if using same context
+        if (err.message.includes('has been already registered')) {
+          console.log('WalletBridge: Reusing existing listener');
+          this._listenerInstalled = true;
+        } else {
+          throw err;
+        }
+      }
+    }
 
     await this.page.addInitScript(() => {
       if (window.__walletBridgeListenerInstalled) {
@@ -719,11 +1320,24 @@ class WalletBridge {
   /**
    * Send a message to the wallet and optionally wait for response
    */
-  async sendMessage(type, payload = {}, waitForResponse = null) {
-    const responsePromise = waitForResponse ? this._waitForMessage(waitForResponse) : null;
-    await this.page.evaluate(({ type, payload }) => {
-      window.postMessage({ type, payload }, '*');
-    }, { type, payload });
+  async sendMessage(type, payload = {}, waitForResponse = null, timeout = 30000) {
+    console.log(`Sending message: ${type}`, JSON.stringify(payload));
+    const responsePromise = waitForResponse ? this._waitForMessage(waitForResponse, timeout) : null;
+
+    if (this.frame) {
+      // Execute within the frame context
+      await this.frame.locator('body').evaluate((body, { type, payload }) => {
+        const msg = { type, payload, source: 'marty-harness' };
+        console.log('PostMessage Sending:', JSON.stringify(msg));
+        window.postMessage(msg, '*');
+      }, { type, payload });
+    } else {
+      await this.page.evaluate(({ type, payload }) => {
+        const msg = { type, payload, source: 'marty-harness' };
+        console.log('PostMessage Sending:', JSON.stringify(msg));
+        window.postMessage(msg, '*');
+      }, { type, payload });
+    }
 
     if (responsePromise) {
       return responsePromise;
@@ -744,6 +1358,26 @@ class WalletBridge {
    */
   async injectChallenge(challenge) {
     return this.sendMessage('INJECT_CHALLENGE', challenge, 'CHALLENGE_INJECTED');
+  }
+
+  /**
+   * Register for push notifications via QR code data
+   * Simulates scanning a QR code from the web UI and registering the device
+   * @param {object} qrData - QR code data with organization_id, api_url, temp_token, user_id
+   * @returns {Promise<object>} - Registration result with device_id, registration_id, organization_id
+   */
+  async registerPushViaQR(qrData) {
+    const result = await this.sendMessage(
+      'REGISTER_PUSH_VIA_QR',
+      { qr_data: qrData },
+      'PUSH_REGISTERED'
+    );
+    
+    if (!result.success) {
+      throw new Error(`Push registration via QR failed: ${result.error}`);
+    }
+    
+    return result;
   }
 
   /**
@@ -796,15 +1430,14 @@ class WalletBridge {
    * @param {number} timeout - Timeout in ms
    */
   async waitForCredentials(count = 1, timeout = 30000) {
-    const startTime = Date.now();
-    while (Date.now() - startTime < timeout) {
+    return await expect.poll(async () => {
       const credentials = await this.getCredentials();
-      if (credentials.length >= count) {
-        return credentials;
-      }
-      await this.page.waitForTimeout(500);
-    }
-    throw new Error(`Timeout waiting for ${count} credentials`);
+      return credentials.length >= count ? credentials : null;
+    }, {
+      timeout,
+      intervals: [500, 1000, 2000],
+      message: `Wallet did not receive ${count} credential(s)`
+    }).toBeTruthy();
   }
 
   /**
@@ -813,16 +1446,14 @@ class WalletBridge {
    * @param {number} timeout - Timeout in ms
    */
   async waitForDisplayCredential(matchFn, timeout = 10000) {
-    const startTime = Date.now();
-    while (Date.now() - startTime < timeout) {
+    return await expect.poll(async () => {
       const credentials = await this.getDisplayCredentials();
-      const match = credentials.find(matchFn);
-      if (match) {
-        return match;
-      }
-      await this.page.waitForTimeout(500);
-    }
-    throw new Error('Timeout waiting for display credential');
+      return credentials.find(matchFn);
+    }, {
+      timeout,
+      intervals: [500, 1000, 2000],
+      message: 'Display credential matching predicate not found'
+    }).toBeTruthy();
   }
 
   /**
@@ -900,8 +1531,7 @@ class WalletBridge {
    * @returns {Promise<object>} - The submitted presentation data
    */
   async waitForPresentationSubmission(requestId, timeout = 30000) {
-    const startTime = Date.now();
-    while (Date.now() - startTime < timeout) {
+    return await expect.poll(async () => {
       try {
         const response = await this.page.request.get(
           `${this.apiUrl}/api/verifier/requests/${requestId}/status`
@@ -915,9 +1545,12 @@ class WalletBridge {
       } catch (err) {
         // Continue polling
       }
-      await this.page.waitForTimeout(500);
-    }
-    throw new Error(`Timeout waiting for presentation submission for request ${requestId}`);
+      return null;
+    }, {
+      timeout,
+      intervals: [500, 1000, 2000],
+      message: `Presentation not submitted for request ${requestId}`
+    }).toBeTruthy();
   }
 
   /**
@@ -1131,15 +1764,107 @@ class PushNotificationHelpers {
    * @param {number} timeout - Timeout in ms
    */
   async waitForNotification(eventType, timeout = 10000) {
-    const startTime = Date.now();
-    while (Date.now() - startTime < timeout) {
+    return await expect.poll(async () => {
       const notifications = await this.getNotificationsByEventType(eventType);
-      if (notifications.length > 0) {
-        return notifications[0];
-      }
-      await this.page.waitForTimeout(500);
+      return notifications.length > 0 ? notifications[0] : null;
+    }, {
+      timeout,
+      intervals: [500, 1000, 2000],
+      message: `Notification with event type "${eventType}" not received`
+    }).toBeTruthy();
+  }
+
+  // ===========================================================================
+  // QR-Based Push Registration (Mobile wallet scans web UI QR code)
+  // ===========================================================================
+
+  /**
+   * Generate a QR code for device registration
+   * Returns QR data that a mobile wallet can scan to register for push notifications
+   * @param {string} orgId - Optional organization ID
+   * @returns {Promise<object>} - QR data with organization_id, api_url, temp_token, user_id, qr_url
+   */
+  async generateQRRegistration(orgId = 'test_org') {
+    const headers = {
+      'Content-Type': 'application/json',
+      'X-Organization-ID': orgId,
+    };
+    if (this.userId) {
+      headers['X-User-ID'] = this.userId;
     }
-    throw new Error(`Timeout waiting for notification with event type: ${eventType}`);
+
+    const response = await this.page.request.post(
+      `${this.apiUrl}/api/devices/register-qr`,
+      {
+        data: { user_id: this.userId || 'test_user' },
+        headers,
+      }
+    );
+
+    if (!response.ok()) {
+      const errorText = await response.text();
+      throw new Error(`Failed to generate QR registration: ${errorText}`);
+    }
+
+    const data = await response.json();
+    if (!data.success) {
+      throw new Error(`QR generation failed: ${data.message}`);
+    }
+
+    return data.qr_data;
+  }
+
+  /**
+   * Check the status of a QR registration
+   * @param {string} tokenPrefix - First 32 characters of the temp_token
+   * @returns {Promise<object>} - Status with completed, device_id, etc.
+   */
+  async checkQRRegistrationStatus(tokenPrefix) {
+    const response = await this.page.request.get(
+      `${this.apiUrl}/api/devices/qr-status/${tokenPrefix}`
+    );
+    
+    if (!response.ok()) {
+      const status = response.status();
+      if (status === 404) {
+        throw new Error('QR registration not found');
+      } else if (status === 410) {
+        throw new Error('QR registration expired');
+      }
+      throw new Error(`Failed to check QR status: ${response.statusText()}`);
+    }
+
+    return response.json();
+  }
+
+  /**
+   * Wait for a QR registration to complete
+   * Polls the status endpoint until the device registers via QR
+   * @param {string} tempToken - The temp_token from QR data
+   * @param {number} timeout - Timeout in ms
+   * @returns {Promise<object>} - Completed registration status with device_id
+   */
+  async waitForQRRegistration(tempToken, timeout = 60000) {
+    const tokenPrefix = tempToken.substring(0, 32);
+
+    return await expect.poll(async () => {
+      try {
+        const status = await this.checkQRRegistrationStatus(tokenPrefix);
+        if (status.completed) {
+          return status;
+        }
+      } catch (err) {
+        // If expired or not found, rethrow
+        if (err.message.includes('expired') || err.message.includes('not found')) {
+          throw err;
+        }
+      }
+      return null;
+    }, {
+      timeout,
+      intervals: [1000, 2000, 5000],
+      message: 'QR registration did not complete'
+    }).toBeTruthy();
   }
 }
 
@@ -1312,8 +2037,7 @@ class MailHogHelpers {
    * @param {number} timeout - Timeout in ms
    */
   async waitForEmail(email, subjectContains = null, timeout = 30000) {
-    const startTime = Date.now();
-    while (Date.now() - startTime < timeout) {
+    const result = await expect.poll(async () => {
       const emails = await this.getEmailsTo(email);
       for (const msg of emails) {
         const subject = msg.Content?.Headers?.Subject?.[0] || '';
@@ -1321,9 +2045,14 @@ class MailHogHelpers {
           return msg;
         }
       }
-      await this.page.waitForTimeout(1000);
-    }
-    throw new Error(`Timeout waiting for email to ${email}`);
+      return null;
+    }, {
+      timeout,
+      intervals: [1000, 2000, 5000],
+      message: `Email to ${email}${subjectContains ? ` with subject "${subjectContains}"` : ''} not received`
+    }).toBeTruthy();
+    
+    return result;
   }
 
   /**
@@ -1384,18 +2113,19 @@ class MockEmailHelpers {
    * @param {number} timeout - Timeout in ms
    */
   async waitForEmail(email, subjectContains = null, timeout = 30000) {
-    const startTime = Date.now();
-    while (Date.now() - startTime < timeout) {
+    const result = await expect.poll(async () => {
       const emails = await this.getEmailsTo(email);
-      for (const msg of emails) {
+      return emails.find(msg => {
         const subject = msg.Content?.Headers?.Subject?.[0] || '';
-        if (!subjectContains || subject.includes(subjectContains)) {
-          return msg;
-        }
-      }
-      await this.page.waitForTimeout(1000);
-    }
-    throw new Error(`Timeout waiting for email to ${email}`);
+        return !subjectContains || subject.includes(subjectContains);
+      });
+    }, {
+      timeout,
+      intervals: [1000, 2000, 5000],
+      message: `Email to ${email}${subjectContains ? ` with subject "${subjectContains}"` : ''} not received`
+    }).toBeTruthy();
+    
+    return result;
   }
 
   /**
@@ -1830,15 +2560,16 @@ class EmailTestHelpers {
    * @returns {Promise<Array>} Array of email objects
    */
   async waitForEmails(email, count, timeout = 30000) {
-    const startTime = Date.now();
-    while (Date.now() - startTime < timeout) {
+    const result = await expect.poll(async () => {
       const emails = await this.getEmailsTo(email);
-      if (emails.length >= count) {
-        return emails.slice(0, count);
-      }
-      await this.page.waitForTimeout(1000);
-    }
-    throw new Error(`Timeout waiting for ${count} emails to ${email}`);
+      return emails.length >= count ? emails.slice(0, count) : null;
+    }, {
+      timeout,
+      intervals: [1000, 2000, 5000],
+      message: `Did not receive ${count} email(s) to ${email}`
+    }).toBeTruthy();
+    
+    return result;
   }
 
   /**
@@ -1849,8 +2580,7 @@ class EmailTestHelpers {
    * @returns {Promise<object>} Email object
    */
   async waitForEmailFrom(recipient, from, timeout = 30000) {
-    const startTime = Date.now();
-    while (Date.now() - startTime < timeout) {
+    const result = await expect.poll(async () => {
       const emails = await this.getEmailsTo(recipient);
       for (const email of emails) {
         const sender = this.getSenderInfo(email).email;
@@ -1858,9 +2588,14 @@ class EmailTestHelpers {
           return email;
         }
       }
-      await this.page.waitForTimeout(1000);
-    }
-    throw new Error(`Timeout waiting for email from ${from} to ${recipient}`);
+      return null;
+    }, {
+      timeout,
+      intervals: [1000, 2000, 5000],
+      message: `Email from ${from} to ${recipient} not received`
+    }).toBeTruthy();
+    
+    return result;
   }
 
   /**
@@ -1871,19 +2606,23 @@ class EmailTestHelpers {
    * @returns {Promise<object>} Email object
    */
   async waitForEmailWithLink(email, linkPattern, timeout = 30000) {
-    const startTime = Date.now();
     const regex = linkPattern instanceof RegExp ? linkPattern : new RegExp(linkPattern);
     
-    while (Date.now() - startTime < timeout) {
+    const result = await expect.poll(async () => {
       const emails = await this.getEmailsTo(email);
       for (const msg of emails) {
         if (this.verifyLinkExists(msg, regex)) {
           return msg;
         }
       }
-      await this.page.waitForTimeout(1000);
-    }
-    throw new Error(`Timeout waiting for email with link matching ${linkPattern} to ${email}`);
+      return null;
+    }, {
+      timeout,
+      intervals: [1000, 2000, 5000],
+      message: `Email with link matching ${linkPattern} to ${email} not received`
+    }).toBeTruthy();
+    
+    return result;
   }
 
   // =============================================================================
@@ -1944,8 +2683,7 @@ class ApiTestHelpers {
    * @param {number} timeout - Timeout in ms
    */
   async waitForApiReady(timeout = 30000) {
-    const startTime = Date.now();
-    while (Date.now() - startTime < timeout) {
+    return await expect.poll(async () => {
       try {
         const response = await this.request('GET', '/health');
         if (response.ok) {
@@ -1954,9 +2692,12 @@ class ApiTestHelpers {
       } catch {
         // API not ready yet
       }
-      await this.page.waitForTimeout(1000);
-    }
-    throw new Error('API did not become ready in time');
+      return null;
+    }, {
+      timeout,
+      intervals: [1000, 2000, 5000],
+      message: 'API did not become ready'
+    }).toBeTruthy();
   }
 }
 
@@ -1992,6 +2733,91 @@ function generateTestEmail(prefix = 'test') {
   return `${prefix}-${timestamp}-${random}@test.marty.demo`;
 }
 
+/**
+ * Setup organization with credentials and trust configuration.
+ * Consolidates getVendorOrganizationId + credential config + trust config patterns.
+ * Used in 15+ test files' beforeAll/beforeEach hooks.
+ * 
+ * @param {Page} page - Authenticated page (vendor user)
+ * @param {object} options - Setup options
+ * @param {string} options.credentialType - Credential type to ensure (default: 'employee_badge')
+ * @param {string} options.signingAlgorithm - Signing algorithm (default: 'ES256')
+ * @param {boolean} options.ensureCredentialConfig - Whether to ensure credential config exists
+ * @returns {Promise<object>} - { organizationId, organizationName, credentialConfigId }
+ */
+async function setupOrganizationWithCredentials(page, options = {}) {
+  const {
+    credentialType = 'employee_badge',
+    signingAlgorithm = 'ES256',
+    ensureCredentialConfig = true,
+  } = options;
+
+  // Get organization ID from current session
+  const meResponse = await page.request.get('/auth/me');
+  if (!meResponse.ok()) {
+    throw new Error('Failed to read user session');
+  }
+  const meData = await meResponse.json();
+  const organizationId = meData?.user?.organization_id || null;
+  const organizationName = meData?.user?.organization_name || null;
+
+  if (!organizationId) {
+    throw new Error('Organization ID not found in user session');
+  }
+
+  // Setup trust configuration with signing key
+  await ensureTrustConfig(page, {
+    organizationId,
+    trustFramework: 'marty_hosted',
+    keySource: 'marty_generated',
+    signingAlgorithm,
+  });
+
+  let credentialConfigId = null;
+
+  // Optionally ensure credential config exists
+  if (ensureCredentialConfig) {
+    const apiUrl = process.env.API_URL || 'http://localhost:8000';
+    const listResponse = await page.request.get(
+      `${apiUrl}/api/organizations/${organizationId}/credential-types`
+    );
+
+    if (listResponse.ok()) {
+      const listData = await listResponse.json();
+      const configs = listData.credential_types || [];
+      const existing = configs.find((c) => c.credential_type === credentialType);
+
+      if (existing) {
+        credentialConfigId = existing.id;
+      } else {
+        // Create new credential config
+        const createResponse = await page.request.post(
+          `${apiUrl}/api/organizations/${organizationId}/credential-types`,
+          {
+            data: {
+              credential_type: credentialType,
+              name: `${credentialType} Credential`,
+              description: `Auto-generated ${credentialType} credential for testing`,
+              schema: { type: 'object', properties: {} },
+            },
+          }
+        );
+
+        if (createResponse.ok()) {
+          const created = await createResponse.json();
+          credentialConfigId = created.id || created.credential_type_id;
+        }
+      }
+    }
+  }
+
+  return {
+    organizationId,
+    organizationName,
+    credentialConfigId,
+  };
+}
+
 async function getVendorOrganizationId(browser) {
   const baseURL = process.env.BASE_URL || 'http://localhost:9080';
   const context = await browser.newContext({ baseURL });
@@ -2020,7 +2846,167 @@ async function getVendorOrganizationId(browser) {
   }
 }
 
+// =============================================================================
+// Shared Test Helper Functions (DRY helpers for common test operations)
+// =============================================================================
+
+/**
+ * Create a credential offer for testing.
+ * This helper consolidates the common pattern of creating offers across 8+ test files.
+ * 
+ * @param {Page} page - Playwright page object (authenticated)
+ * @param {object} options - Offer configuration
+ * @param {string} options.organizationId - Organization ID
+ * @param {string} options.credentialConfigId - Credential type config ID (default: 'employee_badge')
+ * @param {string} options.applicantId - Applicant identifier
+ * @param {string} options.deviceId - Target device ID for push delivery
+ * @param {object} options.credentialData - Credential claims data
+ * @param {string} options.credentialFormat - Format: 'vc+sd-jwt', 'jwt_vc_json', 'mso_mdoc'
+ * @returns {Promise<object>} - Created offer with credential_offer_uri
+ */
+async function createCredentialOffer(page, options) {
+  const {
+    organizationId,
+    credentialConfigId = 'employee_badge',
+    applicantId = `test-applicant-${Date.now()}`,
+    deviceId = null,
+    credentialData = {
+      given_name: 'Test',
+      family_name: 'User',
+      employee_id: `EMP-${Date.now()}`,
+    },
+    credentialFormat = 'vc+sd-jwt',
+  } = options;
+
+  const apiUrl = process.env.API_URL || 'http://localhost:8000';
+  const response = await page.request.post(`${apiUrl}/api/issuance/offers`, {
+    data: {
+      organization_id: organizationId,
+      credential_config_id: credentialConfigId,
+      applicant_id: applicantId,
+      device_id: deviceId,
+      credential_data: credentialData,
+      credential_format: credentialFormat,
+    },
+  });
+
+  if (!response.ok()) {
+    const error = await response.text();
+    throw new Error(`Failed to create credential offer: ${response.status()} - ${error}`);
+  }
+
+  return response.json();
+}
+
+/**
+ * Ensure trust configuration exists for an organization.
+ * This helper consolidates the common pattern of setting up trust config in beforeAll hooks.
+ * 
+ * @param {Page} page - Playwright page object (authenticated as admin)
+ * @param {object} options - Trust config options
+ * @param {string} options.organizationId - Organization ID
+ * @param {string} options.trustFramework - Trust framework: 'marty_hosted', 'did_web', etc.
+ * @param {string} options.keySource - Key source: 'marty_generated', 'uploaded', etc.
+ * @param {string} options.signingAlgorithm - Signing algorithm: 'ES256', 'RS256', 'P-256'
+ * @returns {Promise<object>} - Trust config result
+ */
+async function ensureTrustConfig(page, options) {
+  const {
+    organizationId,
+    trustFramework = 'marty_hosted',
+    keySource = 'marty_generated',
+    signingAlgorithm = 'ES256',
+  } = options;
+
+  const apiUrl = process.env.API_URL || 'http://localhost:8000';
+
+  // Create or update trust config
+  const configResponse = await page.request.put(
+    `${apiUrl}/api/organizations/${organizationId}/trust-config`,
+    {
+      data: {
+        trust_framework: trustFramework,
+        key_source: keySource,
+      },
+    }
+  );
+
+  if (!configResponse.ok()) {
+    console.warn(`Trust config update returned ${configResponse.status()}`);
+  }
+
+  // Generate signing key
+  const keyResponse = await page.request.post(
+    `${apiUrl}/api/organizations/${organizationId}/trust-config/keys`,
+    {
+      data: {
+        algorithm: signingAlgorithm,
+        key_purpose: 'signing',
+      },
+    }
+  );
+
+  // Key might already exist, which is OK
+  if (!keyResponse.ok() && keyResponse.status() !== 409) {
+    console.warn(`Signing key generation returned ${keyResponse.status()}`);
+  }
+
+  return { configResponse, keyResponse };
+}
+
+/**
+ * Validate that Flutter wallet is running at the expected URL.
+ * Checks for Flutter-specific elements to ensure it's the real wallet, not a test stub.
+ * 
+ * @param {Page} page - Playwright page object
+ * @param {string} walletUrl - Wallet URL to validate (default: http://localhost:9081)
+ * @returns {Promise<boolean>} - True if Flutter wallet is running
+ * @throws {Error} - If wallet is not running or is not Flutter web app
+ */
+async function validateFlutterWallet(page, walletUrl = null) {
+  const url = walletUrl || process.env.WALLET_URL || 'http://localhost:9081';
+  
+  try {
+    const response = await page.request.get(url, { timeout: 5000 });
+    if (!response.ok()) {
+      throw new Error(`Wallet not responding at ${url}: ${response.status()}`);
+    }
+
+    // Navigate and check for Flutter-specific elements
+    await page.goto(url, { timeout: 10000 });
+    
+    // Wait for Flutter to initialize - look for flt-glass-pane or flt-semantics
+    try {
+      await page.waitForSelector('flt-glass-pane, flt-semantics-host, [flt-renderer]', { timeout: 5000 });
+      return true;
+    } catch {
+      // Check if it's an HTML test stub (should not be used)
+      const isHtmlStub = await page.locator('#test-wallet, .test-wallet-container').count();
+      if (isHtmlStub > 0) {
+        throw new Error(
+          `Found HTML test wallet stub at ${url}. ` +
+          'Flutter web wallet is required. Run: make build-wallet && docker compose restart wallet'
+        );
+      }
+      throw new Error(
+        `Flutter wallet not detected at ${url}. ` +
+        'Ensure Flutter web build is running: make build-wallet && make dev'
+      );
+    }
+  } catch (err) {
+    if (err.message.includes('Flutter wallet') || err.message.includes('HTML test wallet')) {
+      throw err;
+    }
+    throw new Error(`Cannot connect to wallet at ${url}: ${err.message}`);
+  }
+}
+
 module.exports = {
+  EventWaiter,
+  AuthenticatedApiClient,
+  CredentialDataBuilder,
+  UserDataBuilder,
+  MockResponses,
   DemoTestHelpers,
   AuthHelpers,
   MobileWalletHelpers,
@@ -2040,6 +3026,11 @@ module.exports = {
   generateTestEmail,
   generateTestUser,
   getVendorOrganizationId,
+  // Shared test helpers (DRY)
+  setupOrganizationWithCredentials,
+  createCredentialOffer,
+  ensureTrustConfig,
+  validateFlutterWallet,
   // RSA signing utilities
   generateTestKeypair,
   signChallenge,

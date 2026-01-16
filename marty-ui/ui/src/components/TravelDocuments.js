@@ -50,6 +50,7 @@ import {
   DriveEta as LicenseIcon,
   Description as VisaIcon,
 } from '@mui/icons-material';
+import { useBranding } from '../hooks/useBranding';
 
 // Document types from the backend
 const DOCUMENT_TYPES = [
@@ -187,6 +188,7 @@ export default function TravelDocuments() {
   // Approved applicants for issuance
   const [approvedApplicants, setApprovedApplicants] = useState([]);
   const [loadingApplicants, setLoadingApplicants] = useState(false);
+  const branding = useBranding();
   const [selectedApplicant, setSelectedApplicant] = useState(null);
   const [issueMode, setIssueMode] = useState('applicant'); // 'applicant' or 'manual'
   
@@ -200,7 +202,7 @@ export default function TravelDocuments() {
     holder_dob: '',
     nationality: 'USA',
     issuing_country: 'USA',
-    issuing_authority: 'Marty Trust Services',
+    issuing_authority: branding.issuingAuthority,
     validity_years: 10,
   });
   
@@ -369,7 +371,7 @@ export default function TravelDocuments() {
       holder_dob: '',
       nationality: 'USA',
       issuing_country: 'USA',
-      issuing_authority: 'Marty Trust Services',
+      issuing_authority: branding.issuingAuthority,
       validity_years: 10,
     });
   };

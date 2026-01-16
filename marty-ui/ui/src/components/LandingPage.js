@@ -37,6 +37,7 @@ import BusinessIcon from '@mui/icons-material/Business';
 import StorefrontIcon from '@mui/icons-material/Storefront';
 import PersonIcon from '@mui/icons-material/Person';
 import { useAuth } from '../hooks/useAuth';
+import { useBranding } from '../hooks/useBranding';
 
 const API_BASE_URL = process.env.REACT_APP_API_URL || '';
 
@@ -112,6 +113,7 @@ const PRICING_TIERS = [
 ];
 
 function LandingPage() {
+  const branding = useBranding();
   const { isAuthenticated, isLoading, login, register, isAdministrator, isVendor } = useAuth();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -237,10 +239,10 @@ function LandingPage() {
         }}
       >
         <Typography variant="h3" component="h1" gutterBottom fontWeight="bold">
-          Marty Trust Services
+          {branding.appName}
         </Typography>
         <Typography variant="h6" sx={{ mb: 4, opacity: 0.9 }}>
-          Secure Travel Document Management Portal
+          {branding.tagline}
         </Typography>
         <Button
           variant="contained"

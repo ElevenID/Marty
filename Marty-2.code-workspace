@@ -1,0 +1,23 @@
+{
+	"folders": [
+		{
+			"path": "."
+		},
+		{
+			"path": "../marty-authenticator"
+		},
+		{
+			"path": "../marty-core"
+		},
+		{
+			"path": "../marty-credentials"
+		},
+		{
+			"path": "../marty-verifier"
+		},
+		{
+			"path": "../product-catalog"
+		}
+	],
+	"settings": {}
+}

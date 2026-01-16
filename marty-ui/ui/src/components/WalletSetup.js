@@ -35,6 +35,7 @@ import {
 } from '@mui/icons-material';
 import { QRCodeSVG } from 'qrcode.react';
 import { useAuth } from '../hooks/useAuth';
+import { useBranding } from '../hooks/useBranding';
 
 const API_BASE_URL = process.env.REACT_APP_API_URL || '/api';
 
@@ -48,6 +49,7 @@ const STEPS = [
  * WalletSetup Component
  */
 const WalletSetup = () => {
+  const branding = useBranding();
   const { user, organizationId } = useAuth();
   // State
   const [activeStep, setActiveStep] = useState(0);
@@ -99,7 +101,7 @@ const WalletSetup = () => {
     try {
       const mockCode = Math.random().toString(36).substring(2, 10).toUpperCase();
       setPairingCode(mockCode);
-      setQrContent(`marty://pair?code=${mockCode}`);
+      setQrContent(`${branding.deepLinkProtocol}//pair?code=${mockCode}`);
       setExpiresIn(300);
     } finally {
       setLoading(false);
@@ -263,7 +265,7 @@ const WalletSetup = () => {
             </StepLabel>
             <StepContent>
               <Typography color="text.secondary" paragraph>
-                Open the Marty Authenticator app and scan this QR code to pair your wallet.
+                Open the {branding.authenticatorName} app and scan this QR code to pair your wallet.
               </Typography>
 
               <Card sx={{ maxWidth: 320, mx: 'auto', mb: 2 }}>

@@ -18,7 +18,7 @@ module.exports = function(app) {
   const commonOptions = {
     target: apiTarget,
     changeOrigin: true,
-    logLevel: 'debug',
+    logLevel: 'silent',
     onError: (err, req, res) => {
       console.error('Proxy error:', err.message);
       res.writeHead(502, { 'Content-Type': 'text/plain' });
@@ -35,6 +35,7 @@ module.exports = function(app) {
     '/auth',
     createProxyMiddleware({
       ...commonOptions,
+      logLevel: 'debug',
       // Don't rewrite the path - keep /auth/login as-is
       pathRewrite: undefined,
       // Follow redirects is false so the browser handles the Keycloak redirect
@@ -47,6 +48,7 @@ module.exports = function(app) {
     '/api',
     createProxyMiddleware({
       ...commonOptions,
+      logLevel: 'debug',
     })
   );
 
@@ -55,6 +57,7 @@ module.exports = function(app) {
     '/health',
     createProxyMiddleware({
       ...commonOptions,
+      logLevel: 'debug',
     })
   );
 };

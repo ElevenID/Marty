@@ -746,11 +746,12 @@ class ApplicationService:
         self,
         status: ApplicationStatus | None = None,
         document_type: str | None = None,
+        organization_id: str | None = None,
         limit: int = 50,
         offset: int = 0,
     ) -> tuple[list[ApplicationRecord], int]:
         """List applications with optional filters."""
-        return await self._app_repo.list_all(status, document_type, limit, offset)
+        return await self._app_repo.list_all(status, document_type, organization_id, limit, offset)
 
     async def get_pending_applications(
         self, limit: int = 50
@@ -1044,6 +1045,65 @@ class ApprovalService:
             logger.info(
                 f"Rejected application {application.application_number}: {reason}"
             )
+
+        return application
+
+    async def request_revision(
+        self,
+        application_id: UUID,
+        requested_by: str,
+        notes: str,
+        ip_address: str | None = None,
+    ) -> ApplicationRecord | None:
+        """
+        Request revisions to an application.
+        
+        Sets status to NEEDS_REVISION and stores revision notes for the applicant.
+        
+        Args:
+            application_id: Application ID
+            requested_by: ID of user requesting revision
+            notes: Revision notes/instructions
+            ip_address: Request IP for audit
+            
+        Returns:
+            Updated ApplicationRecord
+        """
+        application = await self._app_repo.get_by_id(application_id)
+        if not application:
+            raise ValueError(f"Application not found: {application_id}")
+
+        if application.status in [
+            ApplicationStatus.APPROVED.value,
+            ApplicationStatus.ISSUED.value,
+            ApplicationStatus.REJECTED.value,
+        ]:
+            raise ValueError(
+                f"Cannot request revision for application in status {application.status}"
+            )
+
+        # Update application with revision info
+        application.status = ApplicationStatus.NEEDS_REVISION.value
+        application.status_changed_at = datetime.utcnow()
+        application.status_changed_by = requested_by
+        application.revision_requested_at = datetime.utcnow()
+        application.revision_requested_by = requested_by
+        application.revision_notes = notes
+        application.revision_count += 1
+        
+        await self._app_repo.session.commit()
+        await self._app_repo.session.refresh(application)
+
+        await self._audit_repo.log_event(
+            application_id=application_id,
+            event_type=AuditEventType.REVISION_REQUESTED,
+            actor_id=requested_by,
+            details={"notes": notes, "revision_count": application.revision_count},
+            ip_address=ip_address,
+        )
+        logger.info(
+            f"Requested revision for application {application.application_number}: {notes}"
+        )
 
         return application
 

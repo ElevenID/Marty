@@ -46,6 +46,7 @@ import FlightIcon from '@mui/icons-material/Flight';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import DragIndicatorIcon from '@mui/icons-material/DragIndicator';
 import { useAuth } from '../../hooks/useAuth';
+import { TemplateActions } from './TemplateActions';
 
 const API_URL = process.env.REACT_APP_API_URL || '';
 
@@ -142,6 +143,9 @@ export default function MDocConfigManager() {
   
   // Currently selected type for detailed config
   const [selectedType, setSelectedType] = useState('org.iso.18013.5.1.mDL');
+  
+  // Current config for template actions
+  const [currentConfig, setCurrentConfig] = useState(null);
 
   useEffect(() => {
     fetchConfiguration();
@@ -273,8 +277,7 @@ export default function MDocConfigManager() {
     });
   };
 
-  const currentConfig = typeConfigs[selectedType] || {};
-  const currentFields = currentConfig.fields || { required: [], optional: [] };
+  const currentFields = (typeConfigs[selectedType] || {}).fields || { required: [], optional: [] };
 
   if (loading) {
     return (
@@ -317,6 +320,27 @@ export default function MDocConfigManager() {
           </Button>
         </Box>
       </Box>
+
+      {/* Template Actions */}
+      {selectedType && enabledTypes[selectedType] && (
+        <Box sx={{ mb: 3 }}>
+          <TemplateActions
+            configId={{
+              orgId: organizationId,
+              typeId: selectedType,
+            }}
+            configData={currentConfig}
+            onStatusChange={(updatedConfig) => {
+              setCurrentConfig(updatedConfig);
+              setSnackbar({
+                open: true,
+                message: 'Template status updated',
+                severity: 'success',
+              });
+            }}
+          />
+        </Box>
+      )}
 
       <Snackbar
         open={snackbar.open}
@@ -566,7 +590,7 @@ export default function MDocConfigManager() {
                 fullWidth
                 type="number"
                 label="Validity Period (years)"
-                value={Math.floor((currentConfig.validityDays || 1460) / 365)}
+                value={Math.floor((currentConfig?.validityDays || 1460) / 365)}
                 onChange={(e) => handleConfigChange('validityDays', parseInt(e.target.value) * 365)}
                 sx={{ mb: 3 }}
                 inputProps={{ min: 1, max: 10 }}
@@ -576,7 +600,7 @@ export default function MDocConfigManager() {
               <FormControlLabel
                 control={
                   <Checkbox
-                    checked={currentConfig.requireIdentityVerification || false}
+                    checked={currentConfig?.requireIdentityVerification || false}
                     onChange={(e) => handleConfigChange('requireIdentityVerification', e.target.checked)}
                     data-testid="require-identity-verification"
                   />
@@ -587,7 +611,7 @@ export default function MDocConfigManager() {
               <FormControlLabel
                 control={
                   <Checkbox
-                    checked={currentConfig.requireDocumentVerification || false}
+                    checked={currentConfig?.requireDocumentVerification || false}
                     onChange={(e) => handleConfigChange('requireDocumentVerification', e.target.checked)}
                     data-testid="require-document-verification"
                   />
@@ -607,7 +631,7 @@ export default function MDocConfigManager() {
               <FormControlLabel
                 control={
                   <Checkbox
-                    checked={currentConfig.allowRenewal || false}
+                    checked={currentConfig?.allowRenewal || false}
                     onChange={(e) => handleConfigChange('allowRenewal', e.target.checked)}
                     data-testid="allow-renewal"
                   />
@@ -615,12 +639,12 @@ export default function MDocConfigManager() {
                 label="Allow Credential Renewal"
               />
 
-              {currentConfig.allowRenewal && (
+              {currentConfig?.allowRenewal && (
                 <TextField
                   fullWidth
                   type="number"
                   label="Renewal Window (days before expiry)"
-                  value={currentConfig.renewalWindowDays || 90}
+                  value={currentConfig?.renewalWindowDays || 90}
                   onChange={(e) => handleConfigChange('renewalWindowDays', parseInt(e.target.value))}
                   sx={{ mt: 2 }}
                   inputProps={{ min: 7, max: 365 }}
@@ -641,7 +665,7 @@ export default function MDocConfigManager() {
                 fullWidth
                 type="number"
                 label="Processing Fee ($)"
-                value={currentConfig.processingFee || 0}
+                value={currentConfig?.processingFee || 0}
                 onChange={(e) => handleConfigChange('processingFee', parseFloat(e.target.value))}
                 inputProps={{ min: 0, step: 0.01 }}
                 data-testid="processing-fee-input"

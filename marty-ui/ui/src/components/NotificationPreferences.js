@@ -38,6 +38,7 @@ import {
   Refresh as RefreshIcon,
 } from '@mui/icons-material';
 import { useAuth } from '../hooks/useAuth';
+import { useBranding } from '../hooks/useBranding';
 
 const API_BASE_URL = process.env.REACT_APP_API_URL || '/api';
 
@@ -81,6 +82,7 @@ const NOTIFICATION_CATEGORIES = [
  * NotificationPreferences Component
  */
 const NotificationPreferences = () => {
+  const branding = useBranding();
   const { user, organizationId } = useAuth();
   // State
   const [loading, setLoading] = useState(false);
@@ -224,7 +226,7 @@ const NotificationPreferences = () => {
     try {
       if (Notification.permission === 'granted') {
         new Notification('Test Notification', {
-          body: 'This is a test notification from Marty Trust Services',
+          body: `This is a test notification from ${branding.appName}`,
           icon: '/favicon.ico',
         });
         setSuccess('Test notification shown!');

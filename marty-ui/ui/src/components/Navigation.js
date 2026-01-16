@@ -1,13 +1,7 @@
 import React, { useMemo } from 'react';
-import { Tabs, Tab, Box, Button, Typography, Avatar, Chip, Tooltip } from '@mui/material';
+import { Tabs, Tab, Box } from '@mui/material';
 import { Link, useLocation } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
-import LoginIcon from '@mui/icons-material/Login';
-import LogoutIcon from '@mui/icons-material/Logout';
-import AdminPanelSettingsIcon from '@mui/icons-material/AdminPanelSettings';
-import PersonIcon from '@mui/icons-material/Person';
-import BusinessIcon from '@mui/icons-material/Business';
-import StorefrontIcon from '@mui/icons-material/Storefront';
 
 /**
  * Administrator navigation tabs
@@ -27,8 +21,8 @@ const ADMIN_TABS = [
  */
 const VENDOR_TABS = [
   { label: 'Dashboard', path: '/vendor', exact: true },
+  { label: 'Applications', path: '/vendor/applications' },
   { label: 'API Keys', path: '/vendor/api-keys' },
-  { label: 'Applicants', path: '/vendor/applicants' },
   { label: 'Credentials', path: '/vendor/credentials' },
   { label: 'Invitations', path: '/vendor/invitations' },
   { label: 'Settings', path: '/vendor/settings', prefixes: ['/vendor/settings'] },
@@ -54,7 +48,7 @@ const PUBLIC_TABS = [
 
 function Navigation() {
   const location = useLocation();
-  const { isAuthenticated, isAdministrator, isApplicant, isVendor, organizationName, user, login, logout } = useAuth();
+  const { isAuthenticated, isAdministrator, isApplicant, isVendor } = useAuth();
 
   // Select tabs based on user type
   const tabs = useMemo(() => {
@@ -80,37 +74,11 @@ function Navigation() {
         if (tab.prefixes.some((prefix) => path.startsWith(prefix))) return i;
       }
 
-      // Non-exact path match
-      if (!tab.exact && path === tab.path) return i;
+      // Non-exact path match - check if current path starts with tab path
+      if (!tab.exact && path.startsWith(tab.path)) return i;
     }
 
-    return 0; // Default to first tab
-  };
-
-  // Get user display info
-  const getUserDisplayName = () => {
-    if (!user) return '';
-    return user.name || user.email || 'User';
-  };
-
-  const getUserTypeLabel = () => {
-    if (isAdministrator) return 'Administrator';
-    if (isVendor) return 'Vendor';
-    if (isApplicant) return 'Applicant';
-    return 'User';
-  };
-
-  const getUserTypeColor = () => {
-    if (isAdministrator) return 'primary';
-    if (isVendor) return 'secondary';
-    if (isApplicant) return 'info';
-    return 'default';
-  };
-
-  const getUserTypeIcon = () => {
-    if (isAdministrator) return <AdminPanelSettingsIcon />;
-    if (isVendor) return <StorefrontIcon />;
-    return <PersonIcon />;
+    return false; // Return false instead of 0 to indicate no match
   };
 
   return (
@@ -118,7 +86,6 @@ function Navigation() {
       <Box
         sx={{
           display: 'flex',
-          justifyContent: 'space-between',
           alignItems: 'center',
           px: 2,
           py: 1,
@@ -136,71 +103,6 @@ function Navigation() {
             />
           ))}
         </Tabs>
-
-        {/* User Info & Auth Actions */}
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-          {isAuthenticated ? (
-            <>
-              {/* Organization Badge (for vendors) */}
-              {isVendor && organizationName && (
-                <Tooltip title="Your Organization">
-                  <Chip
-                    icon={<BusinessIcon />}
-                    label={organizationName}
-                    size="small"
-                    variant="filled"
-                    color="default"
-                    sx={{ mr: 1 }}
-                  />
-                </Tooltip>
-              )}
-
-              {/* User Type Badge */}
-              <Chip
-                icon={getUserTypeIcon()}
-                label={getUserTypeLabel()}
-                color={getUserTypeColor()}
-                size="small"
-                variant="outlined"
-                data-testid="user-type-badge"
-              />
-
-              {/* User Avatar & Name */}
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                <Avatar sx={{ width: 32, height: 32, bgcolor: 'primary.main' }}>
-                  {getUserDisplayName().charAt(0).toUpperCase()}
-                </Avatar>
-                <Typography variant="body2" color="textSecondary">
-                  {getUserDisplayName()}
-                </Typography>
-              </Box>
-
-              {/* Logout Button */}
-              <Button
-                variant="outlined"
-                size="small"
-                startIcon={<LogoutIcon />}
-                onClick={logout}
-                color="inherit"
-                data-testid="logout-button"
-              >
-                Logout
-              </Button>
-            </>
-          ) : (
-            /* Login Button */
-            <Button
-              variant="contained"
-              size="small"
-              startIcon={<LoginIcon />}
-              onClick={login}
-              color="primary"
-              data-testid="login-button"
-            >
-              Login
-            </Button>
-          )}
-        </Box>
       </Box>
     </Box>
   );

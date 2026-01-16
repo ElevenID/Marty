@@ -92,6 +92,67 @@ def get_kyc_service() -> KYCService:
     return _kyc_service
 
 
+async def _emit_sse_event(
+    event_type: str,
+    user_id: Optional[str] = None,
+    organization_id: Optional[str] = None,
+    data: Optional[dict] = None,
+    title: Optional[str] = None,
+    body: Optional[str] = None,
+) -> None:
+    """
+    Emit an SSE event for test observability.
+    
+    Args:
+        event_type: Event type (e.g., 'application.approved', 'credential.issued')
+        user_id: Target user ID
+        organization_id: Target organization ID
+        data: Event data payload
+        title: Event title
+        body: Event body/description
+    """
+    try:
+        import sys
+        from pathlib import Path
+        from uuid import uuid4
+        from datetime import datetime, timezone
+        
+        # Add main src directory to path for notifications module
+        _main_src = Path(__file__).parent.parent.parent.parent / "src"
+        if _main_src.exists() and str(_main_src) not in sys.path:
+            sys.path.insert(0, str(_main_src))
+        sys.path.insert(0, '/app')  # For Docker context
+        
+        from notifications.adapters.sse import SSEAdapter
+        from notifications.types import NotificationPayload, NotificationTarget
+        from notifications.api import get_sse_adapter
+        
+        try:
+            sse_adapter = get_sse_adapter()
+        except Exception:
+            # SSE not configured, skip
+            return
+        
+        payload = NotificationPayload(
+            id=uuid4(),
+            event_type=event_type,
+            title=title or event_type,
+            body=body or "",
+            data=data or {},
+            created_at=datetime.now(timezone.utc),
+            target=NotificationTarget(
+                user_id=user_id,
+                organization_id=UUID(organization_id) if organization_id else None,
+            ) if (user_id or organization_id) else None,
+        )
+        
+        await sse_adapter.send(payload)
+        logger.debug(f"SSE event emitted: {event_type}")
+        
+    except Exception as e:
+        logger.debug(f"Failed to emit SSE event {event_type}: {e}")
+
+
 async def _trigger_credential_issuance(application) -> None:
     """
     Trigger credential issuance after an application is approved.
@@ -840,6 +901,7 @@ async def submit_application(
 async def list_applications(
     status: ApplicationStatus | None = Query(None, description="Filter by status"),
     document_type: str | None = Query(None, description="Filter by document type"),
+    organization_id: str | None = Query(None, description="Filter by organization ID"),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
 ) -> ApplicationListResponse:
@@ -849,6 +911,7 @@ async def list_applications(
     Args:
         status: Filter by application status
         document_type: Filter by document type
+        organization_id: Filter by organization ID (for vendor views)
         limit: Maximum results
         offset: Pagination offset
         
@@ -859,6 +922,7 @@ async def list_applications(
     applications, total = await service.list_applications(
         status=status,
         document_type=document_type,
+        organization_id=organization_id,
         limit=limit,
         offset=offset,
     )
@@ -1090,6 +1154,24 @@ async def complete_vetting_check(
     if not check:
         raise HTTPException(status_code=404, detail=f"Check {check_id} not found")
     
+    # Emit SSE event for test observability
+    if check.application:
+        user_id = check.application.applicant.user_id if check.application.applicant else str(check.application.applicant_id)
+        await _emit_sse_event(
+            event_type="check.completed",
+            user_id=user_id,
+            organization_id=str(check.application.organization_id) if check.application.organization_id else None,
+            data={
+                "check_id": str(check.id),
+                "application_id": str(check.application_id),
+                "check_type": check.check_type.value if hasattr(check.check_type, 'value') else str(check.check_type),
+                "passed": check.passed,
+                "result": check.result,
+            },
+            title="Check Completed",
+            body=f"Check {check.check_type.value if hasattr(check.check_type, 'value') else check.check_type} {'passed' if check.passed else 'failed'}",
+        )
+    
     return build_vetting_check_response(check)
 
 
@@ -1268,6 +1350,21 @@ async def approve_application(
             ip_address=ip_address,
         )
         
+        # Emit SSE event for test observability
+        user_id = application.applicant.user_id if application.applicant else str(application.applicant_id)
+        await _emit_sse_event(
+            event_type="application.approved",
+            user_id=user_id,
+            organization_id=str(application.organization_id) if application.organization_id else None,
+            data={
+                "application_id": str(application.id),
+                "application_number": application.application_number,
+                "status": application.status.value if hasattr(application.status, 'value') else str(application.status),
+            },
+            title="Application Approved",
+            body=f"Application {application.application_number} has been approved",
+        )
+        
         # Trigger credential issuance after approval
         await _trigger_credential_issuance(application)
         
@@ -1305,6 +1402,59 @@ async def reject_application(
             reason=req.reason,
             ip_address=ip_address,
         )
+        return build_application_response(application)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/applications/{application_id}/request-revision", response_model=ApplicationResponse)
+async def request_revision(
+    application_id: UUID,
+    req: RejectApplicationRequest,  # Reuse RejectApplicationRequest for now (has reason field)
+    request: Request,
+) -> ApplicationResponse:
+    """
+    Request revisions to an application.
+    
+    Sets application to NEEDS_REVISION status and stores notes for the applicant.
+    Applicant can then edit and resubmit the application.
+    
+    Args:
+        application_id: UUID of the application
+        req: Revision request with notes
+        
+    Returns:
+        Updated application in NEEDS_REVISION status
+        
+    Raises:
+        400: Invalid state transition
+    """
+    service = get_approval_service()
+    ip_address, _ = get_client_info(request)
+
+    try:
+        application = await service.request_revision(
+            application_id=application_id,
+            requested_by=req.rejected_by,  # Field name is misleading but works
+            notes=req.reason,
+            ip_address=ip_address,
+        )
+        
+        # Emit SSE event
+        user_id = application.applicant.user_id if application.applicant else str(application.applicant_id)
+        await _emit_sse_event(
+            event_type="application.revision_requested",
+            user_id=user_id,
+            organization_id=str(application.organization_id) if application.organization_id else None,
+            data={
+                "application_id": str(application.id),
+                "application_number": application.application_number,
+                "notes": req.reason,
+            },
+            title="Application Revision Requested",
+            body=f"Application {application.application_number} requires revisions",
+        )
+        
         return build_application_response(application)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))

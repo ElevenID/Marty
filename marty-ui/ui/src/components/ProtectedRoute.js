@@ -37,11 +37,11 @@ function ProtectedRoute({
   redirectTo = '/login',
   unauthorizedRedirect = '/',
 }) {
-  const { isAuthenticated, isLoading, user } = useAuth();
+  const { isAuthenticated, isLoading, checkingOnboarding, user } = useAuth();
   const location = useLocation();
 
-  // Show loading spinner while checking auth
-  if (isLoading) {
+  // Show loading spinner while checking auth or onboarding
+  if (isLoading || checkingOnboarding) {
     return (
       <Box
         display="flex"
@@ -80,6 +80,7 @@ function ProtectedRoute({
 
 /**
  * Admin-only route shorthand
+ * Administrators bypass onboarding requirements
  */
 export function AdminRoute({ children, ...props }) {
   return (
@@ -91,8 +92,17 @@ export function AdminRoute({ children, ...props }) {
 
 /**
  * Applicant-only route shorthand
+ * Redirects to onboarding if user needs to complete it
  */
 export function ApplicantRoute({ children, ...props }) {
+  const { user } = useAuth();
+  const location = useLocation();
+
+  // Redirect to onboarding if user needs to complete it
+  if (user?.needsOnboarding && location.pathname !== '/onboarding') {
+    return <Navigate to="/onboarding" replace />;
+  }
+
   return (
     <ProtectedRoute allowedTypes={['applicant']} {...props}>
       {children}
@@ -102,8 +112,17 @@ export function ApplicantRoute({ children, ...props }) {
 
 /**
  * Vendor-only route shorthand
+ * Redirects to onboarding if user needs to complete it
  */
 export function VendorRoute({ children, ...props }) {
+  const { user } = useAuth();
+  const location = useLocation();
+
+  // Redirect to onboarding if user needs to complete it
+  if (user?.needsOnboarding && location.pathname !== '/onboarding') {
+    return <Navigate to="/onboarding" replace />;
+  }
+
   return (
     <ProtectedRoute allowedTypes={['vendor']} {...props}>
       {children}

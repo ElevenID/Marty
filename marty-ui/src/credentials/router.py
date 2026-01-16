@@ -112,45 +112,32 @@ DOCTYPE_MAP = {
 # Issuer Key Generation
 # =============================================================================
 
-_MARTY_RS_AVAILABLE = False
+# Import marty-rs for key generation (required, no fallbacks)
 try:
-    import marty_rs  # type: ignore
-    _MARTY_RS_AVAILABLE = True
-except Exception:
-    marty_rs = None
-
-_CRYPTO_BRIDGE_AVAILABLE = False
-try:
-    from marty_plugin.common.crypto_bridge import jwk_generate
-    _CRYPTO_BRIDGE_AVAILABLE = True
-except Exception:
-    jwk_generate = None
+    import _marty_rs as marty_rs  # type: ignore
+except ImportError as e:
+    raise RuntimeError(
+        "marty-rs is required for key generation. "
+        "Install it with: pip install marty-rs"
+    ) from e
 
 
 def _generate_issuer_key() -> dict[str, Any]:
-    """Generate a signing key for credential issuance."""
-    if _MARTY_RS_AVAILABLE and marty_rs is not None:
-        import json
-
-        result_json = marty_rs.generate_ed25519_key()
-        return json.loads(result_json)
-
-    if _CRYPTO_BRIDGE_AVAILABLE and jwk_generate is not None:
-        import json
-        key = jwk_generate("ed25519")
-        jwk_json = json.loads(key.to_json())
-        key_id = jwk_json.get("kid") or key.thumbprint()
-        return {
-            "did": f"did:key:{key_id}",
-            "jwk": jwk_json,
-            "keyId": key_id,
-        }
-
-    key_id = f"key_{uuid4().hex[:8]}"
+    """Generate a signing key for credential issuance using marty-rs.
+    
+    Returns:
+        dict with keys: did, jwk, keyId
+    """
+    import json
+    
+    # marty-rs returns (did, jwk_json_string)
+    did, jwk_json = marty_rs.generate_did_key()
+    jwk = json.loads(jwk_json)
+    
     return {
-        "did": f"did:key:{key_id}",
-        "jwk": {"kty": "OKP", "crv": "Ed25519", "x": "mock_public_key"},
-        "keyId": key_id,
+        "did": did,
+        "jwk": jwk,
+        "keyId": did + "#key-1"
     }
 
 
@@ -516,3 +503,404 @@ async def delete_credential_type(
     await db.commit()
     
     logger.info(f"Disabled credential type config: org={org_id}, type={config.credential_type.value}")
+
+
+@router.post("/{org_id}/credential-types/{type_id}/publish", response_model=CredentialTypeResponse)
+async def publish_credential_type(
+    org_id: str,
+    type_id: str,
+    visibility: str = "private",
+    change_description: str | None = None,
+    current_user: AuthStatusResponse = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+):
+    """Publish a credential type template.
+    
+    Increments version, creates version history snapshot, and makes template available
+    based on visibility setting (private/organization/public).
+    
+    System templates cannot be published (clone-only).
+    """
+    from subscription.models import CredentialTypeVersion
+    from uuid import uuid4
+    
+    await _verify_org_access(org_id, current_user, db)
+    
+    # Validate visibility
+    if visibility not in ["private", "organization", "public"]:
+        raise HTTPException(status_code=400, detail="Invalid visibility value")
+    
+    # Get config
+    result = await db.execute(
+        select(CredentialTypeConfiguration).where(
+            CredentialTypeConfiguration.id == type_id,
+            CredentialTypeConfiguration.organization_id == org_id,
+        )
+    )
+    config = result.scalar_one_or_none()
+    
+    if not config:
+        raise HTTPException(status_code=404, detail="Credential type configuration not found")
+    
+    # System templates cannot be published (they're already published)
+    if config.is_system_template:
+        raise HTTPException(status_code=400, detail="System templates cannot be modified")
+    
+    # Increment template version if already published
+    if config.is_published:
+        config.template_version += 1
+    
+    # Create version snapshot
+    snapshot = {
+        "credential_type": config.credential_type.value,
+        "display_name": config.display_name,
+        "doctype": config.doctype,
+        "required_fields": config.required_fields,
+        "optional_fields": config.optional_fields,
+        "custom_fields": config.custom_fields,
+        "field_validation_rules": config.field_validation_rules,
+        "description": config.description,
+        "eligibility_criteria": config.eligibility_criteria,
+        "submission_instructions": config.submission_instructions,
+        "estimated_processing_time": config.estimated_processing_time,
+        "vetting_config": config.vetting_config,
+        "validity_days": config.validity_days,
+        "visibility": visibility,
+    }
+    
+    version_record = CredentialTypeVersion(
+        id=str(uuid4()),
+        config_id=config.id,
+        version_number=config.template_version,
+        snapshot_data=snapshot,
+        change_description=change_description,
+        created_by=current_user.user_id,
+    )
+    db.add(version_record)
+    
+    # Update config
+    config.is_published = True
+    config.published_at = datetime.utcnow()
+    config.published_by = current_user.user_id
+    config.visibility = visibility
+    config.updated_at = datetime.utcnow()
+    
+    await db.commit()
+    await db.refresh(config)
+    
+    logger.info(
+        f"Published credential type: org={org_id}, type={config.credential_type.value}, "
+        f"version={config.template_version}, visibility={visibility}"
+    )
+    
+    return CredentialTypeResponse(credential_type=_config_to_info(config))
+
+
+@router.post("/{org_id}/credential-types/{type_id}/unpublish", response_model=CredentialTypeResponse)
+async def unpublish_credential_type(
+    org_id: str,
+    type_id: str,
+    current_user: AuthStatusResponse = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+):
+    """Unpublish a credential type template.
+    
+    Removes template from public catalog. Does not delete version history.
+    System templates cannot be unpublished.
+    """
+    await _verify_org_access(org_id, current_user, db)
+    
+    result = await db.execute(
+        select(CredentialTypeConfiguration).where(
+            CredentialTypeConfiguration.id == type_id,
+            CredentialTypeConfiguration.organization_id == org_id,
+        )
+    )
+    config = result.scalar_one_or_none()
+    
+    if not config:
+        raise HTTPException(status_code=404, detail="Credential type configuration not found")
+    
+    if config.is_system_template:
+        raise HTTPException(status_code=400, detail="System templates cannot be unpublished")
+    
+    config.is_published = False
+    config.visibility = "private"
+    config.updated_at = datetime.utcnow()
+    
+    await db.commit()
+    await db.refresh(config)
+    
+    logger.info(f"Unpublished credential type: org={org_id}, type={config.credential_type.value}")
+    
+    return CredentialTypeResponse(credential_type=_config_to_info(config))
+
+
+@router.post("/{org_id}/credential-types/clone/{template_id}", response_model=CredentialTypeResponse, status_code=201)
+async def clone_credential_type(
+    org_id: str,
+    template_id: str,
+    display_name: str | None = None,
+    customize_fields: bool = False,
+    current_user: AuthStatusResponse = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+):
+    """Clone a public or system template.
+    
+    Creates a copy of the template for the organization to customize.
+    Can clone from system templates or public templates from other orgs.
+    """
+    from uuid import uuid4
+    import marty_rs
+    import json
+    
+    await _verify_org_access(org_id, current_user, db)
+    
+    # Get source template
+    result = await db.execute(
+        select(CredentialTypeConfiguration).where(
+            CredentialTypeConfiguration.id == template_id,
+        )
+    )
+    source_config = result.scalar_one_or_none()
+    
+    if not source_config:
+        raise HTTPException(status_code=404, detail="Template not found")
+    
+    # Verify template is cloneable (system or public)
+    if not source_config.is_system_template and source_config.visibility != "public":
+        raise HTTPException(status_code=403, detail="Template is not publicly available")
+    
+    # Check if org already has this credential type
+    existing = await db.execute(
+        select(CredentialTypeConfiguration).where(
+            CredentialTypeConfiguration.organization_id == org_id,
+            CredentialTypeConfiguration.credential_type == source_config.credential_type,
+        )
+    )
+    if existing.scalar_one_or_none():
+        raise HTTPException(
+            status_code=409,
+            detail=f"Organization already has a {source_config.credential_type.value} configuration"
+        )
+    
+    # Generate new issuer key
+    did, jwk_json = marty_rs.generate_did_key()
+    jwk = json.loads(jwk_json)
+    key_id = did + "#key-1"
+    
+    # Create cloned config
+    cloned_name = display_name or f"{source_config.display_name} (Custom)"
+    
+    new_config = CredentialTypeConfiguration(
+        id=str(uuid4()),
+        organization_id=org_id,
+        credential_type=source_config.credential_type,
+        display_name=cloned_name,
+        doctype=source_config.doctype,
+        required_fields=source_config.required_fields.copy() if source_config.required_fields else [],
+        optional_fields=source_config.optional_fields.copy() if source_config.optional_fields else [],
+        custom_fields=source_config.custom_fields.copy() if source_config.custom_fields else [],
+        field_validation_rules=source_config.field_validation_rules.copy() if source_config.field_validation_rules else {},
+        description=source_config.description,
+        eligibility_criteria=source_config.eligibility_criteria,
+        submission_instructions=source_config.submission_instructions,
+        estimated_processing_time=source_config.estimated_processing_time,
+        vetting_config=source_config.vetting_config.copy() if source_config.vetting_config else {},
+        validity_days=source_config.validity_days,
+        issuer_key_id=key_id,
+        issuer_did=did,
+        issuer_jwk=jwk,
+        is_active=True,
+        is_published=False,  # Clones start unpublished
+        visibility="private",
+        template_version=1,
+        parent_template_id=template_id,
+        is_system_template=False,
+    )
+    
+    db.add(new_config)
+    await db.commit()
+    await db.refresh(new_config)
+    
+    logger.info(
+        f"Cloned credential type: org={org_id}, type={new_config.credential_type.value}, "
+        f"source={template_id}, parent_system={source_config.is_system_template}"
+    )
+    
+    return CredentialTypeResponse(credential_type=_config_to_info(new_config))
+
+
+@router.get("/{org_id}/credential-types/{type_id}/versions", response_model=dict)
+async def get_credential_type_versions(
+    org_id: str,
+    type_id: str,
+    current_user: AuthStatusResponse = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+):
+    """Get version history for a credential type template."""
+    from subscription.models import CredentialTypeVersion
+    
+    await _verify_org_access(org_id, current_user, db)
+    
+    # Verify config exists and belongs to org
+    config_result = await db.execute(
+        select(CredentialTypeConfiguration).where(
+            CredentialTypeConfiguration.id == type_id,
+            CredentialTypeConfiguration.organization_id == org_id,
+        )
+    )
+    config = config_result.scalar_one_or_none()
+    
+    if not config:
+        raise HTTPException(status_code=404, detail="Credential type configuration not found")
+    
+    # Get versions
+    versions_result = await db.execute(
+        select(CredentialTypeVersion)
+        .where(CredentialTypeVersion.config_id == type_id)
+        .order_by(CredentialTypeVersion.version_number.desc())
+    )
+    versions = versions_result.scalars().all()
+    
+    return {
+        "config_id": type_id,
+        "current_version": config.template_version,
+        "versions": [
+            {
+                "version_number": v.version_number,
+                "change_description": v.change_description,
+                "created_by": v.created_by,
+                "created_at": v.created_at.isoformat() if v.created_at else None,
+                "snapshot": v.snapshot_data,
+            }
+            for v in versions
+        ],
+    }
+
+
+@router.get("/credential-types/templates", response_model=dict)
+async def list_public_templates(
+    category: str | None = None,
+    search: str | None = None,
+    db: AsyncSession = Depends(get_db_session),
+):
+    """List all public and system templates available for cloning.
+    
+    No authentication required - public endpoint for browsing templates.
+    """
+    query = select(CredentialTypeConfiguration).where(
+        CredentialTypeConfiguration.is_published == True,
+        CredentialTypeConfiguration.visibility.in_(["public", "organization"]) |
+        (CredentialTypeConfiguration.is_system_template == True)
+    )
+    
+    # Apply search filter
+    if search:
+        search_pattern = f"%{search}%"
+        query = query.where(
+            CredentialTypeConfiguration.display_name.ilike(search_pattern) |
+            CredentialTypeConfiguration.description.ilike(search_pattern)
+        )
+    
+    result = await db.execute(query)
+    configs = result.scalars().all()
+    
+    templates = []
+    for config in configs:
+        template_info = _config_to_info(config)
+        template_info["is_system_template"] = config.is_system_template
+        template_info["parent_template_id"] = config.parent_template_id
+        templates.append(template_info)
+    
+    # Group by category if requested
+    if category:
+        templates = [t for t in templates if t.get("credential_type") == category]
+    
+    return {
+        "templates": templates,
+        "total": len(templates),
+    }
+
+
+@router.post("/{org_id}/credential-types/{type_id}/preview", response_model=dict)
+async def preview_credential_type(
+    org_id: str,
+    type_id: str,
+    test_data: dict[str, Any],
+    current_user: AuthStatusResponse = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+):
+    """Preview and test validate a credential type template.
+    
+    Validates test submission data against template's field validation rules
+    without creating an actual application. Returns validation results and
+    rendered field preview.
+    
+    Args:
+        org_id: Organization ID
+        type_id: Credential type configuration ID
+        test_data: Test form data to validate
+    
+    Returns:
+        Validation results with errors (if any) and preview data
+    """
+    from credentials.validation import validate_application_data
+    
+    await _verify_org_access(org_id, current_user, db)
+    
+    # Get config
+    result = await db.execute(
+        select(CredentialTypeConfiguration).where(
+            CredentialTypeConfiguration.id == type_id,
+            CredentialTypeConfiguration.organization_id == org_id,
+        )
+    )
+    config = result.scalar_one_or_none()
+    
+    if not config:
+        raise HTTPException(status_code=404, detail="Credential type configuration not found")
+    
+    # Validate test data
+    field_validation_rules = config.field_validation_rules or {}
+    is_valid, errors = validate_application_data(test_data, field_validation_rules)
+    
+    # Check required fields
+    required_fields = config.required_fields or []
+    missing_required = []
+    for field in required_fields:
+        if field not in test_data or not test_data[field]:
+            missing_required.append(field)
+    
+    # Generate preview
+    preview = {
+        "credential_type": config.credential_type.value,
+        "display_name": config.display_name,
+        "fields": {},
+    }
+    
+    # Include all submitted fields in preview
+    all_fields = set(required_fields) | set(config.optional_fields or [])
+    for custom_field in (config.custom_fields or []):
+        all_fields.add(custom_field.get("name"))
+    
+    for field in all_fields:
+        if field in test_data:
+            preview["fields"][field] = {
+                "value": test_data[field],
+                "required": field in required_fields,
+                "valid": field not in errors,
+            }
+    
+    return {
+        "valid": is_valid and len(missing_required) == 0,
+        "errors": errors,
+        "missing_required_fields": missing_required,
+        "preview": preview,
+        "validation_summary": {
+            "total_fields": len(test_data),
+            "valid_fields": len(test_data) - len(errors),
+            "invalid_fields": len(errors),
+            "missing_required": len(missing_required),
+        },
+    }

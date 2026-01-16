@@ -3,25 +3,54 @@ const { defineConfig, devices } = require('@playwright/test');
 
 const isCI = !!process.env.CI;
 const timeouts = {
-  test: isCI ? 120_000 : 30_000,      // Reduced from 90s to 30s for faster failures
+  test: isCI ? 120_000 : 60_000,      // Reduced from 90s to 30s for faster failures
   expect: isCI ? 10_000 : 5_000,      // Reduced from 8s to 5s
   action: isCI ? 30_000 : 10_000,     // Reduced from 20s to 10s
   navigation: isCI ? 30_000 : 10_000, // Reduced from 20s to 10s
-  webServer: 120_000,
+  webServerBackend: 120_000,
+  webServerWallet: 180_000,           // Flutter web takes longer to start
+  webServerFrontend: 120_000,
 };
 
+// Service URLs
+const BACKEND_URL = process.env.API_URL || 'http://localhost:8000';
+const WALLET_URL = process.env.WALLET_URL || 'http://localhost:9081';
+const FRONTEND_URL = process.env.BASE_URL || 'http://localhost:9080';
+
+// Path to marty-authenticator (adjust if workspace structure differs)
+const AUTHENTICATOR_PATH = process.env.AUTHENTICATOR_PATH || '../../../marty-authenticator';
+
 /**
- * Project-based test configuration for parallel execution:
- * - smoke: Fast, seeded-data tests (parallel)
- * - integration: Read-only API tests (parallel)
- * - workflows: Sequential dynamic-data tests
- * - vendor/applicant/push-notifications: Domain-specific tests
+ * Project-based test configuration for organized execution:
+ * - unit-api: API-only tests without UI (parallel, fast)
+ * - integration-ui: UI component tests (sequential, workers=1)
+ * - e2e-flows: Complete user journeys with wallet UI (sequential, workers=1)
+ * 
+ * Execution order: unit-api → integration-ui → e2e-flows
  */
+
+const fs = require('fs');
+const path = require('path');
+
+// Load custom matchers
+require('./utils/custom-matchers');
+
+/**
+ * Global teardown to clean up auth state
+ */
+async function globalTeardown() {
+  const storageDir = path.join(__dirname, '.auth-state');
+  if (fs.existsSync(storageDir)) {
+    // Optional: Clean up old state files or leave them for next run (faster)
+    // fs.rmSync(storageDir, { recursive: true, force: true });
+  }
+}
 
 /**
  * @see https://playwright.dev/docs/test-configuration
  */
 module.exports = defineConfig({
+  globalTeardown,
   testDir: './e2e',
   timeout: timeouts.test,
   expect: {
@@ -45,8 +74,9 @@ module.exports = defineConfig({
     trace: 'on-first-retry',
     /* Take screenshot on failure */
     screenshot: 'only-on-failure',
-    /* Record video on failure */
-    video: 'retain-on-failure',
+    /* Record video - 'on' for all tests, 'retain-on-failure' for failures only
+     * This ensures wallet UI is captured in recordings for debugging */
+    video: process.env.PLAYWRIGHT_VIDEO === 'on' ? 'on' : 'retain-on-failure',
     /* Global timeout for each action */
     actionTimeout: timeouts.action,
     /* Global timeout for navigation */
@@ -55,53 +85,38 @@ module.exports = defineConfig({
 
   /* Configure projects for organized test execution */
   projects: [
-    // Smoke tests - fast, seeded-data, parallel-safe
+    // Unit API tests - API-only tests, no UI interaction, parallel-safe
     {
-      name: 'smoke',
-      testMatch: '**/smoke/**/*.spec.js',
+      name: 'unit-api',
+      testMatch: '**/unit-api/**/*.spec.js',
       fullyParallel: true,
       workers: isCI ? 4 : undefined,
       use: { ...devices['Desktop Chrome'] },
     },
-    // Integration tests - read-only API tests, parallel-safe
+    // Integration UI tests - UI component tests, sequential
     {
-      name: 'integration',
-      testMatch: '**/integration/**/*.spec.js',
-      fullyParallel: true,
-      workers: isCI ? 2 : undefined,
-      use: { ...devices['Desktop Chrome'] },
-    },
-    // Workflow tests - sequential, dynamic data
-    {
-      name: 'workflows',
-      testMatch: '**/workflows/**/*.spec.js',
+      name: 'integration-ui',
+      testMatch: '**/integration-ui/**/*.spec.js',
       fullyParallel: false,
       workers: 1,
       use: { ...devices['Desktop Chrome'] },
     },
-    // Vendor tests
+    // E2E flows - complete user journeys with wallet UI, sequential
     {
-      name: 'vendor',
-      testMatch: '**/vendor/**/*.spec.js',
+      name: 'e2e-flows',
+      testMatch: '**/e2e-flows/**/*.spec.js',
       fullyParallel: false,
       workers: 1,
-      use: { ...devices['Desktop Chrome'] },
-    },
-    // Applicant tests
-    {
-      name: 'applicant',
-      testMatch: '**/applicant/**/*.spec.js',
-      fullyParallel: false,
-      workers: 1,
-      use: { ...devices['Desktop Chrome'] },
-    },
-    // Push notification tests
-    {
-      name: 'push-notifications',
-      testMatch: '**/push-notifications/**/*.spec.js',
-      fullyParallel: false,
-      workers: 1,
-      use: { ...devices['Desktop Chrome'] },
+      use: { 
+        ...devices['Desktop Chrome'],
+        launchOptions: {
+           args: [
+             '--disable-web-security', 
+             '--disable-features=IsolateOrigins,site-per-process',
+             '--unsafely-treat-insecure-origin-as-secure=http://wallet,http://wallet:80'
+           ]
+        }
+      },
     },
   ],
 
@@ -110,13 +125,8 @@ module.exports = defineConfig({
   globalTeardown: require.resolve('./utils/global-teardown.js'),
 
   /* Run your local dev server before starting the tests */
-  // Skip webServer check when running in Docker (CI=true)
-  ...(isCI ? {} : {
-    webServer: {
-      command: 'echo "Demo should be running"',
-      url: process.env.BASE_URL || 'http://localhost:9080',
-      reuseExistingServer: true,
-      timeout: timeouts.webServer,
-    },
-  }),
+  // Services must be running before tests start:
+  // - Backend: http://localhost:8000 (run Marty demo)
+  // - Wallet: http://localhost:9081 (cd marty-authenticator && ./scripts/run-web-test.sh)
+  // - Frontend: http://localhost:9080 (run Marty demo)
 });

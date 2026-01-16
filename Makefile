@@ -37,6 +37,8 @@ NC := \033[0m
 COMPOSE := docker compose
 WALLET_IMAGE := ghcr.io/anthropic/marty-authenticator:local
 MARTY_AUTH_PATH := ../marty-authenticator
+UI_PORT ?= 3000
+KEYCLOAK_REALM ?= marty
 
 .DEFAULT_GOAL := help
 
@@ -66,10 +68,10 @@ help: ## Show this help message
 		awk 'BEGIN {FS = ":.*?## "}; {printf "  $(YELLOW)%-14s$(NC) %s\n", $$1, $$2}'
 	@echo ""
 	@echo "$(GREEN)URLs (when running):$(NC)"
-	@echo "  🌐 UI:         http://localhost:9080"
+	@echo "  🌐 UI:         http://localhost:$(UI_PORT)"
 	@echo "  🔗 API:        http://localhost:8000"
 	@echo "  🔐 Keycloak:   http://localhost:8180  (admin/admin)"
-	@echo "  📧 MailHog:    http://localhost:8025"
+	@echo "  📧 MailHog:    http://localhost:9025"
 	@echo "  📱 Wallet:     http://localhost:9081  (test profile only)"
 	@echo ""
 	@echo "$(GREEN)Demo Credentials:$(NC)"
@@ -90,7 +92,7 @@ dev: ## Start development environment
 	@echo "  🌐 UI:       http://localhost:9080"
 	@echo "  🔗 API:      http://localhost:8000"
 	@echo "  🔐 Keycloak: http://localhost:8180"
-	@echo "  📧 MailHog:  http://localhost:8025"
+	@echo "  📧 MailHog:  http://localhost:9025"
 	@echo ""
 	@echo "$(YELLOW)Tip:$(NC) Run 'make logs' to follow service logs"
 
@@ -99,7 +101,7 @@ up: dev ## Alias for 'dev'
 # =============================================================================
 # Testing
 # =============================================================================
-test: _ensure-wallet ## Run E2E tests (full browser matrix)
+test: _ensure-wallet _check-wallet-build ## Run E2E tests (full browser matrix)
 	@echo "$(BLUE)🧪 Running E2E tests (Chromium, Firefox, WebKit)...$(NC)"
 	$(COMPOSE) --profile test up -d postgres redis mailhog keycloak
 	@echo "$(BLUE)⏳ Waiting for infrastructure...$(NC)"
@@ -114,7 +116,7 @@ test: _ensure-wallet ## Run E2E tests (full browser matrix)
 	$(COMPOSE) --profile test up playwright --exit-code-from playwright
 	@echo "$(GREEN)✅ E2E tests completed!$(NC)"
 
-test-local: _ensure-wallet ## Run fast Chromium-only E2E tests
+test-local: _ensure-wallet _check-wallet-build ## Run fast Chromium-only E2E tests
 	@echo "$(BLUE)🧪 Running Chromium-only E2E tests...$(NC)"
 	$(COMPOSE) --profile test-local up -d postgres redis mailhog keycloak
 	@echo "$(BLUE)⏳ Waiting for infrastructure...$(NC)"
@@ -129,7 +131,7 @@ test-local: _ensure-wallet ## Run fast Chromium-only E2E tests
 	$(COMPOSE) --profile test-local up playwright-local --exit-code-from playwright-local
 	@echo "$(GREEN)✅ Chromium tests completed!$(NC)"
 
-test-fast: _ensure-wallet ## Run fast Chromium-only E2E tests (skip @slow)
+test-fast: _ensure-wallet _check-wallet-build ## Run fast Chromium-only E2E tests (skip @slow)
 	@echo "$(BLUE)🧪 Running fast Chromium-only E2E tests (skip @slow)...$(NC)"
 	$(COMPOSE) --profile test-local up -d postgres redis mailhog keycloak
 	@echo "$(BLUE)⏳ Waiting for infrastructure...$(NC)"
@@ -244,6 +246,18 @@ _ensure-wallet:
 		$(MAKE) build-wallet; \
 	fi
 
+_check-wallet-build:
+	@if [ -d "$(MARTY_AUTH_PATH)/build/web" ]; then \
+		echo "$(GREEN)✅ Flutter wallet build found$(NC)"; \
+	else \
+		echo "$(RED)❌ Flutter wallet build not found at $(MARTY_AUTH_PATH)/build/web$(NC)"; \
+		echo "$(YELLOW)E2E tests require the Flutter web wallet. Run:$(NC)"; \
+		echo "  cd $(MARTY_AUTH_PATH) && flutter build web --web-renderer canvaskit"; \
+		echo "$(YELLOW)Or build the Docker image:$(NC)"; \
+		echo "  make build-wallet"; \
+		exit 1; \
+	fi
+
 # =============================================================================
 # Native Development (Faster Feedback Loop)
 # =============================================================================
@@ -279,7 +293,7 @@ dev-setup: ## One-time setup: UV, Python deps, Node deps, Playwright browsers
 
 dev-infra: ## Start infrastructure only (Keycloak, Postgres, Redis, MailHog)
 	@echo "$(BLUE)🏗️ Starting infrastructure services...$(NC)"
-	$(COMPOSE) up -d postgres redis mailhog keycloak
+	UI_BASE_URL=http://localhost:$(UI_PORT) $(COMPOSE) up -d postgres redis mailhog keycloak
 	@echo "$(BLUE)⏳ Waiting for Keycloak to be healthy (this may take ~60s on first run)...$(NC)"
 	@until curl -sf http://localhost:8180/realms/marty >/dev/null 2>&1; do \
 		printf "."; \
@@ -292,9 +306,9 @@ dev-infra: ## Start infrastructure only (Keycloak, Postgres, Redis, MailHog)
 	@echo "$(GREEN)━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━$(NC)"
 	@echo ""
 	@echo "  🔐 Keycloak: http://localhost:8180  (admin/admin)"
-	@echo "  🗄️  Postgres: localhost:5432"
+	@echo "  🗄️  Postgres: localhost:5433"
 	@echo "  📦 Redis:    localhost:6379"
-	@echo "  📧 MailHog:  http://localhost:8025"
+	@echo "  📧 MailHog:  http://localhost:9025"
 	@echo ""
 	@echo "$(YELLOW)Next steps (in separate terminals):$(NC)"
 	@echo "  make dev-api        Start API (Terminal 2)"
@@ -307,31 +321,36 @@ dev-api: ## Start API natively with hot reload (requires dev-infra)
 	@echo ""
 	cd marty-ui/src && \
 		. .venv/bin/activate && \
-		export PYTHONPATH=$(CURDIR)/marty-microservices-framework:$$PYTHONPATH && \
+		export PYTHONPATH="$(CURDIR)/marty-microservices-framework:$$PYTHONPATH" && \
 		ADAPTER_MODE=spruceid \
 		STORAGE_MODE=memory \
 		TEST_MODE=true \
-		OIDC_ISSUER_URL=http://localhost:8180/realms/marty \
-		OIDC_BACKEND_ISSUER_URL=http://localhost:8180/realms/marty \
+		DATABASE_URL=postgresql+asyncpg://marty:marty@localhost:5433/marty_applicants \
+		APPLICANT_DB_URL=postgresql+asyncpg://marty:marty@localhost:5433/marty_applicants \
+		STATUS_LIST_MASTER_KEY=KYeUP5FYR0hrh76AUWELevVgfMQgGY9MrOuhGNtmWGQ= \
+		OIDC_ISSUER_URL=http://localhost:8180/realms/$(KEYCLOAK_REALM) \
+		OIDC_BACKEND_ISSUER_URL=http://localhost:8180/realms/$(KEYCLOAK_REALM) \
 		OIDC_CLIENT_ID=marty-ui \
-		OIDC_REDIRECT_URI=http://localhost:3000/auth/callback \
-		OIDC_POST_LOGOUT_REDIRECT_URI=http://localhost:3000 \
+		OIDC_REDIRECT_URI=http://localhost:$(UI_PORT)/auth/callback \
+		OIDC_POST_LOGOUT_REDIRECT_URI=http://localhost:$(UI_PORT) \
 		KEYCLOAK_URL=http://localhost:8180 \
 		KEYCLOAK_ADMIN_CLIENT_ID=admin-cli \
 		REDIS_URL=redis://localhost:6379/0 \
 		SESSION_SECRET=dev-session-secret-change-in-production \
 		COOKIE_SECURE=false \
 		COOKIE_SAMESITE=lax \
-		APPLICANT_DB_URL=postgresql+asyncpg://marty:marty@localhost:5432/marty_applicants \
 		python -m uvicorn oid4vc_api:app --reload --host 0.0.0.0 --port 8000
 
 dev-ui: ## Start UI natively with hot reload (requires dev-api)
-	@echo "$(BLUE)🚀 Starting UI natively on http://localhost:3000...$(NC)"
+	@echo "$(BLUE)🚀 Starting UI natively on http://localhost:$(UI_PORT)...$(NC)"
 	@echo "$(YELLOW)Tip: Ensure API is running: make dev-api$(NC)"
 	@echo ""
 	cd marty-ui/ui && \
+		PORT=$(UI_PORT) \
 		REACT_APP_API_URL=http://localhost:8000 \
 		REACT_APP_KEYCLOAK_URL=http://localhost:8180 \
+		REACT_APP_KEYCLOAK_REALM=$(KEYCLOAK_REALM) \
+		REACT_APP_KEYCLOAK_CLIENT_ID=marty-ui \
 		npm start
 
 wallet: ## Start wallet-simulator in Docker (needed for issuance flows)
@@ -345,41 +364,41 @@ test-native: ## Run Playwright tests against native services
 	@echo "$(YELLOW)Ensure services are running: dev-infra, dev-api, dev-ui$(NC)"
 	@echo ""
 	cd marty-ui/tests && \
-		BASE_URL=http://localhost:3000 \
+		BASE_URL=http://localhost:$(UI_PORT) \
 		API_URL=http://localhost:8000 \
 		KEYCLOAK_URL=http://localhost:8180 \
 		WALLET_URL=http://localhost:9081 \
-		MAILHOG_URL=http://localhost:8025 \
+		MAILHOG_URL=http://localhost:9025 \
 		npx playwright test
 
 test-native-ui: ## Run Playwright with interactive UI mode
 	@echo "$(BLUE)🎭 Opening Playwright UI mode...$(NC)"
 	cd marty-ui/tests && \
-		BASE_URL=http://localhost:3000 \
+		BASE_URL=http://localhost:$(UI_PORT) \
 		API_URL=http://localhost:8000 \
 		KEYCLOAK_URL=http://localhost:8180 \
 		WALLET_URL=http://localhost:9081 \
-		MAILHOG_URL=http://localhost:8025 \
+		MAILHOG_URL=http://localhost:9025 \
 		npx playwright test --ui
 
 test-native-headed: ## Run Playwright tests with visible browser
 	@echo "$(BLUE)🧪 Running tests with visible browser...$(NC)"
 	cd marty-ui/tests && \
-		BASE_URL=http://localhost:3000 \
+		BASE_URL=http://localhost:$(UI_PORT) \
 		API_URL=http://localhost:8000 \
 		KEYCLOAK_URL=http://localhost:8180 \
 		WALLET_URL=http://localhost:9081 \
-		MAILHOG_URL=http://localhost:8025 \
+		MAILHOG_URL=http://localhost:9025 \
 		npx playwright test --headed
 
 test-native-debug: ## Run Playwright tests in debug mode
 	@echo "$(BLUE)🐛 Running tests in debug mode...$(NC)"
 	cd marty-ui/tests && \
-		BASE_URL=http://localhost:3000 \
+		BASE_URL=http://localhost:$(UI_PORT) \
 		API_URL=http://localhost:8000 \
 		KEYCLOAK_URL=http://localhost:8180 \
 		WALLET_URL=http://localhost:9081 \
-		MAILHOG_URL=http://localhost:8025 \
+		MAILHOG_URL=http://localhost:9025 \
 		npx playwright test --debug
 
 .SILENT: help

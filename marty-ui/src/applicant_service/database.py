@@ -379,6 +379,7 @@ class ApplicationRepository:
         self,
         status: ApplicationStatus | None = None,
         document_type: str | None = None,
+        organization_id: str | None = None,
         limit: int = 50,
         offset: int = 0,
     ) -> tuple[list[ApplicationRecord], int]:
@@ -392,6 +393,8 @@ class ApplicationRepository:
                 conditions.append(ApplicationRecord.status == _enum_value(status))
             if document_type:
                 conditions.append(ApplicationRecord.document_type == document_type)
+            if organization_id:
+                conditions.append(ApplicationRecord.organization_id == organization_id)
             
             if conditions:
                 query = query.where(and_(*conditions))

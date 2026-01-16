@@ -16,8 +16,10 @@ import {
 } from '@mui/material';
 import LoginIcon from '@mui/icons-material/Login';
 import { useAuth } from '../hooks/useAuth';
+import { useBranding } from '../hooks/useBranding';
 
 function LoginPage() {
+  const branding = useBranding();
   const { isAuthenticated, isLoading, login } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
@@ -62,7 +64,7 @@ function LoginPage() {
       <Card sx={{ maxWidth: 400, width: '100%' }} data-testid="login-card">
         <CardContent sx={{ textAlign: 'center', py: 4 }}>
           <Typography variant="h4" component="h1" gutterBottom data-testid="login-title">
-            Welcome to Marty
+            Welcome to {branding.appName}
           </Typography>
 
           <Typography variant="body1" color="textSecondary" sx={{ mb: 4 }}>

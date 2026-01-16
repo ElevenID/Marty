@@ -11,7 +11,7 @@ import logging
 from typing import Optional, List
 
 from sqlalchemy import select, and_
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.orm import selectinload
 
 from status_list.domain.entities import StatusList, StatusEntry, Shard
@@ -37,17 +37,17 @@ class StatusListRepository:
     for database operations.
     
     Attributes:
-        _session: SQLAlchemy async session
+        _session_factory: SQLAlchemy async session factory
     """
     
-    def __init__(self, session: AsyncSession) -> None:
+    def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
         """
         Initialize the repository.
         
         Args:
-            session: SQLAlchemy async session
+            session_factory: SQLAlchemy async session factory
         """
-        self._session = session
+        self._session_factory = session_factory
     
     async def save(self, status_list: StatusList) -> None:
         """
@@ -56,8 +56,9 @@ class StatusListRepository:
         Args:
             status_list: The StatusList to save
         """
-        # Check if exists
-        existing = await self._get_model(status_list.issuer_id, status_list.purpose)
+        async with self._session_factory() as session:
+            # Check if exists
+            existing = await self._get_model_with_session(session, status_list.issuer_id, status_list.purpose)
         
         if existing:
             # Update existing
@@ -83,13 +84,13 @@ class StatusListRepository:
                     # Add new shard
                     shard_model = self._shard_to_model(shard, status_list.id)
                     existing.shards.append(shard_model)
-        else:
-            # Create new
-            model = self._domain_to_model(status_list)
-            self._session.add(model)
-        
-        await self._session.flush()
-        logger.debug("Saved status list %s", status_list.id)
+            else:
+                # Create new
+                model = self._domain_to_model(status_list)
+                session.add(model)
+            
+            await session.commit()
+            logger.debug("Saved status list %s", status_list.id)
     
     async def get(
         self,
@@ -98,7 +99,7 @@ class StatusListRepository:
     ) -> Optional[StatusList]:
         """
         Get a status list by issuer and purpose.
-        
+        \
         Args:
             issuer_id: ID of the issuer
             purpose: revocation or suspension
@@ -106,11 +107,12 @@ class StatusListRepository:
         Returns:
             StatusList if found, None otherwise
         """
-        model = await self._get_model(issuer_id, purpose)
-        if model is None:
-            return None
-        
-        return self._model_to_domain(model)
+        async with self._session_factory() as session:
+            model = await self._get_model_with_session(session, issuer_id, purpose)
+            if model is None:
+                return None
+            
+            return self._model_to_domain(model)
     
     async def get_by_id(self, status_list_id: str) -> Optional[StatusList]:
         """
@@ -202,8 +204,9 @@ class StatusListRepository:
         
         return status_list.get_shard_by_index(shard_index)
     
-    async def _get_model(
+    async def _get_model_with_session(
         self,
+        session: AsyncSession,
         issuer_id: str,
         purpose: StatusPurpose,
     ) -> Optional[StatusListModel]:
@@ -218,7 +221,7 @@ class StatusListRepository:
                 )
             )
         )
-        result = await self._session.execute(stmt)
+        result = await session.execute(stmt)
         return result.scalar_one_or_none()
     
     def _domain_to_model(self, status_list: StatusList) -> StatusListModel:
@@ -307,17 +310,17 @@ class StatusEntryRepository:
     Implements StatusEntryRepositoryPort protocol using SQLAlchemy.
     
     Attributes:
-        _session: SQLAlchemy async session
+        _session_factory: SQLAlchemy async session factory
     """
     
-    def __init__(self, session: AsyncSession) -> None:
+    def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
         """
         Initialize the repository.
         
         Args:
-            session: SQLAlchemy async session
+            session_factory: SQLAlchemy async session factory
         """
-        self._session = session
+        self._session_factory = session_factory
     
     async def save(self, entry: StatusEntry) -> None:
         """
@@ -326,8 +329,9 @@ class StatusEntryRepository:
         Args:
             entry: The StatusEntry to save
         """
-        # Check if exists
-        existing = await self._get_model(entry.credential_id, entry.purpose)
+        async with self._session_factory() as session:
+            # Check if exists
+            existing = await self._get_model_with_session(session, entry.credential_id, entry.purpose)
         
         if existing:
             # Update (though entries shouldn't typically change)
@@ -346,9 +350,9 @@ class StatusEntryRepository:
                 issuer_id=entry.issuer_id,
                 created_at=entry.created_at,
             )
-            self._session.add(model)
+            session.add(model)
         
-        await self._session.flush()
+        await session.commit()
         logger.debug("Saved status entry %s for credential %s", entry.id, entry.credential_id)
     
     async def get_by_credential(
@@ -366,11 +370,12 @@ class StatusEntryRepository:
         Returns:
             StatusEntry if found, None otherwise
         """
-        model = await self._get_model(credential_id, purpose)
-        if model is None:
-            return None
-        
-        return self._model_to_domain(model)
+        async with self._session_factory() as session:
+            model = await self._get_model_with_session(session, credential_id, purpose)
+            if model is None:
+                return None
+            
+            return self._model_to_domain(model)
     
     async def get_all_for_credential(
         self,
@@ -436,8 +441,9 @@ class StatusEntryRepository:
         logger.debug("Deleted status entry %s", entry_id)
         return True
     
-    async def _get_model(
+    async def _get_model_with_session(
         self,
+        session: AsyncSession,
         credential_id: str,
         purpose: StatusPurpose,
     ) -> Optional[StatusEntryModel]:
@@ -448,7 +454,7 @@ class StatusEntryRepository:
                 StatusEntryModel.purpose == purpose.value,
             )
         )
-        result = await self._session.execute(stmt)
+        result = await session.execute(stmt)
         return result.scalar_one_or_none()
     
     def _model_to_domain(self, model: StatusEntryModel) -> StatusEntry:

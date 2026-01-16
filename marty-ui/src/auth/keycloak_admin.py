@@ -279,6 +279,20 @@ class KeycloakAdminClient:
         response.raise_for_status()
         return response.json()
     
+    async def check_organization_name_available(self, name: str) -> bool:
+        """Check if an organization name is available.
+        
+        Returns True if the name is available, False if already taken.
+        """
+        orgs = await self.list_organizations()
+        name_lower = name.lower().strip()
+        
+        for org in orgs:
+            if org.get("name", "").lower().strip() == name_lower:
+                return False
+        
+        return True
+    
     async def create_organization(
         self,
         name: str,

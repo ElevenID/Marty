@@ -1,0 +1,210 @@
+# Digital Identity Configuration
+#
+# This file contains the configuration for the Digital Identity module.
+# Copy this to your main config directory and include it in your config loader.
+#
+# Example usage in main config:
+#   digital_identity:
+#     <<: *digital_identity_defaults
+#     database:
+#       url: postgresql+asyncpg://user:pass@localhost/marty
+#
+
+# Default Digital Identity configuration
+digital_identity_defaults: &digital_identity_defaults
+  enabled: true
+  
+  # API configuration
+  api:
+    prefix: "/v1/identity"
+    # Rate limiting (requests per minute)
+    rate_limit: 100
+    # Enable OpenAPI documentation
+    include_in_schema: true
+  
+  # Database configuration
+  database:
+    # Connection URL (overrides individual components)
+    # url: postgresql+asyncpg://marty:marty@localhost:5432/marty
+    
+    # Or specify components
+    host: localhost
+    port: 5432
+    name: marty
+    user: marty
+    password: marty
+    
+    # Pool settings
+    pool_size: 10
+    max_overflow: 20
+    pool_timeout: 30
+    echo: false
+  
+  # Trust Profile Adapters
+  trust_profiles:
+    # ICAO Trust Profile (passports, travel documents)
+    icao:
+      enabled: true
+      trust_store_path: "data/trust/csca"
+      master_list_sources:
+        - "https://pkd.icao.int/masterlist"
+      pkd_urls:
+        - "https://pkd.icao.int"
+      # Certificate refresh interval (hours)
+      refresh_interval_hours: 24
+      # Enable CRL checking
+      enable_crl_check: true
+    
+    # AAMVA Trust Profile (mobile driver's licenses)
+    aamva:
+      enabled: true
+      iaca_directory: "data/trust/iaca"
+      vical_url: "https://aamva.org/vical"
+      dts_url: "https://dts.aamva.org"
+      # DTS polling interval (hours)
+      dts_poll_interval_hours: 12
+    
+    # EUDI Trust Profile (EU Digital Identity)
+    eudi:
+      enabled: false
+      trust_list_url: "https://ec.europa.eu/trust-list"
+      member_state: null  # e.g., "DE", "FR"
+      # Enable Qualified Trust Service Provider validation
+      enable_qtsp: true
+    
+    # Custom Trust Profile (user-defined trust anchors)
+    custom:
+      enabled: false
+      # List of custom trust anchor configurations
+      trust_anchors: []
+      # Example:
+      # - name: "corporate-ca"
+      #   certificates:
+      #     - "data/trust/custom/corporate-root.pem"
+      #   type: "CUSTOM"
+  
+  # Flow Configuration
+  flows:
+    # Default timeout for flow executions (seconds)
+    default_timeout: 3600
+    
+    # Default approval strategy (AUTO, MANUAL, RULES_BASED, EXTERNAL)
+    default_approval_strategy: AUTO
+    
+    # Maximum concurrent executions per flow
+    max_concurrent_executions: 100
+    
+    # Retry configuration for failed steps
+    retry:
+      max_attempts: 3
+      backoff_multiplier: 2.0
+      max_delay_seconds: 60
+    
+    # Step timeouts (seconds)
+    step_timeouts:
+      document_scan: 300
+      biometric_capture: 120
+      verification: 60
+      approval: 86400  # 24 hours for manual approval
+  
+  # Event Publishing
+  events:
+    enabled: true
+    topic_prefix: "marty.events"
+    # Buffering for disconnected publisher
+    max_buffer_size: 1000
+    # Flush interval (seconds)
+    flush_interval: 5
+  
+  # Credential Template Defaults
+  credential_templates:
+    # Default validity period (days)
+    default_validity_days: 365
+    
+    # Default revocation policy
+    default_revocation:
+      enabled: true
+      method: "status_list"
+      update_frequency: "hourly"
+  
+  # Presentation Policy Defaults
+  presentation_policies:
+    # Require holder binding by default
+    require_holder_binding: true
+    
+    # Allowed credential formats
+    allowed_formats:
+      - "mdoc"
+      - "sd-jwt"
+      - "jwt"
+  
+  # Deployment Profile Defaults  
+  deployment_profiles:
+    # Require explicit environment configuration
+    require_environment_config: true
+    
+    # Allowed environments
+    allowed_environments:
+      - "development"
+      - "staging"
+      - "production"
+
+# Development environment overrides
+digital_identity_development:
+  <<: *digital_identity_defaults
+  database:
+    url: "sqlite+aiosqlite:///data/digital_identity_dev.db"
+    echo: true
+  trust_profiles:
+    icao:
+      enabled: true
+      trust_store_path: "tests/fixtures/trust/csca"
+    aamva:
+      enabled: true
+      iaca_directory: "tests/fixtures/trust/iaca"
+    eudi:
+      enabled: false
+  flows:
+    default_approval_strategy: AUTO
+    max_concurrent_executions: 10
+
+# Testing environment
+digital_identity_testing:
+  <<: *digital_identity_defaults
+  database:
+    url: "sqlite+aiosqlite:///:memory:"
+    echo: false
+  trust_profiles:
+    icao:
+      enabled: false
+    aamva:
+      enabled: false
+    eudi:
+      enabled: false
+  events:
+    enabled: false
+  flows:
+    default_timeout: 30
+    max_concurrent_executions: 5
+
+# Production environment
+digital_identity_production:
+  <<: *digital_identity_defaults
+  api:
+    rate_limit: 1000
+  database:
+    pool_size: 20
+    max_overflow: 40
+  trust_profiles:
+    icao:
+      enabled: true
+      enable_crl_check: true
+      refresh_interval_hours: 12
+    aamva:
+      enabled: true
+      dts_poll_interval_hours: 6
+    eudi:
+      enabled: false  # Enable when EUDI is deployed
+  flows:
+    default_approval_strategy: RULES_BASED
+    max_concurrent_executions: 1000

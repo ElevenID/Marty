@@ -53,6 +53,7 @@ import {
   LinearProgress,
   Badge,
 } from '@mui/material';
+import { useBranding } from '../hooks/useBranding';
 import {
   Add as AddIcon,
   Person as PersonIcon,
@@ -802,6 +803,7 @@ export function ApplicantRegistration({ userId, onComplete, onCancel }) {
  * Wizard for creating and submitting travel document applications.
  */
 export function ApplicationWizard({ applicant, onComplete, onCancel }) {
+  const branding = useBranding();
   const [activeStep, setActiveStep] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -809,7 +811,7 @@ export function ApplicationWizard({ applicant, onComplete, onCancel }) {
   
   const [formData, setFormData] = useState({
     document_type: 'PASSPORT',
-    issuing_authority: 'Marty Trust Services',
+    issuing_authority: branding.issuingAuthority,
     requested_validity_years: 10,
     travel_purpose: '',
     destination_countries: [],

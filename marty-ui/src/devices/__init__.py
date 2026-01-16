@@ -13,10 +13,16 @@ Endpoints:
 
 from __future__ import annotations
 
+import base64
 import hashlib
+import hmac
+import json
 import logging
+import os
 import secrets
+import time
 from datetime import datetime, timedelta
+from typing import Optional
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Header, Request
@@ -30,6 +36,20 @@ from subscription.models import (
     PushChallengeStatus,
 )
 from subscription.database import get_db_session
+
+# SSE (Server-Sent Events) service imports for real-time notifications
+try:
+    import sys
+    from pathlib import Path
+    # Add main src directory to path for full notifications module
+    _main_src = Path(__file__).parent.parent.parent.parent / "src"
+    if _main_src.exists():
+        sys.path.insert(0, str(_main_src))
+    sys.path.insert(0, '/app')  # For Docker context
+    from notifications.adapters.sse import SSEAdapter
+    SSE_SERVICE_AVAILABLE = True
+except ImportError:
+    SSE_SERVICE_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
 
@@ -153,7 +173,6 @@ class RespondChallengeResponse(BaseModel):
 
 def compute_key_id(public_key_base64: str) -> str:
     """Compute key ID from public key (first 16 chars of SHA-256 hex)."""
-    import base64
     key_bytes = base64.b64decode(public_key_base64)
     hash_hex = hashlib.sha256(key_bytes).hexdigest()
     return hash_hex[:16]
@@ -551,3 +570,307 @@ async def clear_challenges(
     await db.commit()
     
     logger.info(f"Cleared {len(challenges)} challenges for device {device_id}")
+
+
+# =============================================================================
+# QR-Based Device Registration (Mobile Wallet -> Web UI)
+# =============================================================================
+
+# In-memory store for pending QR registrations (tokens with TTL)
+# In production, use Redis or database
+_pending_qr_registrations: dict[str, dict] = {}
+
+# Secret key for HMAC signing (in production, use env var)
+_QR_SECRET_KEY = os.environ.get("QR_REGISTRATION_SECRET", "dev-qr-secret-key-change-me")
+QR_TOKEN_TTL_SECONDS = 300  # 5 minutes
+
+
+class QRRegistrationRequest(BaseModel):
+    """Request to generate a QR code for device registration."""
+    
+    user_id: str = Field(..., description="User ID requesting registration")
+
+
+class QRRegistrationData(BaseModel):
+    """QR code data for mobile wallet to scan."""
+    
+    organization_id: str
+    api_url: str
+    temp_token: str
+    user_id: str
+    expires_at: str
+    qr_url: str  # marty://push-register URL for easy parsing
+
+
+class QRRegistrationResponse(BaseModel):
+    """Response with QR code data."""
+    
+    success: bool
+    qr_data: QRRegistrationData | None = None
+    message: str
+
+
+class QRCallbackRequest(BaseModel):
+    """Callback from mobile wallet after scanning QR."""
+    
+    temp_token: str = Field(..., description="Temporary token from QR code")
+    device_id: str = Field(..., description="Mobile device ID")
+    fcm_token: str | None = Field(None, description="FCM token for push")
+    platform: str = Field("mobile", description="Device platform")
+    public_key: str | None = Field(None, description="Device public key")
+
+
+class QRCallbackResponse(BaseModel):
+    """Response to QR callback."""
+    
+    success: bool
+    device_id: str | None = None
+    registration_id: str | None = None
+    organization_id: str | None = None
+    message: str
+
+
+def _generate_qr_token(user_id: str, org_id: str, expires_at: float) -> str:
+    """Generate HMAC-signed token for QR registration."""
+    payload = f"{user_id}:{org_id}:{int(expires_at)}"
+    signature = hmac.new(
+        _QR_SECRET_KEY.encode(),
+        payload.encode(),
+        hashlib.sha256
+    ).hexdigest()[:16]
+    
+    # Combine payload and signature
+    token_data = f"{payload}:{signature}"
+    return base64.urlsafe_b64encode(token_data.encode()).decode()
+
+
+def _verify_qr_token(token: str) -> dict | None:
+    """Verify HMAC-signed token and return payload if valid."""
+    try:
+        decoded = base64.urlsafe_b64decode(token.encode()).decode()
+        parts = decoded.split(":")
+        if len(parts) != 4:
+            return None
+        
+        user_id, org_id, expires_str, signature = parts
+        expires_at = int(expires_str)
+        
+        # Check expiration
+        if time.time() > expires_at:
+            logger.warning(f"QR token expired: user={user_id}")
+            return None
+        
+        # Verify signature
+        payload = f"{user_id}:{org_id}:{expires_str}"
+        expected_sig = hmac.new(
+            _QR_SECRET_KEY.encode(),
+            payload.encode(),
+            hashlib.sha256
+        ).hexdigest()[:16]
+        
+        if not hmac.compare_digest(signature, expected_sig):
+            logger.warning(f"QR token signature mismatch: user={user_id}")
+            return None
+        
+        return {
+            "user_id": user_id,
+            "organization_id": org_id,
+            "expires_at": expires_at,
+        }
+    except Exception as e:
+        logger.error(f"QR token verification failed: {e}")
+        return None
+
+
+@router.post("/api/devices/register-qr", response_model=QRRegistrationResponse)
+async def generate_qr_registration(
+    body: QRRegistrationRequest,
+    request: Request,
+    x_organization_id: str = Header("default_org", alias="X-Organization-ID"),
+):
+    """Generate QR code data for mobile wallet to scan and register device.
+    
+    The QR contains a marty://push-register URL that the mobile wallet can scan.
+    After registration, the web UI is notified via SSE.
+    """
+    # Get API URL from request
+    api_url = str(request.base_url).rstrip("/")
+    
+    # Generate expiration time
+    expires_at = time.time() + QR_TOKEN_TTL_SECONDS
+    expires_iso = datetime.utcfromtimestamp(expires_at).isoformat() + "Z"
+    
+    # Generate signed token
+    temp_token = _generate_qr_token(body.user_id, x_organization_id, expires_at)
+    
+    # Store pending registration for SSE notification
+    registration_key = temp_token[:32]  # Use first 32 chars as key
+    _pending_qr_registrations[registration_key] = {
+        "user_id": body.user_id,
+        "organization_id": x_organization_id,
+        "expires_at": expires_at,
+        "completed": False,
+        "device_id": None,
+    }
+    
+    # Build marty://push-register URL
+    qr_url = (
+        f"marty://push-register"
+        f"?org={x_organization_id}"
+        f"&api={api_url}"
+        f"&token={temp_token}"
+        f"&user={body.user_id}"
+    )
+    
+    qr_data = QRRegistrationData(
+        organization_id=x_organization_id,
+        api_url=api_url,
+        temp_token=temp_token,
+        user_id=body.user_id,
+        expires_at=expires_iso,
+        qr_url=qr_url,
+    )
+    
+    logger.info(f"Generated QR registration for user={body.user_id}, org={x_organization_id}")
+    
+    return QRRegistrationResponse(
+        success=True,
+        qr_data=qr_data,
+        message="QR code generated. Scan with mobile wallet to register device.",
+    )
+
+
+@router.post("/api/devices/qr-callback", response_model=QRCallbackResponse)
+async def qr_registration_callback(
+    body: QRCallbackRequest,
+    db: AsyncSession = Depends(get_db_session),
+):
+    """Callback from mobile wallet after scanning QR code.
+    
+    This verifies the temp token, registers the device, and notifies
+    the web UI via SSE that registration is complete.
+    """
+    # Verify the token
+    token_data = _verify_qr_token(body.temp_token)
+    if not token_data:
+        raise HTTPException(status_code=400, detail="Invalid or expired token")
+    
+    user_id = token_data["user_id"]
+    org_id = token_data["organization_id"]
+    
+    # Check if device already exists
+    result = await db.execute(
+        select(DeviceRegistration).where(DeviceRegistration.device_id == body.device_id)
+    )
+    existing = result.scalar_one_or_none()
+    
+    key_id = None
+    if body.public_key:
+        key_id = compute_key_id(body.public_key)
+    
+    if existing:
+        # Update existing registration
+        existing.user_id = user_id
+        existing.fcm_token = body.fcm_token
+        existing.platform = body.platform
+        existing.public_key = body.public_key
+        existing.key_id = key_id
+        existing.is_active = True
+        existing.organization_id = org_id
+        existing.last_seen_at = datetime.utcnow()
+        existing.updated_at = datetime.utcnow()
+        
+        await db.commit()
+        registration_id = existing.id
+        logger.info(f"QR callback: Updated device={body.device_id}, user={user_id}, org={org_id}")
+    else:
+        # Create new registration
+        registration_id = str(uuid4())
+        registration = DeviceRegistration(
+            id=registration_id,
+            device_id=body.device_id,
+            user_id=user_id,
+            organization_id=org_id,
+            fcm_token=body.fcm_token,
+            platform=body.platform,
+            public_key=body.public_key,
+            key_id=key_id,
+            is_active=True,
+            last_seen_at=datetime.utcnow(),
+        )
+        
+        db.add(registration)
+        await db.commit()
+        logger.info(f"QR callback: Created device={body.device_id}, user={user_id}, org={org_id}")
+    
+    # Update pending registration and trigger SSE notification
+    registration_key = body.temp_token[:32]
+    if registration_key in _pending_qr_registrations:
+        _pending_qr_registrations[registration_key]["completed"] = True
+        _pending_qr_registrations[registration_key]["device_id"] = body.device_id
+        _pending_qr_registrations[registration_key]["registration_id"] = registration_id
+    
+    # Try to send SSE notification
+    try:
+        if SSE_SERVICE_AVAILABLE:
+            from notifications.adapters.sse import SSEAdapter
+            sse_adapter = SSEAdapter()
+            await sse_adapter.push_event(
+                user_id=user_id,
+                event_type="device_registered",
+                data={
+                    "device_id": body.device_id,
+                    "registration_id": registration_id,
+                    "organization_id": org_id,
+                    "platform": body.platform,
+                    "registered_at": datetime.utcnow().isoformat(),
+                },
+            )
+            logger.info(f"SSE notification sent for device registration: user={user_id}")
+    except Exception as e:
+        logger.warning(f"Failed to send SSE notification: {e}")
+    
+    return QRCallbackResponse(
+        success=True,
+        device_id=body.device_id,
+        registration_id=registration_id,
+        organization_id=org_id,
+        message="Device registered via QR code",
+    )
+
+
+@router.get("/api/devices/qr-status/{token_prefix}")
+async def check_qr_registration_status(token_prefix: str):
+    """Check if a QR registration has been completed.
+    
+    Used by web UI to poll for registration completion as a fallback
+    when SSE is not available.
+    
+    Args:
+        token_prefix: First 32 characters of the temp_token
+    """
+    if token_prefix not in _pending_qr_registrations:
+        raise HTTPException(status_code=404, detail="Registration not found")
+    
+    pending = _pending_qr_registrations[token_prefix]
+    
+    # Check expiration
+    if time.time() > pending["expires_at"]:
+        del _pending_qr_registrations[token_prefix]
+        raise HTTPException(status_code=410, detail="Registration expired")
+    
+    if pending["completed"]:
+        # Clean up after returning status
+        result = {
+            "completed": True,
+            "device_id": pending["device_id"],
+            "registration_id": pending.get("registration_id"),
+            "organization_id": pending["organization_id"],
+        }
+        del _pending_qr_registrations[token_prefix]
+        return result
+    
+    return {
+        "completed": False,
+        "expires_at": datetime.utcfromtimestamp(pending["expires_at"]).isoformat() + "Z",
+    }

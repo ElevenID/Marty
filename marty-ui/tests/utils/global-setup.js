@@ -5,8 +5,12 @@ async function globalSetup() {
   console.log('🚀 Starting E2E test setup...');
 
   const base = process.env.BASE_URL || 'http://localhost:9080';
+  const walletUrl = process.env.WALLET_URL || 'http://localhost:9081';
 
-  // Wait for demo application to be ready
+  // Step 1: Validate Flutter wallet is running for e2e-flows tests
+  await validateFlutterWallet(walletUrl);
+
+  // Step 2: Wait for demo application to be ready
   const maxRetries = 30;
   const retryDelay = 2000; // 2 seconds
 
@@ -93,3 +97,54 @@ async function generateTestKeys(baseUrl) {
 }
 
 module.exports = globalSetup;
+
+/**
+ * Validate that Flutter wallet is running at the expected URL.
+ * This ensures e2e-flows tests have the real wallet for UI capture.
+ * 
+ * @param {string} walletUrl - Wallet URL to validate
+ */
+async function validateFlutterWallet(walletUrl) {
+  console.log(`📱 Validating Flutter wallet at ${walletUrl}...`);
+  
+  try {
+    // First, check if wallet is responding
+    const response = await axios.get(walletUrl, { timeout: 5000 });
+    
+    // Check for Flutter-specific content in the response
+    const html = response.data;
+    const isFlutter = 
+      html.includes('flutter.js') || 
+      html.includes('flutter_service_worker.js') ||
+      html.includes('main.dart.js') ||
+      html.includes('canvaskit');
+    
+    // Check for HTML test stub (should not be present)
+    const isHtmlStub = 
+      html.includes('class="test-wallet-container"') ||
+      html.includes('id="test-wallet"') ||
+      html.includes('TestWallet');
+    
+    if (isHtmlStub) {
+      throw new Error(
+        `❌ HTML test wallet stub detected at ${walletUrl}.\n` +
+        '   Flutter web wallet is required for E2E tests.\n' +
+        '   Run: make build-wallet && docker compose restart wallet'
+      );
+    }
+    
+    if (!isFlutter) {
+      console.log('⚠️  Could not confirm Flutter wallet (may still work)');
+    } else {
+      console.log('✅ Flutter wallet detected and responding');
+    }
+  } catch (error) {
+    if (error.message.includes('HTML test wallet')) {
+      throw error;
+    }
+    
+    // Wallet might not be needed for all test projects
+    console.log(`⚠️  Wallet not available at ${walletUrl}: ${error.message}`);
+    console.log('   Some e2e-flows tests may fail. Run: make dev');
+  }
+}

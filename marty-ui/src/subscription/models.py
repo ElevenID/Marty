@@ -344,6 +344,31 @@ class CredentialTypeConfiguration(Base):
     required_fields = Column(JSON, default=list)  # ["given_name", "family_name", "birth_date"]
     optional_fields = Column(JSON, default=list)  # ["portrait", "nationality"]
     
+    # Application template metadata
+    description = Column(Text, nullable=True)  # Description shown in credential catalog
+    eligibility_criteria = Column(Text, nullable=True)  # Requirements to apply
+    submission_instructions = Column(Text, nullable=True)  # Instructions for applicants
+    estimated_processing_time = Column(String(100), nullable=True)  # e.g., "2-3 business days"
+    
+    # Vetting configuration
+    vetting_config = Column(JSON, nullable=True)  # {"auto_run_checks": [...], "manual_checks": [...]}
+    version = Column(Integer, default=1, nullable=False)  # Track config version for applications
+    
+    # Publishing & visibility
+    is_published = Column(Boolean, default=False, nullable=False)  # Published for applicants to use
+    published_at = Column(DateTime, nullable=True)  # When template was published
+    published_by = Column(String(36), nullable=True)  # User ID who published
+    visibility = Column(String(20), default="private", nullable=False)  # private/organization/public
+    
+    # Template management
+    template_version = Column(Integer, default=1, nullable=False)  # Increments on each publish
+    parent_template_id = Column(String(36), ForeignKey("credential_type_configurations.id"), nullable=True)  # Clone source
+    is_system_template = Column(Boolean, default=False, nullable=False)  # Read-only standard templates
+    
+    # Custom field support
+    custom_fields = Column(JSON, default=list)  # [{name, label, type, validation, namespace, display_order}]
+    field_validation_rules = Column(JSON, default=dict)  # {field_name: {min_length, max_length, pattern, ...}}
+    
     # Validity
     validity_days = Column(Integer, default=365, nullable=False)
 
@@ -361,6 +386,7 @@ class CredentialTypeConfiguration(Base):
     
     # Relationships
     organization = relationship("Organization", back_populates="credential_configs")
+    parent_template = relationship("CredentialTypeConfiguration", remote_side=[id], backref="cloned_templates")
     
     __table_args__ = (
         UniqueConstraint("organization_id", "credential_type", name="uq_org_credential_type"),
@@ -1248,3 +1274,44 @@ class CredentialOffer(Base):
 
     def __repr__(self) -> str:
         return f"<CredentialOffer(id={self.id}, session={self.issuance_session_id})>"
+
+
+class CredentialTypeVersion(Base):
+    """Version history for credential type configurations.
+    
+    Tracks changes to template configurations over time for audit trail
+    and rollback capabilities.
+    
+    Attributes:
+        id: Unique version ID
+        config_id: Parent configuration ID
+        version_number: Sequential version number
+        snapshot_data: Full configuration data at this version
+        change_description: Summary of changes in this version
+        created_by: User ID who created this version
+        created_at: When version was created
+    """
+    
+    __tablename__ = "credential_type_versions"
+    
+    id = Column(String(36), primary_key=True)
+    config_id = Column(String(36), ForeignKey("credential_type_configurations.id"), nullable=False)
+    version_number = Column(Integer, nullable=False)
+    
+    # Version data
+    snapshot_data = Column(JSON, nullable=False)  # Full config snapshot
+    change_description = Column(Text, nullable=True)  # Change log/notes
+    
+    # Metadata
+    created_by = Column(String(36), nullable=True)  # User who published/updated
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    
+    # Relationships
+    configuration = relationship("CredentialTypeConfiguration", backref="versions")
+    
+    __table_args__ = (
+        UniqueConstraint("config_id", "version_number", name="uq_config_version"),
+    )
+    
+    def __repr__(self) -> str:
+        return f"<CredentialTypeVersion(config={self.config_id}, v{self.version_number})>"

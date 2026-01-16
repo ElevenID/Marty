@@ -179,21 +179,352 @@ class CredentialOfferNotifier:
             "priority": "high",
         }
 
-        if not device_id:
-            logger.info(
-                f"No device_id provided for application {application_id}, skipping push"
-            )
-            return False
-
         try:
-            # Stub implementation
-            logger.info(
-                f"[STUB] Would send application approved notification to device {device_id}: "
-                f"application_id={application_id}"
-            )
-            return True
+            if device_id:
+                if device_id not in _credential_delivery_queue:
+                    _credential_delivery_queue[device_id] = []
+                _credential_delivery_queue[device_id].append({
+                    **payload,
+                    "queued_at": datetime.utcnow().isoformat(),
+                })
+
+            if self._hub:
+                from notifications.types import (
+                    NotificationPayload,
+                    NotificationTarget,
+                    NotificationPriority,
+                    ChannelType,
+                )
+
+                target = NotificationTarget(
+                    user_id=applicant_id,
+                    device_token=device_id,
+                    channel=ChannelType.FCM if device_id else ChannelType.SSE,
+                )
+
+                notification = NotificationPayload(
+                    title=payload["title"],
+                    body=payload["body"],
+                    data=payload["data"],
+                    priority=NotificationPriority.HIGH,
+                )
+
+                result = await self._hub.send_notification(target, notification)
+                success = result.status.value == "delivered"
+            else:
+                logger.info(
+                    f"[PUSH] Application approved notification for application {application_id}"
+                )
+                success = True
+
+            return success
         except Exception as e:
             logger.error(f"Failed to send application approved notification: {e}")
+            return False
+
+    async def notify_application_submitted(
+        self,
+        applicant_id: str,
+        application_id: str,
+        organization_name: str,
+        credential_type: str,
+        device_id: Optional[str] = None,
+    ) -> bool:
+        """Send notification that application was submitted.
+
+        Args:
+            applicant_id: The applicant's user ID
+            application_id: The application ID
+            organization_name: Name of the organization
+            credential_type: Type of credential applied for
+            device_id: Optional specific device to notify
+
+        Returns:
+            True if notification was sent successfully
+        """
+        payload = {
+            "type": "application_submitted",
+            "title": "Application Submitted",
+            "body": f"Your {credential_type} application to {organization_name} has been submitted",
+            "data": {
+                "application_id": application_id,
+                "organization_name": organization_name,
+                "credential_type": credential_type,
+                "action": "view_application",
+            },
+            "priority": "normal",
+        }
+
+        try:
+            if device_id:
+                if device_id not in _credential_delivery_queue:
+                    _credential_delivery_queue[device_id] = []
+                _credential_delivery_queue[device_id].append({
+                    **payload,
+                    "queued_at": datetime.utcnow().isoformat(),
+                })
+
+            if self._hub:
+                from notifications.types import (
+                    NotificationPayload,
+                    NotificationTarget,
+                    NotificationPriority,
+                    ChannelType,
+                )
+
+                target = NotificationTarget(
+                    user_id=applicant_id,
+                    device_token=device_id,
+                    channel=ChannelType.FCM if device_id else ChannelType.SSE,
+                )
+
+                notification = NotificationPayload(
+                    title=payload["title"],
+                    body=payload["body"],
+                    data=payload["data"],
+                    priority=NotificationPriority.NORMAL,
+                )
+
+                result = await self._hub.send_notification(target, notification)
+                success = result.status.value == "delivered"
+            else:
+                logger.info(
+                    f"[PUSH] Application submitted notification for application {application_id}"
+                )
+                success = True
+
+            return success
+        except Exception as e:
+            logger.error(f"Failed to send application submitted notification: {e}")
+            return False
+
+    async def notify_application_rejected(
+        self,
+        applicant_id: str,
+        application_id: str,
+        organization_name: str,
+        rejection_reason: Optional[str] = None,
+        device_id: Optional[str] = None,
+    ) -> bool:
+        """Send notification that application was rejected.
+
+        Args:
+            applicant_id: The applicant's user ID
+            application_id: The application ID
+            organization_name: Name of the organization
+            rejection_reason: Optional reason for rejection
+            device_id: Optional specific device to notify
+
+        Returns:
+            True if notification was sent successfully
+        """
+        body = f"Your application with {organization_name} was not approved"
+        if rejection_reason:
+            body += f": {rejection_reason}"
+
+        payload = {
+            "type": "application_rejected",
+            "title": "Application Not Approved",
+            "body": body,
+            "data": {
+                "application_id": application_id,
+                "organization_name": organization_name,
+                "rejection_reason": rejection_reason,
+                "action": "view_application",
+            },
+            "priority": "high",
+        }
+
+        try:
+            if device_id:
+                if device_id not in _credential_delivery_queue:
+                    _credential_delivery_queue[device_id] = []
+                _credential_delivery_queue[device_id].append({
+                    **payload,
+                    "queued_at": datetime.utcnow().isoformat(),
+                })
+
+            if self._hub:
+                from notifications.types import (
+                    NotificationPayload,
+                    NotificationTarget,
+                    NotificationPriority,
+                    ChannelType,
+                )
+
+                target = NotificationTarget(
+                    user_id=applicant_id,
+                    device_token=device_id,
+                    channel=ChannelType.FCM if device_id else ChannelType.SSE,
+                )
+
+                notification = NotificationPayload(
+                    title=payload["title"],
+                    body=payload["body"],
+                    data=payload["data"],
+                    priority=NotificationPriority.HIGH,
+                )
+
+                result = await self._hub.send_notification(target, notification)
+                success = result.status.value == "delivered"
+            else:
+                logger.info(
+                    f"[PUSH] Application rejected notification for application {application_id}"
+                )
+                success = True
+
+            return success
+        except Exception as e:
+            logger.error(f"Failed to send application rejected notification: {e}")
+            return False
+
+    async def notify_application_under_review(
+        self,
+        applicant_id: str,
+        application_id: str,
+        organization_name: str,
+        device_id: Optional[str] = None,
+    ) -> bool:
+        """Send notification that application is under review.
+
+        Args:
+            applicant_id: The applicant's user ID
+            application_id: The application ID
+            organization_name: Name of the organization
+            device_id: Optional specific device to notify
+
+        Returns:
+            True if notification was sent successfully
+        """
+        payload = {
+            "type": "application_under_review",
+            "title": "Application Under Review",
+            "body": f"{organization_name} is now reviewing your application",
+            "data": {
+                "application_id": application_id,
+                "organization_name": organization_name,
+                "action": "view_application",
+            },
+            "priority": "normal",
+        }
+
+        try:
+            if device_id:
+                if device_id not in _credential_delivery_queue:
+                    _credential_delivery_queue[device_id] = []
+                _credential_delivery_queue[device_id].append({
+                    **payload,
+                    "queued_at": datetime.utcnow().isoformat(),
+                })
+
+            if self._hub:
+                from notifications.types import (
+                    NotificationPayload,
+                    NotificationTarget,
+                    NotificationPriority,
+                    ChannelType,
+                )
+
+                target = NotificationTarget(
+                    user_id=applicant_id,
+                    device_token=device_id,
+                    channel=ChannelType.FCM if device_id else ChannelType.SSE,
+                )
+
+                notification = NotificationPayload(
+                    title=payload["title"],
+                    body=payload["body"],
+                    data=payload["data"],
+                    priority=NotificationPriority.NORMAL,
+                )
+
+                result = await self._hub.send_notification(target, notification)
+                success = result.status.value == "delivered"
+            else:
+                logger.info(
+                    f"[PUSH] Application under review notification for application {application_id}"
+                )
+                success = True
+
+            return success
+        except Exception as e:
+            logger.error(f"Failed to send application under review notification: {e}")
+            return False
+
+    async def notify_application_revision_requested(
+        self,
+        applicant_id: str,
+        application_id: str,
+        organization_name: str,
+        revision_notes: str,
+        device_id: Optional[str] = None,
+    ) -> bool:
+        """Send notification that application needs revision.
+
+        Args:
+            applicant_id: The applicant's user ID
+            application_id: The application ID
+            organization_name: Name of the organization
+            revision_notes: Notes explaining what needs to be revised
+            device_id: Optional specific device to notify
+
+        Returns:
+            True if notification was sent successfully
+        """
+        payload = {
+            "type": "application_needs_revision",
+            "title": "Application Needs Revision",
+            "body": f"{organization_name} has requested changes to your application",
+            "data": {
+                "application_id": application_id,
+                "organization_name": organization_name,
+                "revision_notes": revision_notes,
+                "action": "edit_application",
+            },
+            "priority": "high",
+        }
+
+        try:
+            if device_id:
+                if device_id not in _credential_delivery_queue:
+                    _credential_delivery_queue[device_id] = []
+                _credential_delivery_queue[device_id].append({
+                    **payload,
+                    "queued_at": datetime.utcnow().isoformat(),
+                })
+
+            if self._hub:
+                from notifications.types import (
+                    NotificationPayload,
+                    NotificationTarget,
+                    NotificationPriority,
+                    ChannelType,
+                )
+
+                target = NotificationTarget(
+                    user_id=applicant_id,
+                    device_token=device_id,
+                    channel=ChannelType.FCM if device_id else ChannelType.SSE,
+                )
+
+                notification = NotificationPayload(
+                    title=payload["title"],
+                    body=payload["body"],
+                    data=payload["data"],
+                    priority=NotificationPriority.HIGH,
+                )
+
+                result = await self._hub.send_notification(target, notification)
+                success = result.status.value == "delivered"
+            else:
+                logger.info(
+                    f"[PUSH] Application revision requested notification for application {application_id}"
+                )
+                success = True
+
+            return success
+        except Exception as e:
+            logger.error(f"Failed to send application revision requested notification: {e}")
             return False
 
 

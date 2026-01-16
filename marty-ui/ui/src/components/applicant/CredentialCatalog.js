@@ -146,28 +146,47 @@ const CredentialCatalog = () => {
       if (response.ok) {
         const data = await response.json();
         const configs = data.credential_types || [];
-        const mapped = configs.map((config) => {
+        
+        // Filter to only published, non-system templates
+        const publishedConfigs = configs.filter(
+          (config) => config.is_published && !config.is_system_template && config.is_active
+        );
+        
+        const mapped = publishedConfigs.map((config) => {
+          // Use backend metadata instead of hardcoded CREDENTIAL_TYPES
           const meta = CREDENTIAL_TYPES[config.credential_type] || {};
+          
+          // Parse eligibility criteria into requirements array
+          const requirements = config.eligibility_criteria
+            ? config.eligibility_criteria.split('\n').filter(r => r.trim())
+            : meta.requirements || [];
+          
           return {
             id: config.id,
             credentialType: config.credential_type,
             name: config.display_name,
-            description: meta.description || config.display_name,
+            // Use backend description, fallback to hardcoded if not available
+            description: config.description || meta.description || config.display_name,
             icon: meta.icon || CredentialIcon,
             category: meta.category || 'identity',
-            processingTime: meta.processingTime || '3-5 business days',
-            requirements: meta.requirements || [],
+            // Use backend processing time, fallback to hardcoded
+            processingTime: config.estimated_processing_time || meta.processingTime || '3-5 business days',
+            requirements: requirements,
             requiredFields: config.required_fields || [],
             optionalFields: config.optional_fields || [],
+            customFields: config.custom_fields || [],
+            eligibilityCriteria: config.eligibility_criteria,
+            submissionInstructions: config.submission_instructions,
             processingFee: 0,
             available: config.is_active,
             vendorName: organizationName || 'Issuer',
+            templateVersion: config.template_version,
+            visibility: config.visibility,
           };
         });
-        setCredentials(mapped.filter((item) => item.available));
+        setCredentials(mapped);
       } else {
-        // Fallback to showing default credentials based on organization config
-        console.warn('Credentials API not available, using defaults');
+        console.warn('Credentials API not available');
         setCredentials([]);
       }
     } catch (error) {
@@ -484,11 +503,39 @@ const CredentialCatalog = () => {
                 ))}
               </List>
               
+              {selectedCredential.submissionInstructions && (
+                <>
+                  <Typography variant="subtitle2" gutterBottom sx={{ mt: 2 }}>
+                    Submission Instructions
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary" paragraph>
+                    {selectedCredential.submissionInstructions}
+                  </Typography>
+                </>
+              )}
+              
+              {(selectedCredential.requiredFields?.length > 0 || selectedCredential.customFields?.length > 0) && (
+                <>
+                  <Typography variant="subtitle2" gutterBottom sx={{ mt: 2 }}>
+                    Required Information
+                  </Typography>
+                  <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+                    {selectedCredential.requiredFields?.map((field) => (
+                      <Chip key={field} label={field.replace(/_/g, ' ')} size="small" color="primary" />
+                    ))}
+                    {selectedCredential.customFields?.filter(f => f.validation?.required).map((field) => (
+                      <Chip key={field.name} label={field.label} size="small" color="primary" />
+                    ))}
+                  </Box>
+                </>
+              )}
+              
               {selectedCredential.vendorName && (
                 <>
                   <Divider sx={{ my: 2 }} />
                   <Typography variant="caption" color="text.secondary">
                     Offered by: {selectedCredential.vendorName}
+                    {selectedCredential.templateVersion && ` • Template v${selectedCredential.templateVersion}`}
                   </Typography>
                 </>
               )}

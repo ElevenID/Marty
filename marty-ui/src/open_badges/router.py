@@ -16,18 +16,27 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from subscription.database import get_db_session
 from subscription.models import CredentialType, CredentialTypeConfiguration
 
-# Status integration for credential revocation/suspension support
-from open_badges.status_integration import (
-    inject_credential_status,
-    is_credential_status_enabled,
-)
+# Status integration for credential revocation/suspension support (optional)
+_STATUS_INTEGRATION_AVAILABLE = False
+try:
+    from open_badges.status_integration import (
+        inject_credential_status,
+        is_credential_status_enabled,
+    )
+    _STATUS_INTEGRATION_AVAILABLE = True
+except ImportError:
+    # Status list module not available, credential status features disabled
+    def inject_credential_status(credential, *args, **kwargs):
+        return credential
+    def is_credential_status_enabled():
+        return False
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/open-badges", tags=["Open Badges"])
 
 _MARTY_RS_AVAILABLE = False
 try:
-    import marty_rs  # type: ignore
+    import _marty_rs as marty_rs  # type: ignore
     _MARTY_RS_AVAILABLE = True
 except Exception:
     marty_rs = None

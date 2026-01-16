@@ -798,17 +798,51 @@ async def complete_onboarding(
             if request_data.organization_id:
                 org_id = request_data.organization_id
                 session_org_id = session.get("organization_id")
+                
+                # DEBUG: Log authorization check details
+                logger.info(f"🔍 Authorization check for org resume:")
+                logger.info(f"  - Requested org_id: {org_id}")
+                logger.info(f"  - Session org_id: {session_org_id}")
+                logger.info(f"  - User ID: {user_id}")
+                logger.info(f"  - Session has onboarding_completed: {session.get('onboarding_completed') is not None}")
+                
+                # Check authorization: allow if session org_id matches
                 if session_org_id and session_org_id != org_id:
+                    logger.warning(f"❌ Session org mismatch: {session_org_id} != {org_id}")
                     raise HTTPException(
                         status_code=403,
                         detail="Not authorized for this organization.",
                     )
-                session_orgs = session.get("organization")
-                if isinstance(session_orgs, dict) and session_orgs and org_id not in session_orgs:
-                    raise HTTPException(
-                        status_code=403,
-                        detail="Not authorized for this organization.",
-                    )
+                
+                # Verify user is a member of this organization via Keycloak
+                try:
+                    user_orgs = await keycloak.get_user_organizations(user_id)
+                    user_org_ids = [org["id"] for org in user_orgs if org.get("id")]
+                    
+                    logger.info(f"  - Keycloak user orgs: {user_org_ids}")
+                    logger.info(f"  - Is member via Keycloak: {org_id in user_org_ids}")
+                    logger.info(f"  - Session match allows: {session_org_id == org_id}")
+                    
+                    # Allow if user is a member OR if session_org_id matches (resuming onboarding)
+                    if org_id not in user_org_ids and session_org_id != org_id:
+                        logger.warning(f"❌ Not a member and session doesn't match")
+                        raise HTTPException(
+                            status_code=403,
+                            detail="Not authorized for this organization.",
+                        )
+                    
+                    logger.info(f"✅ Authorization passed")
+                        
+                except Exception as e:
+                    logger.error(f"⚠️ Keycloak membership check failed: {e}")
+                    # If we can't check org membership, fall back to session check
+                    if not session_org_id or session_org_id != org_id:
+                        logger.warning(f"❌ Fallback: session check failed")
+                        raise HTTPException(
+                            status_code=403,
+                            detail="Not authorized for this organization.",
+                        )
+                    logger.info(f"✅ Authorization passed (fallback to session)")
 
                 org = await keycloak.get_organization(org_id)
                 if not org:
@@ -840,6 +874,16 @@ async def complete_onboarding(
                     raise HTTPException(
                         status_code=400,
                         detail="Organization name is required"
+                    )
+
+                # Check if organization name is available
+                is_available = await keycloak.check_organization_name_available(
+                    request_data.organization_name
+                )
+                if not is_available:
+                    raise HTTPException(
+                        status_code=409,
+                        detail=f"Organization name '{request_data.organization_name}' is already taken. Please choose a different name."
                     )
 
                 # Create new organization in Keycloak
@@ -999,6 +1043,27 @@ async def complete_onboarding(
 # =============================================================================
 # Organization Management Endpoints (for vendors)
 # =============================================================================
+
+
+@router.get("/check-organization-name")
+async def check_organization_name_availability(
+    name: str,
+    keycloak: KeycloakAdminClient = Depends(get_keycloak_admin),
+) -> dict[str, bool]:
+    """Check if an organization name is available.
+    
+    Public endpoint - no authentication required.
+    Used during onboarding to provide real-time feedback on name availability.
+    """
+    if not name or len(name.strip()) < 2:
+        raise HTTPException(
+            status_code=400,
+            detail="Organization name must be at least 2 characters"
+        )
+    
+    is_available = await keycloak.check_organization_name_available(name)
+    
+    return {"available": is_available}
 
 
 class OrgSettingsResponse(BaseModel):

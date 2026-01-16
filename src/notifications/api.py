@@ -325,6 +325,33 @@ async def register_device(
     
     logger.info(f"Device registered: {request.device_id} for user {user_id}")
     
+    # Emit SSE event for test observability
+    try:
+        if _sse_adapter:
+            from .types import NotificationPayload, NotificationTarget
+            from uuid import uuid4
+            from datetime import datetime, timezone
+            
+            payload = NotificationPayload(
+                id=uuid4(),
+                event_type="device.registered",
+                title="Device Registered",
+                body=f"Device {request.device_id} registered successfully",
+                data={
+                    "device_id": request.device_id,
+                    "platform": request.platform,
+                    "registration_id": str(registration.id),
+                },
+                created_at=datetime.now(timezone.utc),
+                target=NotificationTarget(
+                    user_id=user_id,
+                    organization_id=org_id,
+                ),
+            )
+            await _sse_adapter.send(payload)
+    except Exception as e:
+        logger.debug(f"Failed to emit device.registered event: {e}")
+    
     # Get server public key for signature verification (if signing is configured)
     server_public_key = get_server_public_key_der_base64()
     

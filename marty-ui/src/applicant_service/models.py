@@ -62,6 +62,7 @@ class ApplicationStatus(str, Enum):
     VETTING_IN_PROGRESS = "vetting_in_progress"  # Background checks in progress
     PENDING_BIOMETRICS = "pending_biometrics"    # Awaiting issuance biometrics
     PENDING_APPROVAL = "pending_approval"     # Awaiting supervisor approval
+    NEEDS_REVISION = "needs_revision"         # Requires applicant to revise and resubmit
     APPROVED = "approved"                     # Ready for document issuance
     REJECTED = "rejected"                     # Application denied
     ISSUED = "issued"                         # Document issued
@@ -187,6 +188,8 @@ class AuditEventType(str, Enum):
     APPROVAL_REQUESTED = "approval_requested"
     APPROVED = "approved"
     REJECTED = "rejected"
+    REVISION_REQUESTED = "revision_requested"
+    RESUBMITTED = "resubmitted"
     ISSUED = "issued"
     CANCELLED = "cancelled"
     EXPIRED = "expired"
@@ -297,12 +300,19 @@ class ApplicationRecord(Base):
     credential_configuration_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     credential_type: Mapped[str | None] = mapped_column(String(50), nullable=True)
     organization_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    config_version: Mapped[int | None] = mapped_column(Integer, nullable=True)  # Track credential config version at submission
     
     # Application status
     status: Mapped[str] = mapped_column(String(50), default=ApplicationStatus.DRAFT.value)
     status_reason: Mapped[str | None] = mapped_column(String(255), nullable=True)
     status_changed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     status_changed_by: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    
+    # Revision tracking
+    revision_requested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    revision_requested_by: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    revision_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    revision_count: Mapped[int] = mapped_column(Integer, default=0)
     
     # Document details (populated from applicant + application-specific)
     holder_name: Mapped[str] = mapped_column(String(255), nullable=False)

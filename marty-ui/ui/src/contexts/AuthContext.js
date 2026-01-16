@@ -22,6 +22,8 @@ import { getCurrentUser, initiateLogin, initiateRegister, initiateLogout } from 
  * @property {string|null} organization_name - Organization display name
  * @property {Object|null} organization - Raw organization claim from Keycloak
  * @property {Array<{id: string, name: string|null}>} organizations - Organization memberships
+ * @property {boolean} needsOnboarding - Whether user needs to complete onboarding
+ * @property {string|null} onboardingCompleted - ISO timestamp of onboarding completion
  */
 
 /**
@@ -29,6 +31,7 @@ import { getCurrentUser, initiateLogin, initiateRegister, initiateLogout } from 
  * @property {User|null} user - Current authenticated user
  * @property {boolean} isAuthenticated - Whether user is authenticated
  * @property {boolean} isLoading - Whether auth state is loading
+ * @property {boolean} checkingOnboarding - Whether onboarding status is being checked
  * @property {boolean} isAdministrator - Whether user is a super-administrator
  * @property {boolean} isVendor - Whether user is a vendor (org admin)
  * @property {boolean} isApplicant - Whether user is an applicant
@@ -46,6 +49,7 @@ const defaultContextValue = {
   user: null,
   isAuthenticated: false,
   isLoading: true,
+  checkingOnboarding: false,
   isAdministrator: false,
   isVendor: false,
   isApplicant: false,
@@ -126,6 +130,7 @@ function determineUserType(roles, userTypeClaim) {
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [checkingOnboarding, setCheckingOnboarding] = useState(false);
 
   // Fetch current user on mount
   const fetchUser = useCallback(async () => {
@@ -149,13 +154,36 @@ export function AuthProvider({ children }) {
           fallbackOrganizations[0] ||
           null;
 
-        setUser({
+        const enrichedUser = {
           ...rawUser,
           user_type: userType,
           organization_id: activeOrg?.id || org.id || rawUser.organization_id || null,
           organization_name: activeOrg?.name || org.name || rawUser.organization_name || null,
           organizations: fallbackOrganizations,
-        });
+          needsOnboarding: false,
+          onboardingCompleted: rawUser.onboarding_completed || null,
+        };
+
+        // Check onboarding status
+        setCheckingOnboarding(true);
+        try {
+          const onboardingResponse = await fetch('/api/onboarding/status', {
+            credentials: 'include',
+          });
+          
+          if (onboardingResponse.ok) {
+            const onboardingData = await onboardingResponse.json();
+            enrichedUser.needsOnboarding = onboardingData.needs_onboarding || false;
+            enrichedUser.onboardingCompleted = onboardingData.completed_at || enrichedUser.onboardingCompleted;
+          }
+        } catch (onboardingError) {
+          console.error('Error checking onboarding status:', onboardingError);
+          // Don't fail auth if onboarding check fails
+        } finally {
+          setCheckingOnboarding(false);
+        }
+
+        setUser(enrichedUser);
       } else {
         setUser(null);
       }
@@ -223,6 +251,7 @@ export function AuthProvider({ children }) {
       user,
       isAuthenticated: !!user,
       isLoading,
+      checkingOnboarding,
       // Role checks - explicit type or role membership
       isAdministrator: userType === 'administrator' || roles.includes('administrator'),
       isVendor: userType === 'vendor' || roles.includes('vendor'),
@@ -238,7 +267,7 @@ export function AuthProvider({ children }) {
       refreshUser,
       setActiveOrganizationId,
     };
-  }, [user, isLoading, login, register, logout, refreshUser, setActiveOrganizationId]);
+  }, [user, isLoading, checkingOnboarding, login, register, logout, refreshUser, setActiveOrganizationId]);
 
   return (
     <AuthContext.Provider value={contextValue}>
