@@ -74,6 +74,18 @@ class CredentialFormat(str, Enum):
         return self.value
 
 
+class CredentialStatus(str, Enum):
+    """Status of an issued credential."""
+    
+    ACTIVE = "active"          # Credential is valid and active
+    SUSPENDED = "suspended"    # Temporarily suspended
+    REVOKED = "revoked"        # Permanently revoked
+    EXPIRED = "expired"        # Validity period has passed
+    
+    def __str__(self) -> str:
+        return self.value
+
+
 @dataclass(frozen=True)
 class RevocationPolicy:
     """
@@ -159,6 +171,18 @@ class HolderBindingMethod(str, Enum):
         return self.value
 
 
+class CredentialRankingStrategy(str, Enum):
+    """Strategy for ranking credentials when multiple match a policy."""
+    
+    FRESHEST_FIRST = "freshest_first"        # Prefer most recently issued
+    HIGHEST_TRUST_FIRST = "highest_trust_first"  # Prefer highest trust level issuer
+    MINIMUM_CLAIMS_FIRST = "minimum_claims_first"  # Prefer credentials with fewest claims
+    CUSTOM = "custom"                        # Use custom weighting
+    
+    def __str__(self) -> str:
+        return self.value
+
+
 @dataclass(frozen=True)
 class RequiredClaim:
     """
@@ -227,6 +251,7 @@ class UXConfig:
     show_operator_mode: bool = False
     accessibility_enabled: bool = True
     custom_branding: dict[str, Any] = field(default_factory=dict)
+    signage_text: dict[str, str] | None = None  # Multilingual signage: {"en": "Please present ID", "es": "..."}
 
 
 @dataclass(frozen=True)
@@ -241,6 +266,7 @@ class UpdatePolicy:
     update_channel: str = "stable"  # stable, beta, canary
     rollout_percentage: int = 100
     version_pinned: str | None = None  # Pin to specific version
+    rollout_ring: str | None = None  # Named rollout ring (e.g., "canary", "early_adopters", "general")
 
 
 # =============================================================================
@@ -356,3 +382,158 @@ FLOW_STEPS: Final[dict[FlowType, list[FlowStep]]] = {
         FlowStep("deliver_credential", "Deliver Credential", extensible=True),
     ],
 }
+
+
+# =============================================================================
+# Compliance Profile & Issuer Artifact Value Objects
+# =============================================================================
+
+@dataclass(frozen=True)
+class IssuerArtifactRequirements:
+    """
+    Issuer artifact requirements per credential format.
+    
+    Defines what cryptographic artifacts are required for issuing
+    credentials in a specific format.
+    """
+    
+    format: CredentialFormat
+    requires_certificate_chain: bool
+    requires_signing_key: bool
+    requires_issuer_did: bool
+    requires_iaca_registration: bool
+    allowed_algorithms: list[CryptoAlgorithm]
+    hsm_required_for_production: bool
+
+
+# Preset artifact requirements per format
+ARTIFACT_REQUIREMENTS: Final[dict[CredentialFormat, IssuerArtifactRequirements]] = {
+    CredentialFormat.MDOC: IssuerArtifactRequirements(
+        format=CredentialFormat.MDOC,
+        requires_certificate_chain=True,
+        requires_signing_key=True,
+        requires_issuer_did=False,
+        requires_iaca_registration=True,
+        allowed_algorithms=[CryptoAlgorithm.ES256],
+        hsm_required_for_production=True,
+    ),
+    CredentialFormat.SD_JWT_VC: IssuerArtifactRequirements(
+        format=CredentialFormat.SD_JWT_VC,
+        requires_certificate_chain=False,  # Optional x5c
+        requires_signing_key=True,
+        requires_issuer_did=False,  # Uses issuer URL
+        requires_iaca_registration=False,
+        allowed_algorithms=[CryptoAlgorithm.ES256, CryptoAlgorithm.ES384],
+        hsm_required_for_production=True,
+    ),
+    CredentialFormat.JWT_VC: IssuerArtifactRequirements(
+        format=CredentialFormat.JWT_VC,
+        requires_certificate_chain=False,
+        requires_signing_key=True,
+        requires_issuer_did=True,
+        requires_iaca_registration=False,
+        allowed_algorithms=[
+            CryptoAlgorithm.ES256,
+            CryptoAlgorithm.EDDSA,
+            CryptoAlgorithm.RS256,
+        ],
+        hsm_required_for_production=False,  # DID-based can use software keys
+    ),
+    CredentialFormat.LDP_VC: IssuerArtifactRequirements(
+        format=CredentialFormat.LDP_VC,
+        requires_certificate_chain=False,
+        requires_signing_key=True,
+        requires_issuer_did=True,
+        requires_iaca_registration=False,
+        allowed_algorithms=[
+            CryptoAlgorithm.ES256,
+            CryptoAlgorithm.EDDSA,
+        ],
+        hsm_required_for_production=False,
+    ),
+}
+
+
+# =============================================================================
+# Evidence & Claim Verification Value Objects
+# =============================================================================
+
+class EvidenceType(str, Enum):
+    """Types of evidence that can be required for credential issuance."""
+    
+    IDENTITY_VERIFICATION = "identity_verification"
+    DOCUMENT_VERIFICATION = "document_verification"
+    BIOMETRIC_ENROLLMENT = "biometric_enrollment"
+    CRIMINAL_HISTORY = "criminal_history"
+    SECURITY_CLEARANCE = "security_clearance"
+    EMPLOYMENT_VERIFICATION = "employment_verification"
+    ADDRESS_VERIFICATION = "address_verification"
+    AGE_VERIFICATION = "age_verification"
+    PAYMENT_VERIFICATION = "payment_verification"
+    CUSTOM = "custom"
+    
+    def __str__(self) -> str:
+        return self.value
+
+
+class ClaimVerificationMethod(str, Enum):
+    """Methods for verifying claim values before issuance."""
+    
+    MANUAL_REVIEW = "manual_review"
+    AUTOMATED_CHECK = "automated_check"
+    THIRD_PARTY_API = "third_party_api"
+    EVIDENCE_EXTRACTION = "evidence_extraction"
+    USER_ATTESTATION = "user_attestation"
+    BIOMETRIC_MATCH = "biometric_match"
+    DOCUMENT_PARSE = "document_parse"
+    
+    def __str__(self) -> str:
+        return self.value
+
+
+@dataclass(frozen=True)
+class EvidenceRequirement:
+    """
+    Evidence requirement for credential issuance.
+    
+    Defines what evidence must be collected and validated
+    before a credential can be issued.
+    """
+    
+    evidence_type: EvidenceType
+    required: bool = True
+    provider_config: dict[str, Any] = field(default_factory=dict)
+    description: str | None = None
+    auto_validate: bool = False
+
+
+@dataclass(frozen=True)
+class ClaimVerificationRule:
+    """
+    Claim verification rule for credential issuance.
+    
+    Defines how a specific claim value must be verified
+    before being included in a credential.
+    """
+    
+    claim_name: str
+    verification_method: ClaimVerificationMethod
+    source_evidence_type: EvidenceType | None = None
+    validation_rules: dict[str, Any] = field(default_factory=dict)
+    required: bool = True
+    description: str | None = None
+
+
+@dataclass(frozen=True)
+class StatusListEntryRef:
+    """
+    Reference to a status list entry for credential revocation/suspension.
+    
+    Contains the information needed to check a credential's status
+    and for the issuer to update its revocation/suspension state.
+    """
+    
+    purpose: str  # "revocation" or "suspension"
+    status_list_credential_url: str  # URL to the StatusListCredential
+    status_list_index: int  # Index within the status list (bit position)
+    shard_id: str | None = None  # Optional: shard identifier for distributed status lists

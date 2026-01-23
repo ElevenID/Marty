@@ -26,8 +26,19 @@ logger = logging.getLogger(__name__)
 
 
 # API key prefix for identification
-API_KEY_PREFIX = "marty_"
+API_KEY_PREFIX = "pk_"
 API_KEY_BYTES = 32  # 256 bits of entropy
+
+# Valid API key scopes
+VALID_SCOPES = {
+    "credentials:read",
+    "credentials:write",
+    "presentations:read",
+    "presentations:write",
+    "webhooks:read",
+    "webhooks:write",
+    "admin",
+}
 
 
 @dataclass

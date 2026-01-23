@@ -22,10 +22,13 @@ from digital_identity.domain.entities import (
     DeploymentProfile,
     Flow,
     FlowExecution,
+    IssuedCredential,
+    OrganizationCustomAnchor,
 )
 from digital_identity.domain.value_objects import (
     TrustProfileType,
     CredentialFormat,
+    CredentialStatus,
     CryptoAlgorithm,
     RevocationPolicy,
     TimePolicy,
@@ -41,6 +44,7 @@ from digital_identity.domain.value_objects import (
     FlowType,
     FlowStatus,
     ApprovalStrategy,
+    StatusListEntryRef,
 )
 from digital_identity.infrastructure.persistence.models import (
     TrustProfileModel,
@@ -49,6 +53,8 @@ from digital_identity.infrastructure.persistence.models import (
     DeploymentProfileModel,
     FlowModel,
     FlowExecutionModel,
+    IssuedCredentialModel,
+    OrganizationCustomAnchorModel,
 )
 
 logger = logging.getLogger(__name__)
@@ -72,6 +78,7 @@ class TrustProfileRepository:
         if existing:
             # Update
             existing.name = entity.name
+            existing.display_name = entity.name  # Keep in sync
             existing.description = entity.description
             existing.profile_type = entity.profile_type.value
             existing.enabled = entity.enabled
@@ -90,6 +97,7 @@ class TrustProfileRepository:
             model = TrustProfileModel(
                 id=entity.id,
                 name=entity.name,
+                display_name=entity.name,  # Use name as display_name for now
                 description=entity.description,
                 profile_type=entity.profile_type.value,
                 enabled=entity.enabled,
@@ -853,6 +861,7 @@ class FlowExecutionRepository:
             existing.current_step_index = entity.current_step_index
             existing.step_results = entity.step_results
             existing.context_data = entity.context_data
+            existing.issued_credential_id = entity.issued_credential_id
             existing.started_at = entity.started_at
             existing.completed_at = entity.completed_at
             existing.error = entity.error
@@ -868,6 +877,7 @@ class FlowExecutionRepository:
                 current_step_index=entity.current_step_index,
                 step_results=entity.step_results,
                 context_data=entity.context_data,
+                issued_credential_id=entity.issued_credential_id,
                 started_at=entity.started_at,
                 completed_at=entity.completed_at,
                 error=entity.error,
@@ -936,10 +946,414 @@ class FlowExecutionRepository:
             current_step_index=model.current_step_index,
             step_results=model.step_results,
             context_data=model.context_data,
+            issued_credential_id=model.issued_credential_id,
             started_at=model.started_at,
             completed_at=model.completed_at,
             error=model.error,
             metadata=model.metadata_,
+            created_at=model.created_at,
+            updated_at=model.updated_at,
+            version=model.version,
+        )
+
+
+class CustomAnchorRepository:
+    """
+    Repository for Organization Custom Anchor persistence.
+    
+    Implements CustomAnchorRepositoryPort interface.
+    """
+    
+    def __init__(self, session: AsyncSession):
+        self._session = session
+    
+    async def save(self, entity: OrganizationCustomAnchor) -> OrganizationCustomAnchor:
+        """Save a custom anchor (create or update)."""
+        existing = await self._session.get(OrganizationCustomAnchorModel, entity.id)
+        
+        if existing:
+            # Update
+            existing.profile_id = entity.profile_id
+            existing.anchor_type = entity.anchor_type
+            existing.subject = entity.subject
+            existing.issuer = entity.issuer
+            existing.certificate_pem = entity.certificate_pem
+            existing.certificate_der = entity.certificate_der
+            existing.not_before = entity.not_before
+            existing.not_after = entity.not_after
+            existing.purpose = entity.purpose
+            existing.uploaded_by = entity.uploaded_by
+            existing.uploaded_at = entity.uploaded_at
+        else:
+            # Create
+            model = OrganizationCustomAnchorModel(
+                id=entity.id,
+                profile_id=entity.profile_id,
+                anchor_type=entity.anchor_type,
+                subject=entity.subject,
+                issuer=entity.issuer,
+                certificate_pem=entity.certificate_pem,
+                certificate_der=entity.certificate_der,
+                not_before=entity.not_before,
+                not_after=entity.not_after,
+                purpose=entity.purpose,
+                uploaded_by=entity.uploaded_by,
+                uploaded_at=entity.uploaded_at,
+                created_at=entity.created_at,
+            )
+            self._session.add(model)
+        
+        await self._session.commit()
+        return entity
+    
+    async def get(self, entity_id: str) -> OrganizationCustomAnchor | None:
+        """Get a custom anchor by ID."""
+        model = await self._session.get(OrganizationCustomAnchorModel, entity_id)
+        if model:
+            return self._to_entity(model)
+        return None
+    
+    async def list_by_profile(self, profile_id: str) -> list[OrganizationCustomAnchor]:
+        """List all custom anchors for a trust profile."""
+        stmt = select(OrganizationCustomAnchorModel).where(
+            OrganizationCustomAnchorModel.profile_id == profile_id
+        )
+        result = await self._session.execute(stmt)
+        return [self._to_entity(m) for m in result.scalars().all()]
+    
+    async def list_by_organization(self, organization_id: str) -> list[OrganizationCustomAnchor]:
+        """List all custom anchors for an organization."""
+        # Join with organization_trust_profiles to filter by organization
+        from digital_identity.infrastructure.persistence.models import OrganizationTrustProfileModel
+        
+        stmt = (
+            select(OrganizationCustomAnchorModel)
+            .join(OrganizationTrustProfileModel, 
+                  OrganizationCustomAnchorModel.profile_id == OrganizationTrustProfileModel.id)
+            .where(OrganizationTrustProfileModel.organization_id == organization_id)
+        )
+        result = await self._session.execute(stmt)
+        return [self._to_entity(m) for m in result.scalars().all()]
+    
+    async def delete(self, entity_id: str) -> bool:
+        """Delete a custom anchor."""
+        stmt = delete(OrganizationCustomAnchorModel).where(
+            OrganizationCustomAnchorModel.id == entity_id
+        )
+        result = await self._session.execute(stmt)
+        await self._session.commit()
+        return result.rowcount > 0
+    
+    async def exists(self, entity_id: str) -> bool:
+        """Check if a custom anchor exists."""
+        model = await self._session.get(OrganizationCustomAnchorModel, entity_id)
+        return model is not None
+    
+    def _to_entity(self, model: OrganizationCustomAnchorModel) -> OrganizationCustomAnchor:
+        """Convert model to entity."""
+        return OrganizationCustomAnchor(
+            id=model.id,
+            profile_id=model.profile_id,
+            anchor_type=model.anchor_type,
+            subject=model.subject,
+            issuer=model.issuer,
+            certificate_pem=model.certificate_pem,
+            certificate_der=model.certificate_der,
+            not_before=model.not_before,
+            not_after=model.not_after,
+            purpose=model.purpose,
+            uploaded_by=model.uploaded_by,
+            uploaded_at=model.uploaded_at,
+            created_at=model.created_at,
+        )
+
+
+class AuditEventRepository:
+    """
+    Repository for Audit Event persistence.
+    
+    Implements AuditEventRepositoryPort interface.
+    Audit events are immutable (create-only).
+    """
+    
+    def __init__(self, session: AsyncSession):
+        self._session = session
+    
+    async def save(self, entity: Any) -> Any:  # AuditEvent type
+        """Save an audit event (create only)."""
+        from digital_identity.infrastructure.persistence.models import AuditEventModel
+        
+        # Create model
+        model = AuditEventModel(
+            id=entity.id,
+            event_type=entity.event_type,
+            entity_type=entity.entity_type,
+            entity_id=entity.entity_id,
+            actor_id=entity.actor_id,
+            action=entity.action,
+            payload=entity.payload,
+            correlation_id=entity.correlation_id,
+            occurred_at=entity.occurred_at,
+            created_at=entity.created_at,
+            updated_at=entity.updated_at,
+            version=entity.version,
+        )
+        
+        self._session.add(model)
+        await self._session.commit()
+        await self._session.refresh(model)
+        
+        return self._to_entity(model)
+    
+    async def get(self, entity_id: str) -> Any | None:  # AuditEvent type
+        """Get an audit event by ID."""
+        from digital_identity.infrastructure.persistence.models import AuditEventModel
+        
+        model = await self._session.get(AuditEventModel, entity_id)
+        if model:
+            return self._to_entity(model)
+        return None
+    
+    async def find_by_entity(
+        self,
+        entity_type: str,
+        entity_id: str,
+        skip: int = 0,
+        limit: int = 100,
+    ) -> list[Any]:  # list[AuditEvent]
+        """Find all audit events for a specific entity."""
+        from digital_identity.infrastructure.persistence.models import AuditEventModel
+        
+        stmt = (
+            select(AuditEventModel)
+            .where(
+                AuditEventModel.entity_type == entity_type,
+                AuditEventModel.entity_id == entity_id,
+            )
+            .order_by(AuditEventModel.occurred_at.desc())
+            .offset(skip)
+            .limit(limit)
+        )
+        result = await self._session.execute(stmt)
+        models = result.scalars().all()
+        return [self._to_entity(model) for model in models]
+    
+    async def find_by_correlation_id(
+        self,
+        correlation_id: str,
+        skip: int = 0,
+        limit: int = 100,
+    ) -> list[Any]:  # list[AuditEvent]
+        """Find all audit events with a specific correlation ID."""
+        from digital_identity.infrastructure.persistence.models import AuditEventModel
+        
+        stmt = (
+            select(AuditEventModel)
+            .where(AuditEventModel.correlation_id == correlation_id)
+            .order_by(AuditEventModel.occurred_at.asc())
+            .offset(skip)
+            .limit(limit)
+        )
+        result = await self._session.execute(stmt)
+        models = result.scalars().all()
+        return [self._to_entity(model) for model in models]
+    
+    async def list_by_time_range(
+        self,
+        start_time: Any,  # datetime
+        end_time: Any,  # datetime
+        event_type: str | None = None,
+        entity_type: str | None = None,
+        skip: int = 0,
+        limit: int = 100,
+    ) -> list[Any]:  # list[AuditEvent]
+        """List audit events within a time range with optional filters."""
+        from digital_identity.infrastructure.persistence.models import AuditEventModel
+        
+        stmt = select(AuditEventModel).where(
+            AuditEventModel.occurred_at >= start_time,
+            AuditEventModel.occurred_at <= end_time,
+        )
+        
+        if event_type:
+            stmt = stmt.where(AuditEventModel.event_type == event_type)
+        
+        if entity_type:
+            stmt = stmt.where(AuditEventModel.entity_type == entity_type)
+        
+        stmt = stmt.order_by(AuditEventModel.occurred_at.desc()).offset(skip).limit(limit)
+        
+        result = await self._session.execute(stmt)
+        models = result.scalars().all()
+        return [self._to_entity(model) for model in models]
+    
+    def _to_entity(self, model: Any) -> Any:  # AuditEventModel -> AuditEvent
+        """Convert model to entity."""
+        from digital_identity.domain.entities import AuditEvent
+        
+        return AuditEvent(
+            id=model.id,
+            event_type=model.event_type,
+            entity_type=model.entity_type,
+            entity_id=model.entity_id,
+            actor_id=model.actor_id,
+            action=model.action,
+            payload=model.payload,
+            correlation_id=model.correlation_id,
+            occurred_at=model.occurred_at,
+            created_at=model.created_at,
+            updated_at=model.updated_at,
+            version=model.version,
+        )
+
+
+class IssuedCredentialRepository:
+    """
+    Repository for Issued Credential persistence.
+    
+    Implements IssuedCredentialRepositoryPort interface.
+    """
+    
+    def __init__(self, session: AsyncSession):
+        self._session = session
+    
+    async def save(self, entity: IssuedCredential) -> IssuedCredential:
+        """Save an Issued Credential (create or update)."""
+        existing = await self._session.get(IssuedCredentialModel, entity.id)
+        
+        if existing:
+            # Update
+            existing.credential_id = entity.credential_id
+            existing.credential_type = entity.credential_type
+            existing.credential_format = entity.credential_format.value
+            existing.flow_execution_id = entity.flow_execution_id
+            existing.credential_template_id = entity.credential_template_id
+            existing.application_id = entity.application_id
+            existing.subject_id = entity.subject_id
+            existing.subject_claims_hash = entity.subject_claims_hash
+            existing.issued_at = entity.issued_at
+            existing.valid_from = entity.valid_from
+            existing.valid_until = entity.valid_until
+            existing.status = entity.status.value
+            existing.status_list_entries = [asdict(e) for e in entity.status_list_entries]
+            existing.credential_hash = entity.credential_hash
+            existing.revoked_at = entity.revoked_at
+            existing.revocation_reason = entity.revocation_reason
+            existing.revoked_by = entity.revoked_by
+            existing.updated_at = entity.updated_at
+            existing.version = entity.version
+        else:
+            # Create
+            model = IssuedCredentialModel(
+                id=entity.id,
+                credential_id=entity.credential_id,
+                credential_type=entity.credential_type,
+                credential_format=entity.credential_format.value,
+                flow_execution_id=entity.flow_execution_id,
+                credential_template_id=entity.credential_template_id,
+                application_id=entity.application_id,
+                subject_id=entity.subject_id,
+                subject_claims_hash=entity.subject_claims_hash,
+                issued_at=entity.issued_at,
+                valid_from=entity.valid_from,
+                valid_until=entity.valid_until,
+                status=entity.status.value,
+                status_list_entries=[asdict(e) for e in entity.status_list_entries],
+                credential_hash=entity.credential_hash,
+                revoked_at=entity.revoked_at,
+                revocation_reason=entity.revocation_reason,
+                revoked_by=entity.revoked_by,
+                created_at=entity.created_at,
+                updated_at=entity.updated_at,
+                version=entity.version,
+            )
+            self._session.add(model)
+        
+        await self._session.commit()
+        return entity
+    
+    async def get(self, entity_id: str) -> IssuedCredential | None:
+        """Get an Issued Credential by ID."""
+        model = await self._session.get(IssuedCredentialModel, entity_id)
+        if model:
+            return self._to_entity(model)
+        return None
+    
+    async def get_by_credential_id(self, credential_id: str) -> IssuedCredential | None:
+        """Get an Issued Credential by its credential_id."""
+        stmt = select(IssuedCredentialModel).where(
+            IssuedCredentialModel.credential_id == credential_id
+        )
+        result = await self._session.execute(stmt)
+        model = result.scalar_one_or_none()
+        if model:
+            return self._to_entity(model)
+        return None
+    
+    async def list_by_flow_execution(self, flow_execution_id: str) -> list[IssuedCredential]:
+        """List credentials issued by a specific flow execution."""
+        stmt = select(IssuedCredentialModel).where(
+            IssuedCredentialModel.flow_execution_id == flow_execution_id
+        )
+        result = await self._session.execute(stmt)
+        return [self._to_entity(m) for m in result.scalars().all()]
+    
+    async def list_by_subject(
+        self,
+        subject_id: str,
+        skip: int = 0,
+        limit: int = 100,
+    ) -> list[IssuedCredential]:
+        """List credentials for a specific subject/holder."""
+        stmt = select(IssuedCredentialModel).where(
+            IssuedCredentialModel.subject_id == subject_id
+        ).offset(skip).limit(limit)
+        result = await self._session.execute(stmt)
+        return [self._to_entity(m) for m in result.scalars().all()]
+    
+    async def list_by_template(
+        self,
+        credential_template_id: str,
+        skip: int = 0,
+        limit: int = 100,
+    ) -> list[IssuedCredential]:
+        """List credentials issued from a specific template."""
+        stmt = select(IssuedCredentialModel).where(
+            IssuedCredentialModel.credential_template_id == credential_template_id
+        ).offset(skip).limit(limit)
+        result = await self._session.execute(stmt)
+        return [self._to_entity(m) for m in result.scalars().all()]
+    
+    async def delete(self, entity_id: str) -> bool:
+        """Delete an Issued Credential record."""
+        stmt = delete(IssuedCredentialModel).where(IssuedCredentialModel.id == entity_id)
+        result = await self._session.execute(stmt)
+        await self._session.commit()
+        return result.rowcount > 0
+    
+    def _to_entity(self, model: IssuedCredentialModel) -> IssuedCredential:
+        """Convert model to entity."""
+        return IssuedCredential(
+            id=model.id,
+            credential_id=model.credential_id,
+            credential_type=model.credential_type,
+            credential_format=CredentialFormat(model.credential_format),
+            flow_execution_id=model.flow_execution_id,
+            credential_template_id=model.credential_template_id,
+            application_id=model.application_id,
+            subject_id=model.subject_id,
+            subject_claims_hash=model.subject_claims_hash,
+            issued_at=model.issued_at,
+            valid_from=model.valid_from,
+            valid_until=model.valid_until,
+            status=CredentialStatus(model.status),
+            status_list_entries=[
+                StatusListEntryRef(**entry) for entry in model.status_list_entries
+            ],
+            credential_hash=model.credential_hash,
+            revoked_at=model.revoked_at,
+            revocation_reason=model.revocation_reason,
+            revoked_by=model.revoked_by,
             created_at=model.created_at,
             updated_at=model.updated_at,
             version=model.version,

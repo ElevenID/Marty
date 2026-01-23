@@ -16,6 +16,8 @@ from digital_identity.domain.entities import (
     DeploymentProfile,
     Flow,
     FlowExecution,
+    IssuedCredential,
+    OrganizationCustomAnchor,
 )
 from digital_identity.domain.events import DomainEvent
 from digital_identity.domain.value_objects import (
@@ -65,6 +67,39 @@ class TrustProfileRepositoryPort(Protocol):
     
     async def exists(self, entity_id: str) -> bool:
         """Check if a Trust Profile exists."""
+        ...
+
+
+@runtime_checkable
+class CustomAnchorRepositoryPort(Protocol):
+    """
+    Repository port for Organization Custom Anchor persistence.
+    
+    Handles storage and retrieval of custom trust anchors (BYOK certificates).
+    """
+    
+    async def save(self, entity: OrganizationCustomAnchor) -> OrganizationCustomAnchor:
+        """Save a custom anchor (create or update)."""
+        ...
+    
+    async def get(self, entity_id: str) -> OrganizationCustomAnchor | None:
+        """Get a custom anchor by ID."""
+        ...
+    
+    async def list_by_profile(self, profile_id: str) -> list[OrganizationCustomAnchor]:
+        """List all custom anchors for a trust profile."""
+        ...
+    
+    async def list_by_organization(self, organization_id: str) -> list[OrganizationCustomAnchor]:
+        """List all custom anchors for an organization."""
+        ...
+    
+    async def delete(self, entity_id: str) -> bool:
+        """Delete a custom anchor."""
+        ...
+    
+    async def exists(self, entity_id: str) -> bool:
+        """Check if a custom anchor exists."""
         ...
 
 
@@ -260,6 +295,53 @@ class FlowExecutionRepositoryPort(Protocol):
         ...
 
 
+@runtime_checkable
+class IssuedCredentialRepositoryPort(Protocol):
+    """
+    Repository port for Issued Credential persistence.
+    
+    Handles storage and retrieval of issued credential metadata.
+    """
+    
+    async def save(self, entity: IssuedCredential) -> IssuedCredential:
+        """Save an Issued Credential (create or update)."""
+        ...
+    
+    async def get(self, entity_id: str) -> IssuedCredential | None:
+        """Get an Issued Credential by ID."""
+        ...
+    
+    async def get_by_credential_id(self, credential_id: str) -> IssuedCredential | None:
+        """Get an Issued Credential by its credential_id (urn:uuid:... or custom ID)."""
+        ...
+    
+    async def list_by_flow_execution(self, flow_execution_id: str) -> list[IssuedCredential]:
+        """List credentials issued by a specific flow execution."""
+        ...
+    
+    async def list_by_subject(
+        self,
+        subject_id: str,
+        skip: int = 0,
+        limit: int = 100,
+    ) -> list[IssuedCredential]:
+        """List credentials for a specific subject/holder."""
+        ...
+    
+    async def list_by_template(
+        self,
+        credential_template_id: str,
+        skip: int = 0,
+        limit: int = 100,
+    ) -> list[IssuedCredential]:
+        """List credentials issued from a specific template."""
+        ...
+    
+    async def delete(self, entity_id: str) -> bool:
+        """Delete an Issued Credential record."""
+        ...
+
+
 # =============================================================================
 # External Service Ports
 # =============================================================================
@@ -419,4 +501,52 @@ class ApprovalStrategyPort(Protocol):
         Returns:
             Decision result with 'approved', 'pending', or 'rejected'
         """
+        ...
+
+
+@runtime_checkable
+class AuditEventRepositoryPort(Protocol):
+    """
+    Repository port for Audit Event persistence.
+    
+    Handles storage and retrieval of immutable audit events.
+    """
+    
+    async def save(self, entity: Any) -> Any:  # AuditEvent type
+        """Save an audit event (create only)."""
+        ...
+    
+    async def get(self, entity_id: str) -> Any | None:  # AuditEvent type
+        """Get an audit event by ID."""
+        ...
+    
+    async def find_by_entity(
+        self,
+        entity_type: str,
+        entity_id: str,
+        skip: int = 0,
+        limit: int = 100,
+    ) -> list[Any]:  # list[AuditEvent]
+        """Find all audit events for a specific entity."""
+        ...
+    
+    async def find_by_correlation_id(
+        self,
+        correlation_id: str,
+        skip: int = 0,
+        limit: int = 100,
+    ) -> list[Any]:  # list[AuditEvent]
+        """Find all audit events with a specific correlation ID."""
+        ...
+    
+    async def list_by_time_range(
+        self,
+        start_time: Any,  # datetime
+        end_time: Any,  # datetime
+        event_type: str | None = None,
+        entity_type: str | None = None,
+        skip: int = 0,
+        limit: int = 100,
+    ) -> list[Any]:  # list[AuditEvent]
+        """List audit events within a time range with optional filters."""
         ...

@@ -60,11 +60,8 @@ class DeploymentProfileService:
         **kwargs: Any,
     ) -> DeploymentProfile:
         """Create a new Deployment Profile."""
-        # Check for duplicate site_id
-        if site_id:
-            existing = await self._repository.get_by_site(site_id)
-            if existing:
-                raise ValueError(f"Deployment Profile for site '{site_id}' already exists")
+        # Note: site_id no longer enforces uniqueness - multiple profiles can exist per site
+        # with different lanes
         
         # Create entity
         profile = DeploymentProfile(

@@ -210,9 +210,13 @@ class PresentationPolicyCreate(BaseModel):
     required_claims: list[RequiredClaimSchema] = Field(default_factory=list, description="Required claims")
     holder_binding: str = Field(default="session_nonce", description="Holder binding method")
     trust_profile_id: str | None = None
+    allowed_issuers: list[str] = Field(default_factory=list, description="Explicit issuer DID/certificate allowlist")
     freshness_requirements: FreshnessRequirementsSchema | None = None
     prefer_predicates: bool = Field(default=True, description="Prefer predicates over full values")
     single_presentation: bool = Field(default=False, description="Require single presentation")
+    derived_attribute_preferences: dict[str, str] = Field(default_factory=dict, description="Map raw claims to preferred derived forms")
+    credential_ranking_strategy: str = Field(default="freshest_first", description="Credential ranking strategy")
+    credential_ranking_weights: dict[str, float] = Field(default_factory=dict, description="Custom ranking weights")
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -226,9 +230,13 @@ class PresentationPolicyUpdate(BaseModel):
     required_claims: list[RequiredClaimSchema] | None = None
     holder_binding: str | None = None
     trust_profile_id: str | None = None
+    allowed_issuers: list[str] | None = None
     freshness_requirements: FreshnessRequirementsSchema | None = None
     prefer_predicates: bool | None = None
     single_presentation: bool | None = None
+    derived_attribute_preferences: dict[str, str] | None = None
+    credential_ranking_strategy: str | None = None
+    credential_ranking_weights: dict[str, float] | None = None
     metadata: dict[str, Any] | None = None
 
 
@@ -243,9 +251,13 @@ class PresentationPolicyResponse(BaseModel):
     required_claims: list[dict[str, Any]]
     holder_binding: str
     trust_profile_id: str | None
+    allowed_issuers: list[str]
     freshness_requirements: dict[str, Any]
     prefer_predicates: bool
     single_presentation: bool
+    derived_attribute_preferences: dict[str, str]
+    credential_ranking_strategy: str
+    credential_ranking_weights: dict[str, float]
     metadata: dict[str, Any]
     created_at: datetime
     updated_at: datetime
@@ -267,6 +279,7 @@ class UXConfigSchema(BaseModel):
     show_operator_mode: bool = Field(default=False, description="Show operator controls")
     accessibility_enabled: bool = Field(default=True, description="Enable accessibility features")
     custom_branding: dict[str, Any] = Field(default_factory=dict, description="Branding customization")
+    signage_text: dict[str, str] | None = Field(default=None, description="Multilingual signage text")
 
 
 class UpdatePolicySchema(BaseModel):
@@ -276,6 +289,46 @@ class UpdatePolicySchema(BaseModel):
     update_channel: str = Field(default="stable", description="Update channel")
     rollout_percentage: int = Field(default=100, ge=0, le=100, description="Rollout percentage")
     version_pinned: str | None = Field(default=None, description="Pinned version")
+    rollout_ring: str | None = Field(default=None, description="Named rollout ring")
+
+
+class LaneCreate(BaseModel):
+    """Schema for creating a Lane."""
+    
+    name: str = Field(..., min_length=1, max_length=255, description="Lane name (e.g., 'Gate 12', 'Lane A')")
+    default_policy_id: str | None = Field(default=None, description="Optional lane-specific policy override")
+    metadata: dict[str, Any] = Field(default_factory=dict, description="Additional configuration")
+
+
+class LaneUpdate(BaseModel):
+    """Schema for updating a Lane."""
+    
+    name: str | None = None
+    default_policy_id: str | None = None
+    metadata: dict[str, Any] | None = None
+
+
+class LaneDeviceAssignment(BaseModel):
+    """Schema for assigning devices to a lane."""
+    
+    device_ids: list[str] = Field(..., description="List of device IDs to assign to the lane")
+
+
+class LaneResponse(BaseModel):
+    """Schema for Lane response."""
+    
+    id: str
+    name: str
+    deployment_profile_id: str
+    default_policy_id: str | None
+    device_ids: list[str]
+    metadata: dict[str, Any]
+    created_at: datetime
+    updated_at: datetime
+    version: int
+
+    class Config:
+        from_attributes = True
 
 
 class DeploymentProfileCreate(BaseModel):

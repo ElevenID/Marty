@@ -13,7 +13,9 @@ from datetime import datetime, timedelta, timezone
 from typing import AsyncGenerator
 from uuid import uuid4
 
+from sqlalchemy import String, DateTime, JSON
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.pool import StaticPool
 
 from digital_identity.infrastructure.persistence.models import Base
@@ -22,6 +24,21 @@ from digital_identity.infrastructure.persistence.database import (
     DigitalIdentityDatabaseManager,
     set_database_manager,
 )
+
+
+# ============================================================================
+# Stub Tables for Foreign Key Resolution (Test Only)
+# ============================================================================
+
+class OrganizationModel(Base):
+    """Stub model for organizations table (required for FK constraints)."""
+    
+    __tablename__ = "organizations"
+    
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
 from digital_identity.infrastructure.adapters.events import InMemoryEventPublisher
 from digital_identity.domain.entities import (
     TrustProfile,
@@ -39,9 +56,6 @@ from digital_identity.domain.value_objects import (
     ClaimDefinition,
     RevocationPolicy,
     TimePolicy,
-    CredentialRequirement,
-    FlowHooks,
-    EnvironmentConfig,
 )
 from digital_identity.infrastructure.persistence.repositories import (
     TrustProfileRepository,
@@ -191,7 +205,7 @@ def trust_profile_service(
     return TrustProfileService(
         repository=trust_profile_repository,
         event_publisher=event_publisher,
-        trust_adapter=None,
+        trust_validation=None,  # Not needed for basic tests
     )
 
 
@@ -243,7 +257,34 @@ def flow_service(
         execution_repository=flow_execution_repository,
         event_publisher=event_publisher,
         step_registry=None,
-        approval_strategy=None,
+        approval_strategies=None,
+    )
+
+
+@pytest.fixture
+def artifact_service() -> IssuerArtifactService:
+    """Create IssuerArtifact service with mock dependencies."""
+    from digital_identity.application.services.issuer_artifact_service import IssuerArtifactService
+    
+    # Mock key vault client
+    class MockKeyVaultClient:
+        async def ensure_key(self, key_id: str, algorithm: str) -> None:
+            pass
+        
+        async def key_exists(self, key_id: str) -> bool:
+            return True
+    
+    # Mock key manager
+    class MockKeyManager:
+        def generate_key(self, algorithm: str) -> dict[str, str]:
+            return {
+                "did": f"did:key:mock_{algorithm}",
+                "jwk": '{"kty": "EC", "crv": "P-256"}',
+            }
+    
+    return IssuerArtifactService(
+        key_vault=MockKeyVaultClient(),
+        key_manager=MockKeyManager(),
     )
 
 
@@ -315,55 +356,43 @@ def sample_credential_template() -> CredentialTemplate:
 @pytest.fixture
 def sample_presentation_policy() -> PresentationPolicy:
     """Create sample PresentationPolicy entity."""
+    from digital_identity.domain.value_objects import RequiredClaim
+    
     return PresentationPolicy(
         id=uuid4(),
         name="Age-Verification-Test",
         description="Test age verification policy",
-        required_credentials=[
-            CredentialRequirement(
+        purpose="Age verification for testing",
+        accepted_credential_types=["org.iso.18013.5.1.mDL"],
+        required_claims=[
+            RequiredClaim(
+                claim_name="age_over_21",
                 credential_type="org.iso.18013.5.1.mDL",
-                formats=["mdoc"],
-                trust_profile_types=[TrustProfileType.AAMVA],
-            ),
-        ],
-        requested_claims=[
-            ClaimDefinition(
-                name="age_over_21",
-                namespace="org.iso.18013.5.1",
-                display_name="Age Over 21",
-                mandatory=True,
-                value_type="boolean",
+                accept_predicate=True,
             ),
         ],
         trust_profile_id=None,
-        constraints={
-            "require_holder_binding": True,
-            "max_age_seconds": 3600,
-        },
     )
 
 
 @pytest.fixture
 def sample_deployment_profile() -> DeploymentProfile:
     """Create sample DeploymentProfile entity."""
+    from digital_identity.domain.value_objects import NetworkMode, UXConfig
+    
     return DeploymentProfile(
         id=uuid4(),
         name="Test-Deployment",
         description="Test deployment profile",
-        trust_profile_id=None,
-        credential_template_ids=[],
-        presentation_policy_ids=[],
-        environment_config=EnvironmentConfig(
-            environment="development",
-            endpoints={
-                "issuer": "https://issuer.test.local",
-                "verifier": "https://verifier.test.local",
-            },
-            features={
-                "biometric_verification": False,
-                "nfc_enabled": True,
-            },
-            secrets_reference="vault://test/secrets",
+        environment="development",
+        enabled_flow_ids=[],
+        default_presentation_policy_id=None,
+        network_mode=NetworkMode.ONLINE,
+        ux_config=UXConfig(
+            language="en",
+            theme="default",
+            show_operator_mode=False,
+            accessibility_enabled=True,
         ),
     )
 
@@ -376,15 +405,13 @@ def sample_flow() -> Flow:
         name="Test-Issuance-Flow",
         flow_type=FlowType.ISSUANCE,
         description="Test credential issuance flow",
-        deployment_profile_id=None,
-        steps=None,  # Will use default from FLOW_STEPS
-        hooks=FlowHooks(
-            pre_step={"document_scan": ["validate_country_support"]},
-            post_step={"biometric_capture": ["log_capture_quality"]},
-            on_error={"default": ["notify_admin"]},
-        ),
+        deployment_profile_ids=[],
+        hooks={
+            "pre_step": {"document_scan": [{"action": "validate_country_support"}]},
+            "post_step": {"biometric_capture": [{"action": "log_capture_quality"}]},
+            "on_error": {"default": [{"action": "notify_admin"}]},
+        },
         approval_strategy=ApprovalStrategy.AUTO,
-        timeout_seconds=3600,
     )
 
 

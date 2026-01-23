@@ -22,10 +22,10 @@ const ADMIN_TABS = [
 const VENDOR_TABS = [
   { label: 'Dashboard', path: '/vendor', exact: true },
   { label: 'Applications', path: '/vendor/applications' },
-  { label: 'API Keys', path: '/vendor/api-keys' },
-  { label: 'Credentials', path: '/vendor/credentials' },
-  { label: 'Invitations', path: '/vendor/invitations' },
-  { label: 'Settings', path: '/vendor/settings', prefixes: ['/vendor/settings'] },
+  { label: 'Trust', path: '/vendor/trust' },
+  { label: 'Verification', path: '/vendor/verification' },
+  { label: 'Audit Logs', path: '/vendor/logs' },
+  { label: 'Team', path: '/vendor/team' },
 ];
 
 /**

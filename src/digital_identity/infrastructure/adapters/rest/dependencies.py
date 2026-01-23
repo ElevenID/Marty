@@ -156,6 +156,20 @@ async def get_deployment_profile_service(
     )
 
 
+async def get_lane_service(
+    session: AsyncSession = Depends(get_db_session),
+):
+    """Get Lane service instance."""
+    from digital_identity.infrastructure.persistence.repositories import DeploymentProfileRepository
+    from digital_identity.application.services.lane_service import LaneService
+    
+    repository = DeploymentProfileRepository(session)
+    return LaneService(
+        deployment_profile_repository=repository,
+        event_publisher=get_event_publisher(),
+    )
+
+
 async def get_flow_service(
     session: AsyncSession = Depends(get_db_session),
 ):
@@ -176,3 +190,12 @@ async def get_flow_service(
         step_registry=get_step_registry(),
         approval_strategy=get_approval_strategy(),
     )
+
+
+async def get_custom_anchor_repository(
+    session: AsyncSession = Depends(get_db_session),
+):
+    """Get Custom Anchor repository instance."""
+    from digital_identity.infrastructure.persistence.repositories import CustomAnchorRepository
+    
+    return CustomAnchorRepository(session)

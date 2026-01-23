@@ -51,9 +51,9 @@ from digital_identity.domain.value_objects import (
     ClaimDefinition,
     RevocationPolicy,
     TimePolicy,
-    CredentialRequirement,
-    FlowHooks,
-    EnvironmentConfig,
+    # CredentialRequirement,  # TODO: Add this value object
+    # FlowHooks,  # TODO: Add this value object
+    # EnvironmentConfig,  # TODO: Add this value object
 )
 
 # Database management
@@ -84,9 +84,9 @@ __all__ = [
     "ClaimDefinition",
     "RevocationPolicy",
     "TimePolicy",
-    "CredentialRequirement",
-    "FlowHooks",
-    "EnvironmentConfig",
+    # "CredentialRequirement",  # TODO
+    # "FlowHooks",  # TODO
+    # "EnvironmentConfig",  # TODO
     # Database
     "init_database",
     "close_database",

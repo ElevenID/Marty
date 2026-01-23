@@ -63,19 +63,6 @@ const RoleCard = ({ role, title, description, icon: Icon, selected, onSelect, fe
         ))}
       </List>
     </CardContent>
-    <CardActions sx={{ justifyContent: 'center', pb: 3 }}>
-      <Button
-        variant={selected ? 'contained' : 'outlined'}
-        startIcon={selected ? <CheckCircleIcon /> : null}
-        onClick={(e) => {
-          e.stopPropagation();
-          onSelect(role);
-        }}
-        data-testid={testId ? `${testId}-btn` : undefined}
-      >
-        {selected ? 'Selected' : 'Select'}
-      </Button>
-    </CardActions>
   </Card>
 );
 

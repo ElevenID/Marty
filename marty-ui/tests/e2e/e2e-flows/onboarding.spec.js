@@ -133,6 +133,26 @@ class OnboardingTestHelpers {
       await this.page.click(`text=${modeLabels[membershipMode]}`);
     }
   }
+
+  /**
+   * Select a trust profile/framework
+   * @param {string} profile - Profile to select: 'eudi', 'icao', 'aamva', or 'custom'
+   */
+  async selectTrustProfile(profile) {
+    const profileLabels = {
+      eudi: 'EU Digital Identity Wallet (EUDI)',
+      icao: 'ICAO PKD (Passports & Travel)',
+      aamva: 'AAMVA (Mobile Driver\'s License)',
+      custom: 'Custom X.509 (Advanced)',
+    };
+    const labelText = profileLabels[profile.toLowerCase()];
+    if (!labelText) {
+      throw new Error(`Unknown profile: ${profile}`);
+    }
+    
+    // Click on the profile card
+    await this.page.click(`text=${labelText}`);
+  }
 }
 
 
@@ -597,6 +617,121 @@ test.describe('Vendor Create Organization Step', () => {
 
     // Data should be preserved
     await expect(nameInput).toHaveValue('Test Organization');
+  });
+});
+
+
+test.describe('Vendor Trust Profile Selection Step', () => {
+  let helpers;
+
+  test.beforeEach(async ({ page }) => {
+    helpers = new OnboardingTestHelpers(page);
+  });
+
+  test('should display trust profile selection after organization form', async ({ page }) => {
+    await helpers.goToOnboarding();
+    
+    if (await helpers.isRedirectedAway()) {
+      return;
+    }
+
+    await helpers.selectRole('vendor');
+    await helpers.clickContinue();
+
+    // Fill org form
+    await helpers.fillVendorOrgForm({
+      name: 'Test Vendor Org',
+      description: 'A test organization',
+    });
+
+    // Click next
+    await helpers.clickContinue();
+
+    // Should now show trust profile selection
+    await expect(page.locator('text=Choose your trust profile')).toBeVisible();
+    await expect(page.locator('text=EU Digital Identity Wallet (EUDI)')).toBeVisible();
+    await expect(page.locator('text=ICAO PKD (Passports & Travel)')).toBeVisible();
+    await expect(page.locator('text=AAMVA (Mobile Driver\'s License)')).toBeVisible();
+    await expect(page.locator('text=Custom X.509 (Advanced)')).toBeVisible();
+  });
+
+  test('should allow selecting EUDI profile', async ({ page }) => {
+    await helpers.goToOnboarding();
+    
+    if (await helpers.isRedirectedAway()) {
+      return;
+    }
+
+    await helpers.selectRole('vendor');
+    await helpers.clickContinue();
+    await helpers.fillVendorOrgForm({ name: 'Test Org' });
+    await helpers.clickContinue();
+
+    // Select EUDI
+    await helpers.selectTrustProfile('eudi');
+
+    // Should show selection indicator
+    const eudiCard = page.locator('text=EU Digital Identity Wallet (EUDI)').locator('..');
+    await expect(eudiCard.locator('svg[data-testid="CheckCircleIcon"], .MuiSvgIcon-root').first()).toBeVisible();
+  });
+
+  test('should allow selecting ICAO profile', async ({ page }) => {
+    await helpers.goToOnboarding();
+    
+    if (await helpers.isRedirectedAway()) {
+      return;
+    }
+
+    await helpers.selectRole('vendor');
+    await helpers.clickContinue();
+    await helpers.fillVendorOrgForm({ name: 'Test Org' });
+    await helpers.clickContinue();
+
+    // Select ICAO
+    await helpers.selectTrustProfile('icao');
+
+    // Continue button should be enabled
+    const continueButton = page.locator('button:has-text("Continue")');
+    await expect(continueButton).toBeEnabled();
+  });
+
+  test('should require trust profile selection', async ({ page }) => {
+    await helpers.goToOnboarding();
+    
+    if (await helpers.isRedirectedAway()) {
+      return;
+    }
+
+    await helpers.selectRole('vendor');
+    await helpers.clickContinue();
+    await helpers.fillVendorOrgForm({ name: 'Test Org' });
+    await helpers.clickContinue();
+
+    // Try to continue without selecting profile
+    const continueButton = page.locator('button:has-text("Continue")');
+    await expect(continueButton).toBeDisabled();
+  });
+
+  test('should allow going back to organization form', async ({ page }) => {
+    await helpers.goToOnboarding();
+    
+    if (await helpers.isRedirectedAway()) {
+      return;
+    }
+
+    await helpers.selectRole('vendor');
+    await helpers.clickContinue();
+    await helpers.fillVendorOrgForm({ name: 'Test Org' });
+    await helpers.clickContinue();
+
+    // Should be on trust profile step
+    await expect(page.locator('text=Choose your trust profile')).toBeVisible();
+
+    // Click back
+    await helpers.clickBack();
+
+    // Should be back on organization form
+    await expect(page.locator('text=Create Your Organization')).toBeVisible();
   });
 });
 

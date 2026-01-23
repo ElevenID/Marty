@@ -1,0 +1,108 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "marty-common"
+version = "0.1.0"
+description = "Marty Common - Shared infrastructure for Marty digital identity services"
+authors = [
+    {name = "Marty Team"}
+]
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.11"
+keywords = ["marty", "digital-identity", "infrastructure", "crypto", "grpc"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Libraries",
+    "Topic :: Security :: Cryptography",
+]
+
+# Core dependencies for infrastructure, crypto, gRPC, database, monitoring
+dependencies = [
+    # Cryptography
+    "cryptography>=41.0.0",
+    "pycryptodome>=3.19.0",
+    
+    # gRPC
+    "grpcio>=1.59.0",
+    "grpcio-tools>=1.59.0",
+    "grpcio-reflection>=1.59.0",
+    
+    # Database
+    "sqlalchemy>=2.0.0",
+    "asyncpg>=0.29.0",
+    "psycopg2-binary>=2.9.9",
+    "alembic>=1.12.0",
+    
+    # Configuration & Validation
+    "pydantic>=2.5.0",
+    "pydantic-settings>=2.1.0",
+    "pyyaml>=6.0",
+    
+    # Monitoring & Observability
+    "prometheus-client>=0.19.0",
+    "opentelemetry-api>=1.21.0",
+    "opentelemetry-sdk>=1.21.0",
+    "opentelemetry-instrumentation>=0.42b0",
+    
+    # Logging
+    "structlog>=23.2.0",
+    
+    # Utilities
+    "python-dateutil>=2.8.2",
+    "pytz>=2023.3",
+    
+    # ACME/Certificate management
+    "acme>=2.7.0",
+    "certbot>=2.7.0",
+]
+
+[project.optional-dependencies]
+# Development dependencies
+dev = [
+    "pytest>=7.4.0",
+    "pytest-asyncio>=0.21.0",
+    "pytest-cov>=4.1.0",
+    "mypy>=1.7.0",
+    "ruff>=0.1.6",
+    "black>=23.11.0",
+]
+
+# Testing dependencies
+test = [
+    "pytest>=7.4.0",
+    "pytest-asyncio>=0.21.0",
+    "pytest-mock>=3.12.0",
+    "factory-boy>=3.3.0",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["marty_common"]
+
+[tool.hatch.version]
+path = "marty_common/__init__.py"
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W", "UP", "B", "C4", "SIM"]
+ignore = ["E501"]  # Line too long (handled by formatter)
+
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+plugins = ["pydantic.mypy"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"

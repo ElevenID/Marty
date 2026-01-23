@@ -484,7 +484,7 @@ export default function VendorDashboard() {
           action={
             <Button
               component={Link}
-              to="/vendor/settings/trust"
+              to="/vendor/settings"
               color="inherit"
               size="small"
               endIcon={<ArrowForwardIcon />}
@@ -513,7 +513,7 @@ export default function VendorDashboard() {
               size="small"
               variant="text"
               component={Link}
-              to="/vendor/settings/trust"
+              to="/vendor/settings"
               endIcon={<SettingsIcon />}
             >
               Manage

@@ -19,3 +19,7 @@ export { default as VerifierIdentityStep } from './steps/VerifierIdentityStep';
 export { default as IssuerIdentityStep } from './steps/IssuerIdentityStep';
 export { default as TrustSourcesStep } from './steps/TrustSourcesStep';
 export { default as TrustHealthCheckStep } from './steps/TrustHealthCheckStep';
+
+// Consolidated trust setup steps
+export { default as BusinessContextStep } from './steps/BusinessContextStep';
+export { default as TechnicalIdentityStep } from './steps/TechnicalIdentityStep';

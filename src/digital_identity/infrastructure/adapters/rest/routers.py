@@ -8,8 +8,10 @@ from __future__ import annotations
 
 import logging
 from typing import Any
+from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Header, status
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
 from digital_identity.infrastructure.adapters.rest.schemas import (
     # Trust Profile
@@ -28,6 +30,11 @@ from digital_identity.infrastructure.adapters.rest.schemas import (
     DeploymentProfileCreate,
     DeploymentProfileUpdate,
     DeploymentProfileResponse,
+    # Lane
+    LaneCreate,
+    LaneUpdate,
+    LaneResponse,
+    LaneDeviceAssignment,
     # Flow
     FlowCreate,
     FlowUpdate,
@@ -43,6 +50,7 @@ from digital_identity.infrastructure.adapters.rest.dependencies import (
     get_credential_template_service,
     get_presentation_policy_service,
     get_deployment_profile_service,
+    get_lane_service,
     get_flow_service,
 )
 from digital_identity.domain.value_objects import FLOW_STEPS, FlowType
@@ -76,7 +84,7 @@ async def create_trust_profile(
 ) -> TrustProfileResponse:
     """Create a new Trust Profile."""
     try:
-        profile = await service.create(data.model_dump())
+        profile = await service.create(**data.model_dump())
         return _trust_profile_to_response(profile)
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
@@ -99,10 +107,15 @@ async def list_trust_profiles(
     service=Depends(get_trust_profile_service),
 ) -> list[TrustProfileResponse]:
     """List Trust Profiles."""
+    from digital_identity.domain.value_objects import TrustProfileType
+    
+    # Convert profile_type string to enum if provided
+    profile_type_enum = TrustProfileType(profile_type) if profile_type else None
+    
     profiles = await service.list(
         skip=skip,
         limit=limit,
-        profile_type=profile_type,
+        profile_type=profile_type_enum,
         enabled=enabled,
     )
     return [_trust_profile_to_response(p) for p in profiles]
@@ -125,6 +138,23 @@ async def get_trust_profile(
     return _trust_profile_to_response(profile)
 
 
+@trust_profile_router.get(
+    "/by-name/{name}",
+    response_model=TrustProfileResponse,
+    summary="Get Trust Profile by Name",
+    description="Get a trust profile by name.",
+)
+async def get_trust_profile_by_name(
+    name: str,
+    service=Depends(get_trust_profile_service),
+) -> TrustProfileResponse:
+    """Get a Trust Profile by name."""
+    profile = await service.get_by_name(name)
+    if not profile:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Trust profile not found")
+    return _trust_profile_to_response(profile)
+
+
 @trust_profile_router.patch(
     "/{profile_id}",
     response_model=TrustProfileResponse,
@@ -138,7 +168,7 @@ async def update_trust_profile(
 ) -> TrustProfileResponse:
     """Update a Trust Profile."""
     try:
-        profile = await service.update(profile_id, data.model_dump(exclude_unset=True))
+        profile = await service.update(profile_id, **data.model_dump(exclude_unset=True))
         if not profile:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Trust profile not found")
         return _trust_profile_to_response(profile)
@@ -163,6 +193,32 @@ async def delete_trust_profile(
 
 
 @trust_profile_router.post(
+    "/{profile_id}/trust-sources",
+    response_model=TrustProfileResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Add Trust Source",
+    description="Add a trust source to an existing trust profile.",
+)
+async def add_trust_source(
+    profile_id: str,
+    source_type: str = Query(..., description="Type of trust source (e.g., 'pkd', 'iaca', 'x509_pinned')"),
+    source_uri: str | None = Query(None, description="Optional URI for the trust source"),
+    config: dict[str, Any] | None = None,
+    service=Depends(get_trust_profile_service),
+) -> TrustProfileResponse:
+    """Add a trust source to a Trust Profile."""
+    profile = await service.add_trust_source(
+        profile_id=profile_id,
+        source_type=source_type,
+        source_uri=source_uri,
+        config=config,
+    )
+    if not profile:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Trust profile not found")
+    return _trust_profile_to_response(profile)
+
+
+@trust_profile_router.post(
     "/{profile_id}/refresh",
     response_model=dict[str, Any],
     summary="Refresh Trust Profile",
@@ -173,8 +229,8 @@ async def refresh_trust_profile(
     service=Depends(get_trust_profile_service),
 ) -> dict[str, Any]:
     """Refresh a Trust Profile's anchors."""
-    result = await service.refresh(profile_id)
-    return {"success": result.success, "anchors_updated": result.anchors_updated, "error": result.error}
+    result = await service.refresh_trust_data(profile_id)
+    return result
 
 
 def _trust_profile_to_response(profile) -> TrustProfileResponse:
@@ -451,6 +507,48 @@ async def delete_presentation_policy(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Presentation policy not found")
 
 
+@presentation_policy_router.get(
+    "/sync",
+    response_model=list[PresentationPolicyResponse],
+    summary="Sync Presentation Policies",
+    description="Authenticated endpoint for syncing policies to verifier/mobile apps. Requires license JWT as Bearer token.",
+)
+async def sync_presentation_policies(
+    if_modified_since: str | None = Header(None, alias="If-Modified-Since"),
+    credentials: HTTPAuthorizationCredentials = Depends(HTTPBearer()),
+    service=Depends(get_presentation_policy_service),
+) -> list[PresentationPolicyResponse]:
+    """
+    Sync Presentation Policies with delta support.
+    
+    Accepts license JWT as Bearer token for authentication.
+    Supports If-Modified-Since header for delta sync.
+    """
+    # TODO: Validate license JWT and extract org_id
+    # For now, return all policies
+    # In production, filter by org_id from license claims
+    
+    modified_since = None
+    if if_modified_since:
+        try:
+            # Parse RFC 2822 date format
+            modified_since = datetime.strptime(if_modified_since, "%a, %d %b %Y %H:%M:%S GMT")
+        except ValueError:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid If-Modified-Since header format. Expected RFC 2822 format."
+            )
+    
+    # Get all policies (TODO: filter by org_id and modified_since)
+    policies = await service.list(skip=0, limit=1000)
+    
+    # Filter by modification time if provided
+    if modified_since:
+        policies = [p for p in policies if p.updated_at > modified_since]
+    
+    return [_presentation_policy_to_response(p) for p in policies]
+
+
 def _presentation_policy_to_response(policy) -> PresentationPolicyResponse:
     """Convert entity to response schema."""
     return PresentationPolicyResponse(
@@ -470,12 +568,16 @@ def _presentation_policy_to_response(policy) -> PresentationPolicyResponse:
         ],
         holder_binding=policy.holder_binding.value,
         trust_profile_id=policy.trust_profile_id,
+        allowed_issuers=policy.allowed_issuers,
         freshness_requirements={
             "max_proof_age_seconds": policy.freshness_requirements.max_proof_age.total_seconds(),
             "require_live_revocation_check": policy.freshness_requirements.require_live_revocation_check,
         },
         prefer_predicates=policy.prefer_predicates,
         single_presentation=policy.single_presentation,
+        derived_attribute_preferences=policy.derived_attribute_preferences,
+        credential_ranking_strategy=policy.credential_ranking_strategy.value,
+        credential_ranking_weights=policy.credential_ranking_weights,
         metadata=policy.metadata,
         created_at=policy.created_at,
         updated_at=policy.updated_at,
@@ -601,11 +703,13 @@ def _deployment_profile_to_response(profile) -> DeploymentProfileResponse:
             "theme": profile.ux_config.theme,
             "show_operator_mode": profile.ux_config.show_operator_mode,
             "accessibility_enabled": profile.ux_config.accessibility_enabled,
+            "signage_text": profile.ux_config.signage_text,
         },
         update_policy={
             "auto_update": profile.update_policy.auto_update,
             "update_channel": profile.update_policy.update_channel,
             "rollout_percentage": profile.update_policy.rollout_percentage,
+            "rollout_ring": profile.update_policy.rollout_ring,
         },
         offline_cache_ttl_hours=profile.offline_cache_ttl_hours,
         biometric_required=profile.biometric_required,
@@ -614,6 +718,157 @@ def _deployment_profile_to_response(profile) -> DeploymentProfileResponse:
         created_at=profile.created_at,
         updated_at=profile.updated_at,
         version=profile.version,
+    )
+
+
+# =========================================================
+# Lane Router
+# =========================================================
+
+lane_router = APIRouter(
+    prefix="/v1/identity/deployment-profiles",
+    tags=["Lanes"],
+    responses={
+        404: {"model": ErrorResponse},
+        500: {"model": ErrorResponse},
+    },
+)
+
+
+@lane_router.post(
+    "/{profile_id}/lanes",
+    response_model=LaneResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create a Lane",
+)
+async def create_lane(
+    profile_id: str,
+    data: LaneCreate,
+    service=Depends(get_lane_service),
+) -> LaneResponse:
+    """Create a new Lane under a Deployment Profile."""
+    try:
+        lane = await service.create(
+            deployment_profile_id=profile_id,
+            **data.model_dump(),
+        )
+        return _lane_to_response(lane)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except Exception as e:
+        logger.exception("Failed to create lane")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+
+
+@lane_router.get(
+    "/{profile_id}/lanes",
+    response_model=list[LaneResponse],
+    summary="List Lanes in a Deployment Profile",
+)
+async def list_lanes(
+    profile_id: str,
+    service=Depends(get_lane_service),
+) -> list[LaneResponse]:
+    """List all Lanes in a Deployment Profile."""
+    lanes = await service.list(deployment_profile_id=profile_id)
+    return [_lane_to_response(l) for l in lanes]
+
+
+@lane_router.get(
+    "/{profile_id}/lanes/{lane_id}",
+    response_model=LaneResponse,
+    summary="Get Lane",
+)
+async def get_lane(
+    profile_id: str,
+    lane_id: str,
+    service=Depends(get_lane_service),
+) -> LaneResponse:
+    """Get a Lane by ID."""
+    lane = await service.get(deployment_profile_id=profile_id, lane_id=lane_id)
+    if not lane:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Lane not found")
+    return _lane_to_response(lane)
+
+
+@lane_router.patch(
+    "/{profile_id}/lanes/{lane_id}",
+    response_model=LaneResponse,
+    summary="Update Lane",
+)
+async def update_lane(
+    profile_id: str,
+    lane_id: str,
+    data: LaneUpdate,
+    service=Depends(get_lane_service),
+) -> LaneResponse:
+    """Update a Lane."""
+    try:
+        lane = await service.update(
+            deployment_profile_id=profile_id,
+            lane_id=lane_id,
+            **data.model_dump(exclude_unset=True),
+        )
+        if not lane:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Lane not found")
+        return _lane_to_response(lane)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+
+@lane_router.delete(
+    "/{profile_id}/lanes/{lane_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Delete Lane",
+)
+async def delete_lane(
+    profile_id: str,
+    lane_id: str,
+    service=Depends(get_lane_service),
+) -> None:
+    """Delete a Lane."""
+    deleted = await service.delete(deployment_profile_id=profile_id, lane_id=lane_id)
+    if not deleted:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Lane not found")
+
+
+@lane_router.post(
+    "/{profile_id}/lanes/{lane_id}/assign-devices",
+    response_model=LaneResponse,
+    summary="Assign Devices to Lane",
+)
+async def assign_devices_to_lane(
+    profile_id: str,
+    lane_id: str,
+    data: LaneDeviceAssignment,
+    service=Depends(get_lane_service),
+) -> LaneResponse:
+    """Assign devices to a Lane."""
+    try:
+        lane = await service.assign_devices(
+            deployment_profile_id=profile_id,
+            lane_id=lane_id,
+            device_ids=data.device_ids,
+        )
+        if not lane:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Lane not found")
+        return _lane_to_response(lane)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+
+def _lane_to_response(lane) -> LaneResponse:
+    """Convert Lane entity to response schema."""
+    return LaneResponse(
+        id=lane.id,
+        name=lane.name,
+        deployment_profile_id=lane.deployment_profile_id,
+        default_policy_id=lane.default_policy_id,
+        device_ids=lane.device_ids,
+        metadata=lane.metadata,
+        created_at=lane.created_at,
+        updated_at=lane.updated_at,
+        version=lane.version,
     )
 
 

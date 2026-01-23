@@ -17,9 +17,46 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    JSON,
 )
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+from sqlalchemy.types import TypeDecorator
+
+
+class JSONBType(TypeDecorator):
+    """Platform-independent JSONB type.
+    
+    Uses JSONB for PostgreSQL and JSON for SQLite/other databases.
+    """
+    impl = JSON
+    cache_ok = True
+    
+    def load_dialect_impl(self, dialect):
+        if dialect.name == "postgresql":
+            return dialect.type_descriptor(JSONB())
+        return dialect.type_descriptor(JSON())
+
+
+class ARRAYType(TypeDecorator):
+    """Platform-independent ARRAY type.
+    
+    Uses ARRAY for PostgreSQL and JSON for SQLite/other databases.
+    Arrays are stored as JSON in SQLite.
+    """
+    impl = JSON
+    cache_ok = True
+    
+    def __init__(self, item_type=None):
+        self.item_type = item_type
+        super().__init__()
+    
+    def load_dialect_impl(self, dialect):
+        if dialect.name == "postgresql":
+            if self.item_type:
+                return dialect.type_descriptor(ARRAY(self.item_type))
+            return dialect.type_descriptor(ARRAY(String))
+        return dialect.type_descriptor(JSON())
 
 
 class Base(DeclarativeBase):
@@ -55,7 +92,7 @@ class Organization(Base):
     square_customer_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     
     # Organization settings
-    settings: Mapped[dict] = mapped_column(JSONB, default=dict, nullable=False)
+    settings: Mapped[dict] = mapped_column(JSONBType, default=dict, nullable=False)
     
     # Timestamps
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
@@ -158,10 +195,10 @@ class APIKey(Base):
     key_prefix: Mapped[str] = mapped_column(String(16), nullable=False)  # For identification
     
     # Permissions
-    scopes: Mapped[list[str]] = mapped_column(ARRAY(String), default=list, nullable=False)
+    scopes: Mapped[list[str]] = mapped_column(ARRAYType(String), default=list, nullable=False)
     
     # IP restrictions
-    ip_allowlist: Mapped[list[str]] = mapped_column(ARRAY(String), default=list, nullable=False)
+    ip_allowlist: Mapped[list[str]] = mapped_column(ARRAYType(String), default=list, nullable=False)
     
     # Flags
     is_test: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
@@ -204,7 +241,7 @@ class WebhookEndpoint(Base):
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     
     # Event filtering
-    event_types: Mapped[list[str]] = mapped_column(ARRAY(String), default=list, nullable=False)
+    event_types: Mapped[list[str]] = mapped_column(ARRAYType(String), default=list, nullable=False)
     
     # Status
     enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)

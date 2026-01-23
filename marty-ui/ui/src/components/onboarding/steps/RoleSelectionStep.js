@@ -15,15 +15,7 @@ const RoleSelectionStep = ({ userType, onSelectRole }) => {
     <Fade in>
       <Box data-testid="role-selection-step" id="role-selection">
         <div data-testid="role-selection">
-        <Typography variant="h5" gutterBottom textAlign="center">
-          How will you use Marty?
-        </Typography>
-        <Typography
-          variant="body1"
-          color="text.secondary"
-          textAlign="center"
-          sx={{ mb: 4 }}
-        >
+        <Typography variant="h5" gutterBottom textAlign="center" sx={{ mb: 4 }}>
           Choose the option that best describes you
         </Typography>
 

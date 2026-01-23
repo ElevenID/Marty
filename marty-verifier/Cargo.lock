@@ -285,6 +285,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "async-lock"
+version = "3.4.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "290f7f2596bd5b78a9fec8088ccd89180d7f9f55b94b0576823bbbdc72ee8311"
+dependencies = [
+ "event-listener",
+ "event-listener-strategy",
+ "pin-project-lite",
+]
+
+[[package]]
 name = "async-signature"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1015,6 +1026,15 @@ checksum = "ba5a308b75df32fe02788e748662718f03fde005016435c444eea572398219fd"
 dependencies = [
  "bytes",
  "memchr",
+]
+
+[[package]]
+name = "concurrent-queue"
+version = "2.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4ca0197aee26d1ae37445ee532fefce43251d24cc7c166799f4d46817f1d3973"
+dependencies = [
+ "crossbeam-utils",
 ]
 
 [[package]]
@@ -2071,6 +2091,27 @@ checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "event-listener"
+version = "5.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e13b66accf52311f30a0db42147dadea9850cb48cd070028831ae5f5d4b856ab"
+dependencies = [
+ "concurrent-queue",
+ "parking",
+ "pin-project-lite",
+]
+
+[[package]]
+name = "event-listener-strategy"
+version = "0.5.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8be9f3dfaaffdae2972880079a491a1a8bb7cbed0b8dd7a347f668b4150a3b93"
+dependencies = [
+ "event-listener",
+ "pin-project-lite",
 ]
 
 [[package]]
@@ -3846,6 +3887,40 @@ dependencies = [
 ]
 
 [[package]]
+name = "lber"
+version = "0.4.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2df7f9fd9f64cf8f59e1a4a0753fe7d575a5b38d3d7ac5758dcee9357d83ef0a"
+dependencies = [
+ "bytes",
+ "nom 7.1.3",
+]
+
+[[package]]
+name = "ldap3"
+version = "0.11.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "166199a8207874a275144c8a94ff6eed5fcbf5c52303e4d9b4d53a0c7ac76554"
+dependencies = [
+ "async-trait",
+ "bytes",
+ "futures",
+ "futures-util",
+ "lazy_static",
+ "lber",
+ "log",
+ "native-tls",
+ "nom 7.1.3",
+ "percent-encoding",
+ "thiserror 1.0.69",
+ "tokio",
+ "tokio-native-tls",
+ "tokio-stream",
+ "tokio-util",
+ "url",
+]
+
+[[package]]
 name = "lebe"
 version = "0.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4350,13 +4425,16 @@ dependencies = [
  "hmac",
  "iref",
  "isomdl",
+ "ldap3",
  "marty-crypto",
+ "moka",
  "p256",
  "p384",
  "p521",
  "pem-rfc7468 0.7.0",
  "pkcs8 0.10.2",
  "rand 0.8.5",
+ "reqwest 0.12.26",
  "rsa 0.9.9",
  "serde",
  "serde_json",
@@ -4366,6 +4444,7 @@ dependencies = [
  "spki 0.7.3",
  "ssi",
  "thiserror 1.0.69",
+ "tokio",
  "tracing",
  "tracing-error",
  "x509-cert",
@@ -4502,6 +4581,26 @@ dependencies = [
  "libc",
  "wasi 0.11.1+wasi-snapshot-preview1",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "moka"
+version = "0.12.12"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a3dec6bd31b08944e08b58fd99373893a6c17054d6f3ea5006cc894f4f4eee2a"
+dependencies = [
+ "async-lock",
+ "crossbeam-channel",
+ "crossbeam-epoch",
+ "crossbeam-utils",
+ "equivalent",
+ "event-listener",
+ "futures-util",
+ "parking_lot",
+ "portable-atomic",
+ "smallvec",
+ "tagptr",
+ "uuid",
 ]
 
 [[package]]
@@ -5266,6 +5365,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "parking"
+version = "2.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f38d5652c16fde515bb1ecef450ab0f6a219d619a7274976324d5e377f7dceba"
+
+[[package]]
 name = "parking_lot"
 version = "0.12.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5648,6 +5753,12 @@ dependencies = [
  "opaque-debug",
  "universal-hash",
 ]
+
+[[package]]
+name = "portable-atomic"
+version = "1.13.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f89776e4d69bb58bc6993e99ffa1d11f228b839984854c7daeb5d37f87cbe950"
 
 [[package]]
 name = "potential_utf"
@@ -8313,6 +8424,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "tagptr"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7b2093cf4c8eb1e67749a6762251bc9cd836b6fc171623bd0a9d324d37af2417"
+
+[[package]]
 name = "tao"
 version = "0.34.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8899,6 +9016,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1729aa945f29d91ba541258c8df89027d5792d85a8841fb65e8bf0f4ede4ef61"
 dependencies = [
  "rustls 0.23.35",
+ "tokio",
+]
+
+[[package]]
+name = "tokio-stream"
+version = "0.1.18"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "32da49809aab5c3bc678af03902d4ccddea2a87d028d86392a4b1560c6906c70"
+dependencies = [
+ "futures-core",
+ "pin-project-lite",
  "tokio",
 ]
 

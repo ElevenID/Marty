@@ -1,8 +1,12 @@
 /**
  * Vendor Application Review Component
  * 
- * Allows organization admins (vendors) to review applicant applications,
- * run vetting checks, request revisions, approve/reject, and trigger credential issuance.
+ * Restructured to include two tabs:
+ * 1. Application Templates - Define what applicants can apply for
+ * 2. Applications - Review and manage submitted applications
+ * 
+ * Templates encapsulate trust profiles, credential types, required documents,
+ * and approval workflows. Applications are instances of templates.
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
@@ -46,6 +50,8 @@ import {
   CheckCircle as PassedIcon,
   Cancel as FailedIcon,
   Schedule as PendingIcon,
+  Description as ApplicationsIcon,
+  Assignment as TemplatesIcon,
 } from '@mui/icons-material';
 import { useAuth } from '../../hooks/useAuth';
 import {
@@ -54,6 +60,7 @@ import {
   approveApplication,
   rejectApplication,
 } from '../ApplicantVetting';
+import ApplicationTemplateManager from './ApplicationTemplateManager';
 
 // Add request revision API function
 async function requestRevision(applicationId, data) {
@@ -291,27 +298,47 @@ function VendorApplicationReview() {
     setPage(0);
   };
 
+  // Main tabs state
+  const [mainTab, setMainTab] = useState(0);
+
   return (
     <Box>
       <Typography variant="h4" gutterBottom>
-        Application Review
+        Applications
       </Typography>
       
       <Typography variant="body2" color="text.secondary" paragraph>
-        Review and approve applications from applicants requesting credentials from your organization.
+        Manage application templates (what can be applied for) and review submitted applications.
       </Typography>
 
-      {/* Status Tabs */}
+      {/* Main Tabs: Templates vs Applications */}
       <Paper sx={{ mb: 3 }}>
-        <Tabs value={statusFilter} onChange={handleStatusFilterChange}>
-          <Tab label="Pending Review" value="pending_approval" />
-          <Tab label="Needs Revision" value="needs_revision" />
-          <Tab label="Under Review" value="vetting_in_progress" />
-          <Tab label="Approved" value="approved" />
-          <Tab label="Rejected" value="rejected" />
-          <Tab label="All" value="all" />
+        <Tabs value={mainTab} onChange={(e, v) => setMainTab(v)} sx={{ borderBottom: 1, borderColor: 'divider' }}>
+          <Tab icon={<TemplatesIcon />} iconPosition="start" label="Application Templates" />
+          <Tab icon={<ApplicationsIcon />} iconPosition="start" label="Applications" />
         </Tabs>
-      </Paper>
+
+        {/* Templates Tab */}
+        {mainTab === 0 && (
+          <Box sx={{ p: 3 }}>
+            <ApplicationTemplateManager />
+          </Box>
+        )}
+
+        {/* Applications Tab */}
+        {mainTab === 1 && (
+          <Box sx={{ p: 3 }}>
+            {/* Status Tabs */}
+            <Paper sx={{ mb: 3 }} elevation={0}>
+              <Tabs value={statusFilter} onChange={handleStatusFilterChange} variant="scrollable">
+                <Tab label="Pending Review" value="pending_approval" />
+                <Tab label="Needs Revision" value="needs_revision" />
+                <Tab label="Under Review" value="vetting_in_progress" />
+                <Tab label="Approved" value="approved" />
+                <Tab label="Rejected" value="rejected" />
+                <Tab label="All" value="all" />
+              </Tabs>
+            </Paper>
 
       {/* Error/Success Messages */}
       <Snackbar 
@@ -710,6 +737,9 @@ function VendorApplicationReview() {
           </Button>
         </DialogActions>
       </Dialog>
+          </Box>
+        )}
+      </Paper>
     </Box>
   );
 }

@@ -73,5 +73,5 @@ time = { workspace = true, optional = true }
 p256 = { workspace = true, optional = true }
 coset = { workspace = true, optional = true }
 
-# Internal crate (only for python feature - heavy verification not needed for WASM)
-marty-verification = { path = "../marty-verification", version = "0.1.0", optional = true }
+# From marty-core (only for python feature - heavy verification not needed for WASM)
+marty-verification = { path = "../../../marty-core/marty-verification", version = "0.1.0", optional = true }

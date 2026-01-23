@@ -136,6 +136,7 @@ class IssuanceService:
         offer = StoredOffer(
             id=str(uuid.uuid4()),
             issuance_session_id=session_id,
+            organization_id=organization_id,
             offer_uri=offer_uri,
             offer_payload=offer_payload,
             is_active=True,

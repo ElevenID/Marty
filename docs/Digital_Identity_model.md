@@ -69,6 +69,47 @@ So “identity” becomes a **transaction**:
 
 ---
 
+### 2a) Compliance Profile (CP)
+
+**Purpose:** Abstract credential format complexity behind compliance-focused profiles.
+
+**Contains:**
+
+* Compliance code (e.g., `ICAO_DTC`, `AAMVA_MDL`, `EUDI_PID`, `ENTERPRISE_VC`)
+* Credential format mapping (mdoc, SD-JWT, JSON-LD, JWT-VC)
+* Issuer artifact requirements per format
+* Default claim verification rules
+* Trust profile constraints
+* System vs. custom flag
+
+**Implementation:** Hides technical complexity (mdoc vs SD-JWT) from users by presenting compliance standards. Organizations can use system presets or create custom profiles.
+
+**Stability:** changes rarely for system profiles; medium frequency for custom profiles; owned by compliance/security.
+
+---
+
+### 2b) Application Template (AT)
+
+**Purpose:** Define *how users apply for credentials* (evidence + verification + artifacts).
+
+**Contains:**
+
+* Reference to Credential Template (what is issued)
+* Reference to Compliance Profile (format abstraction)
+* Evidence requirements (documents, biometrics, verifications needed)
+* Claim verification rules (how claims are validated before issuance)
+* Issuer cryptographic artifacts (signing keys, certificates, DIDs)
+* Auto-generate artifacts flag (dev vs production behavior)
+* Approval strategy and workflow configuration
+
+**Implementation:** Extends Credential Template with application-specific requirements. Manages issuer artifacts with environment-aware behavior:
+- Development: auto-generates missing keys/DIDs
+- Production: validates artifacts exist, enforces HSM for sensitive formats
+
+**Stability:** changes frequently; owned by operations/product.
+
+---
+
 ### 3) Presentation Policy (PP)
 
 **Purpose:** Define *what must be shown to satisfy a request* (minimum disclosure).
@@ -93,11 +134,19 @@ So “identity” becomes a **transaction**:
 **Contains:**
 
 * Enabled flows (which policies are available)
-* Default policy per lane/device
+* Default policy per profile
+* Lanes: logical device groupings with optional policy overrides
 * Network mode: online/offline, cache strategy
 * UX config: language, signage text, operator mode, accessibility
-* Update channel: version pinning, rollout rings, audit logs
+* Update channel: version pinning, rollout rings, rollout percentage, audit logs
 * Key access mode: key vault / signing agent / device keystore (BYOK strategy)
+
+**Lanes:** A Lane is a logical grouping of devices (e.g., "Gate 12", "Checkpoint North") under a Deployment Profile. Each lane can have:
+* Name and metadata (zone info, operator assignments)
+* Device assignments (list of device IDs)
+* Default policy override (optional lane-specific policy)
+
+**Hierarchy:** Organization → Site → Deployment Profile → Lane(s) → Device(s)
 
 **Stability:** changes frequently; owned by operations.
 
@@ -181,6 +230,8 @@ Design your API around these resources (CRUD + versioning + publish):
 
 * `TrustProfiles`
 * `CredentialTemplates`
+* `ComplianceProfiles` — NEW: abstract credential format complexity
+* `ApplicationTemplates` — NEW: define application/issuance requirements
 * `PresentationPolicies`
 * `DeploymentProfiles`
 * `Flows`
@@ -192,6 +243,12 @@ Design your API around these resources (CRUD + versioning + publish):
 Key architectural principle:
 
 * **Policies are data.** Endpoints execute them, not re-implement them.
+
+**Implementation Note:** The API exposes compliance profiles and application templates through dedicated endpoints:
+- `POST /v1/compliance-profiles` — Create/manage compliance configurations
+- `POST /v1/application-templates` — Create/manage application requirements
+- `POST /v1/application-templates/validate-artifacts` — Validate issuer artifacts
+- Flow entity references `application_template_id` (mutually exclusive with `credential_template_id`)
 
 ---
 

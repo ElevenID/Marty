@@ -125,6 +125,15 @@ class AuthCacheService:
     - Read-through with lazy loading for session validation
     - Ephemeral storage for PKCE state (auto-expire, single-use)
     
+    Multi-Tenant Redis Key Patterns (with organization hash tags):
+      - PKCE:         marty:{org-id}:pkce:{state}
+      - Refresh:      marty:{org-id}:refresh:{session_id}
+      - ID Token:     marty:{org-id}:id_token:{session_id}
+      - Session:      marty:{org-id}:session:{session_id}
+    
+    Hash tags {...} ensure all auth data for an organization hashes to the same
+    Redis Cluster slot, enabling efficient multi-key operations.
+    
     This service is designed to work with MMF's PluginContext or
     as a standalone service with an injected ICacheManager.
     """
@@ -186,6 +195,7 @@ class AuthCacheService:
         state: str,
         code_verifier: str,
         redirect_uri: str,
+        organization_id: str | None = None,
     ) -> None:
         """
         Store PKCE state for OAuth flow.
@@ -197,8 +207,19 @@ class AuthCacheService:
             state: OAuth state parameter (used as key)
             code_verifier: PKCE code verifier
             redirect_uri: Original redirect URI to return to
+            organization_id: Organization context for multi-tenant isolation (recommended)
         """
-        key = f"{self.PKCE_PREFIX}:{state}"
+        # Multi-tenant key pattern with hash tags for Redis Cluster
+        if organization_id:
+            key = f"{{{organization_id}}}:{self.PKCE_PREFIX}:{state}"
+        else:
+            # Fallback for backwards compatibility (deprecated)
+            key = f"{self.PKCE_PREFIX}:{state}"
+            logger.warning(
+                f"PKCE state stored without organization_id. "
+                "This breaks multi-tenant isolation and is deprecated."
+            )
+        
         state_data = PKCEStateData(
             code_verifier=code_verifier,
             redirect_uri=redirect_uri,
@@ -212,9 +233,13 @@ class AuthCacheService:
         )
         
         if self.config.debug_logging:
-            self._logger.debug(f"Stored PKCE state: {state[:20]}...")
+            self._logger.debug(f"Stored PKCE state: {state[:20]}... (org: {organization_id})")
 
-    async def consume_pkce_state(self, state: str) -> PKCEStateData | None:
+    async def consume_pkce_state(
+        self,
+        state: str,
+        organization_id: str | None = None,
+    ) -> PKCEStateData | None:
         """
         Retrieve and delete PKCE state (single-use pattern).
         
@@ -222,20 +247,25 @@ class AuthCacheService:
         
         Args:
             state: OAuth state parameter
+            organization_id: Organization context for scoped lookup
             
         Returns:
             PKCEStateData if found, None if not found or expired
         """
-        key = f"{self.PKCE_PREFIX}:{state}"
+        # Try org-scoped key first, fall back to legacy key
+        if organization_id:
+            key = f"{{{organization_id}}}:{self.PKCE_PREFIX}:{state}"
+        else:
+            key = f"{self.PKCE_PREFIX}:{state}"
         
         data = await self._cache.get_and_delete(key)
         
         if data is None:
-            self._logger.warning(f"PKCE state not found or expired: {state[:20]}...")
+            self._logger.warning(f"PKCE state not found or expired: {state[:20]}... (org: {organization_id})")
             return None
         
         if self.config.debug_logging:
-            self._logger.debug(f"Consumed PKCE state: {state[:20]}...")
+            self._logger.debug(f"Consumed PKCE state: {state[:20]}... (org: {organization_id})")
         
         # Handle both dict and string data (backwards compatibility)
         if isinstance(data, str):
@@ -247,17 +277,26 @@ class AuthCacheService:
         
         return PKCEStateData.from_dict(data)
 
-    async def pkce_state_exists(self, state: str) -> bool:
+    async def pkce_state_exists(
+        self,
+        state: str,
+        organization_id: str | None = None,
+    ) -> bool:
         """
         Check if PKCE state exists (without consuming it).
         
         Args:
             state: OAuth state parameter
+            organization_id: Organization context for scoped lookup
             
         Returns:
             True if state exists
         """
-        key = f"{self.PKCE_PREFIX}:{state}"
+        # Try org-scoped key first, fall back to legacy key
+        if organization_id:
+            key = f"{{{organization_id}}}:{self.PKCE_PREFIX}:{state}"
+        else:
+            key = f"{self.PKCE_PREFIX}:{state}"
         return await self._cache.exists(key)
 
     # =========================================================================
@@ -269,6 +308,7 @@ class AuthCacheService:
         session_id: str,
         refresh_token: str,
         ttl: int | None = None,
+        organization_id: str | None = None,
     ) -> None:
         """
         Store refresh token for session.
@@ -277,8 +317,17 @@ class AuthCacheService:
             session_id: Session identifier
             refresh_token: OAuth refresh token
             ttl: Optional TTL override
+            organization_id: Organization context for multi-tenant isolation
         """
-        key = f"{self.REFRESH_TOKEN_PREFIX}:{session_id}"
+        # Multi-tenant key pattern with hash tags
+        if organization_id:
+            key = f"{{{organization_id}}}:{self.REFRESH_TOKEN_PREFIX}:{session_id}"
+        else:
+            key = f"{self.REFRESH_TOKEN_PREFIX}:{session_id}"
+            logger.warning(
+                f"Refresh token stored without organization_id for session {session_id[:20]}..."
+            )
+        
         await self._cache.set(
             key,
             refresh_token,
@@ -286,19 +335,28 @@ class AuthCacheService:
         )
         
         if self.config.debug_logging:
-            self._logger.debug(f"Stored refresh token for session: {session_id[:20]}...")
+            self._logger.debug(f"Stored refresh token for session: {session_id[:20]}... (org: {organization_id})")
 
-    async def get_refresh_token(self, session_id: str) -> str | None:
+    async def get_refresh_token(
+        self,
+        session_id: str,
+        organization_id: str | None = None,
+    ) -> str | None:
         """
         Get refresh token for session.
         
         Args:
             session_id: Session identifier
+            organization_id: Organization context for scoped lookup
             
         Returns:
             Refresh token or None if not found
         """
-        key = f"{self.REFRESH_TOKEN_PREFIX}:{session_id}"
+        # Try org-scoped key first, fall back to legacy key
+        if organization_id:
+            key = f"{{{organization_id}}}:{self.REFRESH_TOKEN_PREFIX}:{session_id}"
+        else:
+            key = f"{self.REFRESH_TOKEN_PREFIX}:{session_id}"
         return await self._cache.get(key)
 
     async def store_id_token(
@@ -306,6 +364,7 @@ class AuthCacheService:
         session_id: str,
         id_token: str,
         ttl: int | None = None,
+        organization_id: str | None = None,
     ) -> None:
         """
         Store ID token for session (used for SSO logout).
@@ -314,8 +373,17 @@ class AuthCacheService:
             session_id: Session identifier
             id_token: OIDC ID token
             ttl: Optional TTL override
+            organization_id: Organization context for multi-tenant isolation
         """
-        key = f"{self.ID_TOKEN_PREFIX}:{session_id}"
+        # Multi-tenant key pattern with hash tags
+        if organization_id:
+            key = f"{{{organization_id}}}:{self.ID_TOKEN_PREFIX}:{session_id}"
+        else:
+            key = f"{self.ID_TOKEN_PREFIX}:{session_id}"
+            logger.warning(
+                f"ID token stored without organization_id for session {session_id[:20]}..."
+            )
+        
         await self._cache.set(
             key,
             id_token,
@@ -323,26 +391,39 @@ class AuthCacheService:
         )
         
         if self.config.debug_logging:
-            self._logger.debug(f"Stored ID token for session: {session_id[:20]}...")
+            self._logger.debug(f"Stored ID token for session: {session_id[:20]}... (org: {organization_id})")
 
-    async def get_id_token(self, session_id: str) -> str | None:
+    async def get_id_token(
+        self,
+        session_id: str,
+        organization_id: str | None = None,
+    ) -> str | None:
         """
         Get ID token for session.
         
         Args:
             session_id: Session identifier
+            organization_id: Organization context for scoped lookup
             
         Returns:
             ID token or None if not found
         """
-        key = f"{self.ID_TOKEN_PREFIX}:{session_id}"
+        # Try org-scoped key first, fall back to legacy key
+        if organization_id:
+            key = f"{{{organization_id}}}:{self.ID_TOKEN_PREFIX}:{session_id}"
+        else:
+            key = f"{self.ID_TOKEN_PREFIX}:{session_id}"
         return await self._cache.get(key)
 
     # =========================================================================
     # Session Invalidation
     # =========================================================================
 
-    async def invalidate_session_tokens(self, session_id: str) -> None:
+    async def invalidate_session_tokens(
+        self,
+        session_id: str,
+        organization_id: str | None = None,
+    ) -> None:
         """
         Remove all cached tokens for a session.
         
@@ -350,14 +431,20 @@ class AuthCacheService:
         
         Args:
             session_id: Session identifier
+            organization_id: Organization context for scoped deletion
         """
-        refresh_key = f"{self.REFRESH_TOKEN_PREFIX}:{session_id}"
-        id_token_key = f"{self.ID_TOKEN_PREFIX}:{session_id}"
+        # Delete both org-scoped and legacy keys for backwards compatibility
+        if organization_id:
+            refresh_key = f"{{{organization_id}}}:{self.REFRESH_TOKEN_PREFIX}:{session_id}"
+            id_token_key = f"{{{organization_id}}}:{self.ID_TOKEN_PREFIX}:{session_id}"
+        else:
+            refresh_key = f"{self.REFRESH_TOKEN_PREFIX}:{session_id}"
+            id_token_key = f"{self.ID_TOKEN_PREFIX}:{session_id}"
         
         await self._cache.delete(refresh_key)
         await self._cache.delete(id_token_key)
         
-        self._logger.info(f"Invalidated tokens for session: {session_id[:20]}...")
+        self._logger.info(f"Invalidated tokens for session: {session_id[:20]}... (org: {organization_id})")
 
     # =========================================================================
     # Session State (Optional - for advanced use cases)

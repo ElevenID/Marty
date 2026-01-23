@@ -320,3 +320,40 @@ class PresentationRejectedEvent(DomainEvent):
     flow_id: str = ""
     presentation_id: str = ""
     reason: str = ""
+
+
+# =============================================================================
+# Aliases for backward compatibility
+# =============================================================================
+
+# Trust Profile aliases (without "Event" suffix)
+TrustProfileCreated = TrustProfileCreatedEvent
+TrustProfileUpdated = TrustProfileUpdatedEvent
+TrustProfileDeleted = TrustProfileDeletedEvent
+
+# Credential Template aliases
+CredentialTemplateCreated = CredentialTemplateCreatedEvent
+CredentialTemplateUpdated = CredentialTemplateUpdatedEvent
+CredentialTemplateDeleted = CredentialTemplateDeletedEvent
+
+# Presentation Policy aliases
+PresentationPolicyCreated = PresentationPolicyCreatedEvent
+PresentationPolicyUpdated = PresentationPolicyUpdatedEvent
+PresentationPolicyDeleted = PresentationPolicyDeletedEvent
+
+# Deployment Profile aliases
+DeploymentProfileCreated = DeploymentProfileCreatedEvent
+DeploymentProfileUpdated = DeploymentProfileUpdatedEvent
+DeploymentProfileDeleted = DeploymentProfileDeletedEvent
+
+# Flow aliases
+FlowCreated = FlowCreatedEvent
+FlowUpdated = FlowUpdatedEvent
+FlowDeleted = FlowDeletedEvent
+
+# Flow Execution aliases (map to Flow event names)
+FlowExecutionStarted = FlowStartedEvent
+FlowExecutionStepCompleted = FlowStepCompletedEvent
+FlowExecutionAwaitingApproval = FlowAwaitingApprovalEvent
+FlowExecutionCompleted = FlowCompletedEvent
+FlowExecutionFailed = FlowFailedEvent

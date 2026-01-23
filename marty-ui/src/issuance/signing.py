@@ -26,7 +26,10 @@ class CredentialSigner:
     - mso_mdoc: Mobile Security Object (ISO 18013-5) - uses P-256/ES256
     
     Keys are generated and cached using SpruceIDKeyManager via get_key_manager().
-    Key IDs follow the pattern: {organization_id}-{algorithm.lower()}-test
+    Key IDs follow the pattern: {org-id}-{algorithm.lower()}-test
+    
+    Hash tags {...} ensure signing keys for an organization hash to the same
+    Redis Cluster slot when stored in Redis-backed key managers.
     """
 
     def __init__(
@@ -113,8 +116,9 @@ class CredentialSigner:
         }
         algorithm = format_algorithms.get(credential_format, KeyAlgorithm.ES256)
         
-        # Build key ID pattern: {org_id}-{algorithm.lower()}-test
-        key_id = f"{organization_id}-{algorithm.value.lower()}-test"
+        # Build key ID pattern with hash tags for Redis Cluster: {org-id}-{algorithm}-test
+        # Hash tags ensure all keys for an org hash to the same slot
+        key_id = f"{{{organization_id}}}-{algorithm.value.lower()}-test"
         
         # Get the key manager singleton
         key_manager = get_key_manager()

@@ -180,7 +180,7 @@ const UseCaseStep = ({
     <Fade in>
       <Box data-testid="use-case-step">
         <Typography variant="h5" gutterBottom textAlign="center">
-          What will you issue?
+          Who will you operate with?
         </Typography>
         <Typography
           variant="body1"
@@ -188,7 +188,7 @@ const UseCaseStep = ({
           textAlign="center"
           sx={{ mb: 4 }}
         >
-          Select the types of credentials your organization will issue
+          Select the trust profile to enable interoperability in your operating networks
         </Typography>
 
         <Grid container spacing={3}>

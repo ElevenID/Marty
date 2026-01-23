@@ -74,8 +74,17 @@ export const TrustProvider = ({ children, config = {}, organizationId = null }) 
       setHealthStatus(health);
     } catch (err) {
       console.error('Failed to load trust profile:', err);
-      setError(err.message);
-      // Set defaults on error
+      
+      // Don't show auth errors to user - these are expected until backend is ready
+      const isAuthError = err.message?.toLowerCase().includes('auth') || 
+                          err.message?.toLowerCase().includes('401') ||
+                          err.message?.toLowerCase().includes('403');
+      
+      if (!isAuthError) {
+        setError(err.message);
+      }
+      
+      // Set defaults on error (silent fallback)
       setTrustProfile(createDefaultTrustProfile(orgId));
       setHealthStatus(createDefaultHealthStatus());
     } finally {

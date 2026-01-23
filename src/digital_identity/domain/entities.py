@@ -24,11 +24,13 @@ from digital_identity.domain.value_objects import (
     TimePolicy,
     CryptoAlgorithm,
     CredentialFormat,
+    CredentialStatus,
     ClaimDefinition,
     ValidityRules,
     RequiredClaim,
     FreshnessRequirements,
     HolderBindingMethod,
+    CredentialRankingStrategy,
     NetworkMode,
     KeyAccessMode,
     UXConfig,
@@ -37,6 +39,12 @@ from digital_identity.domain.value_objects import (
     FlowStatus,
     ApprovalStrategy,
     FLOW_STEPS,
+    IssuerArtifactRequirements,
+    ARTIFACT_REQUIREMENTS,
+    EvidenceType,
+    EvidenceRequirement,
+    ClaimVerificationRule,
+    StatusListEntryRef,
 )
 
 
@@ -64,107 +72,170 @@ class Entity:
 
 
 # =============================================================================
-# Trust Profile
+# Trust Framework (System-level)
+# =============================================================================
+
+@dataclass
+class TrustFramework(Entity):
+    """
+    Trust Framework entity - system-level trust model shared across all organizations.
+    
+    A Trust Framework represents a standardized trust ecosystem like:
+    - ICAO PKD for ePassports/eMRTD
+    - AAMVA for mDL (ISO 18013-5)
+    - EUDI for EU Digital Identity Wallet
+    - CUSTOM for organization-specific X.509/PKI
+    
+    These are immutable system records that define default configurations,
+    PKD endpoints, and validation rulesets. Organizations reference frameworks
+    and apply their own policy overrides.
+    
+    Attributes:
+        code: Unique identifier (e.g., "icao", "aamva", "eudi", "custom")
+        display_name: Human-readable name (e.g., "ICAO PKD (Passports)")
+        description: Optional description
+        pkd_endpoints: Official PKD URLs for trust anchor sync
+        default_algorithms: Required algorithms for this framework
+        default_formats: Supported credential formats
+        validation_ruleset: Framework-specific validation rules
+        sync_config: Configuration for periodic trust anchor refresh
+        is_system: Whether this is a system-managed framework
+    """
+    
+    code: str = ""
+    display_name: str = ""
+    description: str | None = None
+    pkd_endpoints: dict[str, Any] = field(default_factory=dict)
+    default_algorithms: list[CryptoAlgorithm] = field(default_factory=list)
+    default_formats: list[CredentialFormat] = field(default_factory=list)
+    validation_ruleset: dict[str, Any] = field(default_factory=dict)
+    sync_config: dict[str, Any] = field(default_factory=dict)
+    is_system: bool = True
+
+
+# =============================================================================
+# Trust Profile (Organization-specific)
+# =============================================================================
+
+@dataclass
+class OrganizationTrustProfile(Entity):
+    """
+    Organization Trust Profile entity - org-specific configuration of a trust framework.
+    
+    This entity links an organization to a trust framework (ICAO, AAMVA, EUDI, CUSTOM)
+    and allows policy overrides specific to that organization's needs.
+    
+    The split model separates:
+    - SHARED: Framework definitions, global trust anchors (in TrustFramework)
+    - ORG-SPECIFIC: Selected framework, policy overrides, custom anchors (here)
+    
+    Attributes:
+        organization_id: Organization this profile belongs to
+        framework_id: Reference to the trust framework being used
+        name: Technical identifier (e.g., "travel-documents")
+        display_name: Business-friendly name (e.g., "Travel Documents")
+        description: Optional description
+        enabled: Whether the profile is active
+        use_case_tags: Business context tags (e.g., ["travel_documents"])
+        compliance_status: Current status (COMPLIANT, NEEDS_ATTENTION, SETUP_REQUIRED)
+        auto_generated: Whether created by onboarding wizard vs manual
+        revocation_policy: Override revocation policy (None = use framework default)
+        time_policy: Override time policy (None = use framework default)
+        allowed_algorithms: Override algorithms (None = use framework default)
+        allowed_formats: Override formats (None = use framework default)
+        allowed_issuers: Optional allowlist of issuer identifiers
+        denied_issuers: Optional denylist of issuer identifiers
+        jurisdiction_filter: Filter by jurisdiction codes (e.g., ['US-CA', 'US-NY'])
+        metadata: Additional configuration data
+    """
+    
+    organization_id: str = ""
+    framework_id: str = ""
+    name: str = ""
+    display_name: str = ""
+    description: str | None = None
+    enabled: bool = True
+    
+    # Business context
+    use_case_tags: list[str] = field(default_factory=list)
+    compliance_status: str = "SETUP_REQUIRED"  # COMPLIANT, NEEDS_ATTENTION, SETUP_REQUIRED
+    auto_generated: bool = False
+    
+    # Policy overrides (None = use framework defaults)
+    revocation_policy: RevocationPolicy | None = None
+    time_policy: TimePolicy | None = None
+    allowed_algorithms: list[CryptoAlgorithm] | None = None
+    allowed_formats: list[CredentialFormat] | None = None
+    
+    # Issuer constraints
+    allowed_issuers: list[str] | None = None
+    denied_issuers: list[str] | None = None
+    jurisdiction_filter: list[str] | None = None  # ['US-CA', 'DE', etc.]
+    
+    # Extension point
+    metadata: dict[str, Any] = field(default_factory=dict)
+    
+    def is_issuer_allowed(self, issuer_id: str) -> bool:
+        """Check if an issuer is allowed by this profile."""
+        if self.denied_issuers and issuer_id in self.denied_issuers:
+            return False
+        if self.allowed_issuers is not None:
+            return issuer_id in self.allowed_issuers
+        return True
+    
+    def is_algorithm_allowed(self, algorithm: CryptoAlgorithm) -> bool:
+        """Check if an algorithm is allowed by this profile."""
+        if self.allowed_algorithms is None:
+            return True  # Use framework defaults
+        return algorithm in self.allowed_algorithms
+    
+    def is_format_allowed(self, format: CredentialFormat) -> bool:
+        """Check if a credential format is allowed by this profile."""
+        if self.allowed_formats is None:
+            return True  # Use framework defaults
+        return format in self.allowed_formats
+
+
+# =============================================================================
+# Trust Profile (Simplified - for API)
 # =============================================================================
 
 @dataclass
 class TrustProfile(Entity):
     """
-    Trust Profile entity - defines who is trusted and how validation occurs.
+    Trust Profile entity - simplified trust configuration.
     
-    A Trust Profile encapsulates:
-    - Trust sources (ICAO PKD, AAMVA VICAL, EU Trusted Lists, pinned keys)
-    - Accepted cryptographic algorithms and key usages
-    - Revocation policy (OCSP, CRL, status lists, offline grace)
-    - Time and freshness rules
-    - Supported credential formats
-    
-    This is an abstraction layer that hides the complexity of multiple
-    trust models behind a unified interface.
-    
-    Business Context (v2):
-    - Multi-organization support via organization_id scoping
-    - Business-friendly display names abstract technical complexity
-    - Use case tags map business intent to technical configuration
-    - Compliance status for dashboard indicators
-    - Auto-generation flag distinguishes wizard-created from manual profiles
+    A standalone trust profile that defines trust sources and validation policies
+    for credential verification. This is the simpler API-focused entity used by
+    the REST endpoints and services.
     
     Attributes:
-        name: Technical identifier (e.g., "Passports-ICAO-US")
-        display_name: Business-friendly name (e.g., "Travel Documents")
+        name: Unique name for the trust profile
         description: Optional description
-        profile_type: Type of trust model (ICAO, AAMVA, EUDI, CUSTOM)
+        profile_type: Type of trust profile (ICAO, AAMVA, EUDI, CUSTOM)
         enabled: Whether the profile is active
-        organization_id: Organization ID for multi-tenant scoping
-        use_case_tags: Business context tags (e.g., ["travel_documents"])
-        auto_generated: Whether created by business wizard vs manual
-        compliance_status: Current status (COMPLIANT, NEEDS_ATTENTION, SETUP_REQUIRED)
-        manually_configured: Whether user manually configured advanced settings
-        trust_sources: List of trust source configurations
-        allowed_algorithms: Accepted cryptographic algorithms
-        allowed_formats: Accepted credential formats
-        revocation_policy: Revocation checking configuration
-        time_policy: Time validation configuration
+        trust_sources: List of trust anchor sources
+        allowed_algorithms: Allowed cryptographic algorithms
+        allowed_formats: Allowed credential formats
+        revocation_policy: Revocation checking policy
+        time_policy: Time validation policy
         allowed_issuers: Optional allowlist of issuer identifiers
         denied_issuers: Optional denylist of issuer identifiers
         metadata: Additional configuration data
     """
     
     name: str = ""
-    display_name: str = ""
     description: str | None = None
     profile_type: TrustProfileType = TrustProfileType.CUSTOM
     enabled: bool = True
-    
-    # Organization scoping (v2)
-    organization_id: str | None = None
-    use_case_tags: list[str] = field(default_factory=list)
-    auto_generated: bool = False
-    compliance_status: str = "SETUP_REQUIRED"  # COMPLIANT, NEEDS_ATTENTION, SETUP_REQUIRED
-    manually_configured: bool = False
-    
-    # Trust sources configuration
     trust_sources: list[dict[str, Any]] = field(default_factory=list)
-    
-    # Cryptographic constraints
-    allowed_algorithms: list[CryptoAlgorithm] = field(
-        default_factory=lambda: [
-            CryptoAlgorithm.ES256,
-            CryptoAlgorithm.ES384,
-            CryptoAlgorithm.ES512,
-        ]
-    )
-    allowed_formats: list[CredentialFormat] = field(
-        default_factory=lambda: [
-            CredentialFormat.MDOC,
-            CredentialFormat.SD_JWT_VC,
-        ]
-    )
-    
-    # Validation policies
+    allowed_algorithms: list[CryptoAlgorithm] = field(default_factory=list)
+    allowed_formats: list[CredentialFormat] = field(default_factory=list)
     revocation_policy: RevocationPolicy = field(default_factory=RevocationPolicy)
     time_policy: TimePolicy = field(default_factory=TimePolicy)
-    
-    # Issuer constraints
     allowed_issuers: list[str] | None = None
     denied_issuers: list[str] | None = None
-    
-    # Extension point
     metadata: dict[str, Any] = field(default_factory=dict)
-    
-    def add_trust_source(
-        self,
-        source_type: str,
-        source_uri: str | None = None,
-        config: dict[str, Any] | None = None,
-    ) -> None:
-        """Add a trust source to this profile."""
-        self.trust_sources.append({
-            "type": source_type,
-            "uri": source_uri,
-            "config": config or {},
-        })
-        self.touch()
     
     def is_issuer_allowed(self, issuer_id: str) -> bool:
         """Check if an issuer is allowed by this profile."""
@@ -181,6 +252,56 @@ class TrustProfile(Entity):
     def is_format_allowed(self, format: CredentialFormat) -> bool:
         """Check if a credential format is allowed by this profile."""
         return format in self.allowed_formats
+    
+    def add_trust_source(
+        self,
+        source_type: str,
+        source_uri: str | None = None,
+        config: dict[str, Any] | None = None,
+    ) -> None:
+        """Add a trust source to this profile."""
+        source = {
+            "type": source_type,
+            **({"uri": source_uri} if source_uri else {}),
+            **({"config": config} if config else {}),
+        }
+        self.trust_sources.append(source)
+        self.touch()
+
+
+@dataclass
+class OrganizationCustomAnchor(Entity):
+    """
+    Organization Custom Anchor entity - BYOK certificates for custom trust.
+    
+    Represents a custom trust anchor (certificate) uploaded by an organization
+    for use with CUSTOM trust profiles or as supplements to standard frameworks.
+    
+    Attributes:
+        profile_id: Trust profile this anchor belongs to
+        anchor_type: Type of anchor ('root_ca', 'intermediate', 'leaf')
+        subject: Certificate subject DN
+        issuer: Certificate issuer DN
+        certificate_pem: PEM-encoded certificate
+        certificate_der: DER-encoded certificate
+        not_before: Certificate validity start
+        not_after: Certificate validity end
+        purpose: Usage purpose ('signing', 'verification', 'both')
+        uploaded_by: User who uploaded the certificate
+        uploaded_at: When the certificate was uploaded
+    """
+    
+    profile_id: str = ""
+    anchor_type: str = "root_ca"
+    subject: str = ""
+    issuer: str = ""
+    certificate_pem: str = ""
+    certificate_der: bytes = field(default_factory=bytes)
+    not_before: datetime | None = None
+    not_after: datetime | None = None
+    purpose: str = "verification"
+    uploaded_by: str | None = None
+    uploaded_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 # =============================================================================
@@ -258,6 +379,168 @@ class CredentialTemplate(Entity):
 
 
 # =============================================================================
+# Compliance Profile
+# =============================================================================
+
+@dataclass
+class ComplianceProfile(Entity):
+    """
+    Compliance Profile entity - abstracts credential format complexity.
+    
+    A Compliance Profile bundles credential format, issuer artifact requirements,
+    and default verification rules into a reusable configuration. Profiles can be
+    system-provided presets (ICAO_DTC, AAMVA_MDL, EUDI_PID) or custom org-defined.
+    
+    This entity hides the complexity of choosing between mdoc, SD-JWT, JSON-LD, etc.,
+    by presenting compliance-focused options like "AAMVA mDL Standard" or "ICAO DTC".
+    
+    Attributes:
+        name: Human-readable name (e.g., "ICAO DTC - Digital Travel Credential")
+        description: Optional description
+        code: Unique code identifier (e.g., "ICAO_DTC", "AAMVA_MDL")
+        credential_format: The credential format this profile uses
+        issuer_artifact_requirements: Required cryptographic artifacts
+        default_claim_verification_rules: Default claim verification rules
+        trust_profile_requirements: Optional trust profile constraints
+        is_system: Whether this is a system-provided preset (immutable)
+        metadata: Additional configuration
+    """
+    
+    name: str = ""
+    description: str | None = None
+    code: str = ""
+    credential_format: CredentialFormat = CredentialFormat.SD_JWT_VC
+    issuer_artifact_requirements: IssuerArtifactRequirements | None = None
+    default_claim_verification_rules: list[ClaimVerificationRule] = field(default_factory=list)
+    trust_profile_requirements: dict[str, Any] = field(default_factory=dict)
+    is_system: bool = False
+    metadata: dict[str, Any] = field(default_factory=dict)
+    
+    def get_artifact_requirements(self) -> IssuerArtifactRequirements:
+        """Get artifact requirements for this profile."""
+        if self.issuer_artifact_requirements:
+            return self.issuer_artifact_requirements
+        # Fall back to default for format
+        return ARTIFACT_REQUIREMENTS.get(
+            self.credential_format,
+            ARTIFACT_REQUIREMENTS[CredentialFormat.SD_JWT_VC],
+        )
+    
+    def validate_artifacts(
+        self,
+        issuer_key_id: str | None,
+        issuer_certificate_chain_pem: str | None,
+        issuer_did: str | None,
+    ) -> list[str]:
+        """
+        Validate that required artifacts are present.
+        
+        Returns list of error messages if artifacts are missing.
+        """
+        requirements = self.get_artifact_requirements()
+        errors = []
+        
+        if requirements.requires_signing_key and not issuer_key_id:
+            errors.append(f"Signing key required for {self.credential_format}")
+        
+        if requirements.requires_certificate_chain and not issuer_certificate_chain_pem:
+            errors.append(f"Certificate chain required for {self.credential_format}")
+        
+        if requirements.requires_issuer_did and not issuer_did:
+            errors.append(f"Issuer DID required for {self.credential_format}")
+        
+        return errors
+
+
+# =============================================================================
+# Application Template
+# =============================================================================
+
+@dataclass
+class ApplicationTemplate(Entity):
+    """
+    Application Template entity - extends Credential Template with issuance requirements.
+    
+    An Application Template defines HOW users apply for and receive credentials,
+    including evidence requirements, claim verification rules, and issuer artifacts.
+    It sits between the user-facing application process and the technical credential
+    issuance, hiding format complexity behind compliance profiles.
+    
+    Key responsibilities:
+    - Define what evidence must be collected before issuance
+    - Specify how claims must be verified before inclusion
+    - Manage issuer cryptographic artifacts (keys, certs, DIDs)
+    - Link to a compliance profile (which selects credential format)
+    - Configure approval workflow
+    
+    Attributes:
+        name: Human-readable name for the application template
+        description: Optional description
+        credential_template_id: Reference to Credential Template (what is issued)
+        compliance_profile_id: Reference to Compliance Profile (hides format complexity)
+        evidence_requirements: List of required evidence before issuance
+        claim_verification_rules: Rules for verifying claim values
+        issuer_key_id: Reference to signing key in KeyVault
+        issuer_certificate_chain_pem: X.509 certificate chain (for mDoc)
+        issuer_did: DID for issuer (for DID-based credentials)
+        auto_generate_artifacts: Auto-generate missing artifacts in dev
+        approval_strategy: How approvals are handled
+        application_validity_days: How long applications remain valid
+        metadata: Additional configuration
+    """
+    
+    name: str = ""
+    description: str | None = None
+    
+    # Links to templates and compliance
+    credential_template_id: str = ""
+    compliance_profile_id: str = ""
+    
+    # Evidence and verification requirements
+    evidence_requirements: list[EvidenceRequirement] = field(default_factory=list)
+    claim_verification_rules: list[ClaimVerificationRule] = field(default_factory=list)
+    
+    # Issuer artifact configuration
+    issuer_key_id: str | None = None
+    issuer_certificate_chain_pem: str | None = None
+    issuer_did: str | None = None
+    auto_generate_artifacts: bool = True  # Dev mode convenience
+    
+    # Workflow configuration
+    approval_strategy: ApprovalStrategy = ApprovalStrategy.AUTO
+    application_validity_days: int = 30
+    
+    # Extension point
+    metadata: dict[str, Any] = field(default_factory=dict)
+    
+    def add_evidence_requirement(self, requirement: EvidenceRequirement) -> None:
+        """Add an evidence requirement to this template."""
+        self.evidence_requirements.append(requirement)
+        self.touch()
+    
+    def add_claim_verification_rule(self, rule: ClaimVerificationRule) -> None:
+        """Add a claim verification rule to this template."""
+        self.claim_verification_rules.append(rule)
+        self.touch()
+    
+    def get_required_evidence_types(self) -> list[EvidenceType]:
+        """Get all required evidence types."""
+        return [
+            req.evidence_type
+            for req in self.evidence_requirements
+            if req.required
+        ]
+    
+    def get_required_claims_to_verify(self) -> list[str]:
+        """Get list of claim names that require verification."""
+        return [
+            rule.claim_name
+            for rule in self.claim_verification_rules
+            if rule.required
+        ]
+
+
+# =============================================================================
 # Presentation Policy
 # =============================================================================
 
@@ -303,6 +586,7 @@ class PresentationPolicy(Entity):
     
     # Trust constraints
     trust_profile_id: str | None = None
+    allowed_issuers: list[str] = field(default_factory=list)  # Explicit issuer DID/certificate allowlist
     
     # Freshness
     freshness_requirements: FreshnessRequirements = field(
@@ -312,6 +596,11 @@ class PresentationPolicy(Entity):
     # Data minimization
     prefer_predicates: bool = True
     single_presentation: bool = False
+    derived_attribute_preferences: dict[str, str] = field(default_factory=dict)  # Map raw claims to preferred derived forms
+    
+    # Credential ranking
+    credential_ranking_strategy: CredentialRankingStrategy = CredentialRankingStrategy.FRESHEST_FIRST
+    credential_ranking_weights: dict[str, float] = field(default_factory=dict)  # For CUSTOM strategy
     
     # Extension point
     metadata: dict[str, Any] = field(default_factory=dict)
@@ -342,6 +631,42 @@ class PresentationPolicy(Entity):
 # =============================================================================
 
 @dataclass
+class Lane(Entity):
+    """
+    Lane entity - child of Deployment Profile.
+    
+    A Lane represents a logical grouping of devices (e.g., Gate 12, Checkpoint North)
+    under a Deployment Profile. Each lane can have its own default policy override
+    and device assignments.
+    
+    Attributes:
+        name: Human-readable name (e.g., "Lane A", "Gate 12")
+        deployment_profile_id: Parent Deployment Profile ID
+        default_policy_id: Optional lane-specific policy override
+        device_ids: List of device IDs assigned to this lane
+        metadata: Additional configuration (zone info, operator assignments, etc.)
+    """
+    
+    name: str = ""
+    deployment_profile_id: str = ""
+    default_policy_id: str | None = None
+    device_ids: list[str] = field(default_factory=list)
+    metadata: dict[str, Any] = field(default_factory=dict)
+    
+    def assign_device(self, device_id: str) -> None:
+        """Assign a device to this lane."""
+        if device_id not in self.device_ids:
+            self.device_ids.append(device_id)
+            self.touch()
+    
+    def unassign_device(self, device_id: str) -> None:
+        """Remove a device from this lane."""
+        if device_id in self.device_ids:
+            self.device_ids.remove(device_id)
+            self.touch()
+
+
+@dataclass
 class DeploymentProfile(Entity):
     """
     Deployment Profile entity - defines where identity runs.
@@ -352,6 +677,7 @@ class DeploymentProfile(Entity):
     - Device UX configuration
     - Update and rollout rules
     - Key-access strategy
+    - Lanes for logical device grouping
     
     Attributes:
         name: Human-readable name for the profile
@@ -366,6 +692,7 @@ class DeploymentProfile(Entity):
         offline_cache_ttl_hours: Hours to cache trust data offline
         biometric_required: Require biometric verification
         audit_all_events: Log all verification events
+        lanes: Child lanes for device grouping
         metadata: Additional configuration
     """
     
@@ -393,6 +720,9 @@ class DeploymentProfile(Entity):
     offline_cache_ttl_hours: int = 24
     biometric_required: bool = False
     audit_all_events: bool = True
+    
+    # Lanes
+    lanes: list[Lane] = field(default_factory=list)
     
     # Extension point
     metadata: dict[str, Any] = field(default_factory=dict)
@@ -425,7 +755,8 @@ class Flow(Entity):
     
     A Flow ties together:
     - A Trust Profile
-    - A Credential Template (if issuing)
+    - A Credential Template (if issuing directly)
+    - An Application Template (if issuing via application process)
     - A Presentation Policy (if verifying)
     - One or more Deployment Profiles
     - An approval strategy
@@ -434,12 +765,17 @@ class Flow(Entity):
     The flow type determines the fixed protocol sequence, while hooks
     allow business logic customization.
     
+    IMPORTANT: credential_template_id and application_template_id are mutually exclusive.
+    Use application_template_id for APPLICATION_APPROVAL_ISSUANCE flows,
+    use credential_template_id for direct issuance flows (OID4VCI, MDL_ISSUANCE).
+    
     Attributes:
         name: Human-readable name for the flow
         description: Optional description
         flow_type: Type of flow (determines step sequence)
         trust_profile_id: Reference to Trust Profile
-        credential_template_id: Reference to Credential Template (for issuance)
+        credential_template_id: Reference to Credential Template (for direct issuance)
+        application_template_id: Reference to Application Template (for application-based issuance)
         presentation_policy_id: Reference to Presentation Policy (for verification)
         deployment_profile_ids: References to Deployment Profiles
         approval_strategy: How approvals are handled
@@ -455,6 +791,7 @@ class Flow(Entity):
     # Referenced entities
     trust_profile_id: str | None = None
     credential_template_id: str | None = None
+    application_template_id: str | None = None  # NEW: For application-based issuance
     presentation_policy_id: str | None = None
     deployment_profile_ids: list[str] = field(default_factory=list)
     
@@ -469,6 +806,44 @@ class Flow(Entity):
     
     # Extension point
     metadata: dict[str, Any] = field(default_factory=dict)
+    
+    def validate(self) -> None:
+        """
+        Validate flow configuration.
+        
+        Raises:
+            ValueError: If configuration is invalid
+        """
+        # Mutual exclusivity check
+        if self.credential_template_id and self.application_template_id:
+            raise ValueError(
+                "Flow cannot reference both credential_template_id and "
+                "application_template_id. Use one or the other."
+            )
+        
+        # Flow type requirements
+        if self.flow_type == FlowType.APPLICATION_APPROVAL_ISSUANCE:
+            if not self.application_template_id:
+                raise ValueError(
+                    f"Flow type {self.flow_type} requires application_template_id"
+                )
+        elif self.flow_type in (
+            FlowType.OID4VCI_PRE_AUTHORIZED,
+            FlowType.OID4VCI_AUTHORIZATION_CODE,
+            FlowType.MDL_ISSUANCE,
+        ):
+            if not self.credential_template_id:
+                raise ValueError(
+                    f"Flow type {self.flow_type} requires credential_template_id"
+                )
+        elif self.flow_type in (
+            FlowType.OID4VP_PRESENTATION,
+            FlowType.MDL_PRESENTATION,
+        ):
+            if not self.presentation_policy_id:
+                raise ValueError(
+                    f"Flow type {self.flow_type} requires presentation_policy_id"
+                )
     
     def get_steps(self) -> list:
         """Get the fixed step sequence for this flow type."""
@@ -534,6 +909,7 @@ class FlowExecution(Entity):
     current_step_index: int = 0
     step_results: dict[str, Any] = field(default_factory=dict)
     context_data: dict[str, Any] = field(default_factory=dict)
+    issued_credential_id: str | None = None  # ID of credential issued by this execution
     started_at: datetime | None = None
     completed_at: datetime | None = None
     error: str | None = None
@@ -589,3 +965,126 @@ class FlowExecution(Entity):
         self.status = FlowStatus.CANCELLED
         self.completed_at = datetime.now(timezone.utc)
         self.touch()
+
+
+# =============================================================================
+# Issued Credential
+# =============================================================================
+
+@dataclass
+class IssuedCredential(Entity):
+    """
+    Issued Credential entity - tracks an issued credential for lifecycle management.
+    
+    Links Flow execution to the actual credential and its status entries.
+    Stores metadata about the credential without storing the actual credential data
+    (only hash for integrity verification).
+    
+    Attributes:
+        credential_id: Unique identifier (urn:uuid:... or custom issuer-defined URI)
+        credential_type: Credential type from template
+        credential_format: Format (mdoc, sd_jwt_vc, jwt_vc, ldp_vc)
+        flow_execution_id: Which FlowExecution issued this
+        credential_template_id: Which template was used
+        application_id: Source application if any
+        subject_id: DID, device key, or holder identifier
+        subject_claims_hash: Privacy-preserving hash of subject claims
+        issued_at: When credential was issued
+        valid_from: Start of validity period
+        valid_until: End of validity period
+        status: Current status (active, suspended, revoked, expired)
+        status_list_entries: References to status list entries
+        credential_hash: SHA-256 hash of credential for audit
+        revoked_at: When credential was revoked
+        revocation_reason: Reason for revocation
+        revoked_by: Who revoked the credential
+    """
+    
+    credential_id: str = ""
+    credential_type: str = ""
+    credential_format: CredentialFormat = CredentialFormat.JWT_VC
+    flow_execution_id: str = ""
+    credential_template_id: str = ""
+    application_id: str | None = None
+    subject_id: str = ""
+    subject_claims_hash: str | None = None
+    issued_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    valid_from: datetime | None = None
+    valid_until: datetime | None = None
+    status: CredentialStatus = CredentialStatus.ACTIVE
+    status_list_entries: list[StatusListEntryRef] = field(default_factory=list)
+    credential_hash: str | None = None
+    revoked_at: datetime | None = None
+    revocation_reason: str | None = None
+    revoked_by: str | None = None
+    
+    def revoke(self, reason: str | None = None, revoked_by: str | None = None) -> None:
+        """Mark credential as revoked."""
+        self.status = CredentialStatus.REVOKED
+        self.revoked_at = datetime.now(timezone.utc)
+        self.revocation_reason = reason
+        self.revoked_by = revoked_by
+        self.touch()
+    
+    def suspend(self) -> None:
+        """Temporarily suspend credential."""
+        self.status = CredentialStatus.SUSPENDED
+        self.touch()
+    
+    def reactivate(self) -> None:
+        """Reactivate a suspended credential."""
+        if self.status == CredentialStatus.SUSPENDED:
+            self.status = CredentialStatus.ACTIVE
+            self.touch()
+    
+    def check_expired(self) -> bool:
+        """Check if credential has expired."""
+        if self.valid_until and datetime.now(timezone.utc) > self.valid_until:
+            self.status = CredentialStatus.EXPIRED
+            self.touch()
+            return True
+        return False
+
+
+# =============================================================================
+# Audit Event
+# =============================================================================
+
+@dataclass
+class AuditEvent:
+    """
+    Audit Event entity - immutable log of domain events for compliance.
+    
+    Captures all significant actions on identity resources for:
+    - Compliance auditing (who did what, when)
+    - Security investigations
+    - Change history tracking
+    - Event correlation
+    
+    Attributes:
+        event_type: Type of domain event (e.g., FlowCreated, FlowExecutionApproved)
+        entity_type: Type of entity affected (e.g., Flow, FlowExecution, TrustProfile)
+        entity_id: ID of the entity affected
+        action: Human-readable action (e.g., "created", "approved", "rejected")
+        payload: Full event data (JSON)
+        occurred_at: When the event occurred (from DomainEvent.occurred_at)
+        actor_id: ID of the user/system that triggered the event
+        correlation_id: ID to correlate related events (e.g., all events in a flow execution)
+        id: Unique identifier for the audit event
+        created_at: When the audit event was created
+        updated_at: When the audit event was last updated (immutable, so always equals created_at)
+        version: Version number (always 1 for immutable events)
+    """
+    
+    event_type: str
+    entity_type: str
+    entity_id: str
+    action: str
+    payload: dict[str, Any]
+    occurred_at: datetime
+    actor_id: str | None = None
+    correlation_id: str | None = None
+    id: str = field(default_factory=lambda: str(uuid4()))
+    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    version: int = 1

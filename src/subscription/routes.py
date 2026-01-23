@@ -77,7 +77,7 @@ class UsageSummaryResponse(BaseModel):
 class CreateAPIKeyRequest(BaseModel):
     """Request to create an API key."""
     name: str = Field(..., min_length=1, max_length=255)
-    scopes: list[str] = Field(default_factory=list)
+    scopes: list[str] = Field(..., min_length=1, description="At least one scope is required")
     ip_allowlist: list[str] = Field(default_factory=list)
     expires_at: Optional[datetime] = None
     is_test: bool = False
@@ -92,6 +92,7 @@ class APIKeyResponse(BaseModel):
     ip_allowlist: list[str]
     is_test: bool
     expires_at: Optional[datetime]
+    revoked_at: Optional[datetime] = None
     last_used_at: Optional[datetime]
     created_at: datetime
 
@@ -126,6 +127,13 @@ class WebhookResponse(BaseModel):
 class WebhookCreatedResponse(WebhookResponse):
     """Webhook response with secret (only at creation)."""
     secret: str = Field(..., description="HMAC secret for signature verification")
+
+
+class UpdateWebhookRequest(BaseModel):
+    """Request to update a webhook endpoint."""
+    url: Optional[str] = Field(None, min_length=1, max_length=2048)
+    event_types: Optional[list[str]] = None
+    enabled: Optional[bool] = None
 
 
 # Dependencies (to be configured by the application)
@@ -197,6 +205,127 @@ async def create_organization(
         slug=org.slug,
         created_at=org.created_at,
     )
+
+
+@router.get(
+    "/organizations/{organization_id}",
+    response_model=dict,
+    summary="Get Organization",
+)
+async def get_organization(
+    organization_id: UUID,
+    db=Depends(get_db),
+    current_org: Organization = Depends(get_current_organization),
+) -> dict:
+    """
+    Get organization details.
+    
+    User must be a member of the organization.
+    """
+    from sqlalchemy import select
+    from .models import Organization
+    
+    result = await db.execute(
+        select(Organization).where(Organization.id == organization_id)
+    )
+    org = result.scalar_one_or_none()
+    
+    if not org:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Organization not found",
+        )
+    
+    # Verify user has access to this organization
+    if current_org.id != organization_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied to this organization",
+        )
+    
+    return {
+        "id": str(org.id),
+        "name": org.name,
+        "slug": org.slug,
+        "created_at": org.created_at.isoformat(),
+        "settings": org.settings or {},
+        "logo_url": org.settings.get("logo_url") if org.settings else None,
+    }
+
+
+class UpdateOrganizationRequest(BaseModel):
+    """Request to update organization."""
+    name: Optional[str] = Field(None, min_length=1, max_length=255)
+    logo_url: Optional[str] = Field(None, max_length=2048)
+    website_url: Optional[str] = Field(None, max_length=2048)
+    contact_email: Optional[str] = Field(None, max_length=255)
+
+
+@router.patch(
+    "/organizations/{organization_id}",
+    response_model=dict,
+    summary="Update Organization",
+)
+async def update_organization(
+    organization_id: UUID,
+    request: UpdateOrganizationRequest,
+    db=Depends(get_db),
+    current_org: Organization = Depends(get_current_organization),
+) -> dict:
+    """
+    Update organization details.
+    
+    User must be an admin or owner of the organization.
+    """
+    from sqlalchemy import select
+    from .models import Organization
+    
+    # Verify user has access to this organization
+    if current_org.id != organization_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied to this organization",
+        )
+    
+    result = await db.execute(
+        select(Organization).where(Organization.id == organization_id)
+    )
+    org = result.scalar_one_or_none()
+    
+    if not org:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Organization not found",
+        )
+    
+    # Update fields
+    if request.name is not None:
+        org.name = request.name
+    
+    # Update settings (copy dict to trigger SQLAlchemy change tracking)
+    if org.settings is None:
+        org.settings = {}
+    else:
+        org.settings = dict(org.settings)
+    
+    if request.logo_url is not None:
+        org.settings["logo_url"] = request.logo_url
+    if request.website_url is not None:
+        org.settings["website_url"] = request.website_url
+    if request.contact_email is not None:
+        org.settings["contact_email"] = request.contact_email
+    
+    await db.commit()
+    await db.refresh(org)
+    
+    return {
+        "id": str(org.id),
+        "name": org.name,
+        "slug": org.slug,
+        "created_at": org.created_at.isoformat(),
+        "settings": org.settings or {},
+        "logo_url": org.settings.get("logo_url") if org.settings else None,
+    }
 
 
 @router.post(
@@ -394,29 +523,36 @@ async def create_api_key(
         ip_allowlist=api_key.ip_allowlist,
         is_test=api_key.is_test,
         expires_at=api_key.expires_at,
+        revoked_at=None,  # New keys are never revoked
         last_used_at=api_key.last_used_at,
         created_at=api_key.created_at,
         secret=raw_key,
     )
 
 
+class APIKeyListResponse(BaseModel):
+    """Paginated API key list response."""
+    keys: list[APIKeyResponse]
+    total: int
+
+
 @api_key_router.get(
     "",
-    response_model=list[APIKeyResponse],
+    response_model=APIKeyListResponse,
     summary="List API Keys",
 )
 async def list_api_keys(
     include_revoked: bool = False,
     org: Organization = Depends(get_current_organization),
     service: APIKeyService = Depends(get_api_key_service),
-) -> list[APIKeyResponse]:
+) -> APIKeyListResponse:
     """List all API keys for the organization."""
     keys = await service.list_api_keys(
         organization_id=org.id,
         include_revoked=include_revoked,
     )
     
-    return [
+    items = [
         APIKeyResponse(
             id=key.id,
             name=key.name,
@@ -425,24 +561,74 @@ async def list_api_keys(
             ip_allowlist=key.ip_allowlist,
             is_test=key.is_test,
             expires_at=key.expires_at,
+            revoked_at=key.revoked_at,
             last_used_at=key.last_used_at,
             created_at=key.created_at,
         )
         for key in keys
     ]
+    
+    return APIKeyListResponse(keys=items, total=len(items))
+
+
+@api_key_router.post(
+    "/{key_id}/revoke",
+    response_model=APIKeyResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Revoke API Key",
+)
+async def revoke_api_key_post(
+    key_id: UUID,
+    org: Organization = Depends(get_current_organization),
+    service: APIKeyService = Depends(get_api_key_service),
+    db=Depends(get_db),
+) -> APIKeyResponse:
+    """Revoke an API key."""
+    from sqlalchemy import select
+    from .models import APIKey
+    
+    try:
+        await service.revoke_api_key(key_id=key_id, organization_id=org.id)
+        
+        # Fetch the updated key to return
+        result = await db.execute(
+            select(APIKey).filter_by(id=key_id, organization_id=org.id)
+        )
+        api_key = result.scalar_one_or_none()
+        
+        if not api_key:
+            raise InvalidAPIKeyError("API key not found")
+        
+        return APIKeyResponse(
+            id=api_key.id,
+            name=api_key.name,
+            key_prefix=api_key.key_prefix,
+            scopes=api_key.scopes or [],
+            ip_allowlist=api_key.ip_allowlist or [],
+            is_test=api_key.is_test,
+            expires_at=api_key.expires_at,
+            revoked_at=api_key.revoked_at,
+            last_used_at=api_key.last_used_at,
+            created_at=api_key.created_at,
+        )
+    except InvalidAPIKeyError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="API key not found",
+        )
 
 
 @api_key_router.delete(
     "/{key_id}",
     status_code=status.HTTP_204_NO_CONTENT,
-    summary="Revoke API Key",
+    summary="Delete API Key",
 )
-async def revoke_api_key(
+async def delete_api_key(
     key_id: UUID,
     org: Organization = Depends(get_current_organization),
     service: APIKeyService = Depends(get_api_key_service),
 ) -> None:
-    """Revoke an API key."""
+    """Delete an API key."""
     try:
         await service.revoke_api_key(key_id=key_id, organization_id=org.id)
     except InvalidAPIKeyError:
@@ -450,6 +636,66 @@ async def revoke_api_key(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="API key not found",
         )
+
+
+@api_key_router.patch(
+    "/{key_id}/ip-allowlist",
+    response_model=APIKeyResponse,
+    summary="Update IP Allowlist",
+)
+async def update_api_key_ip_allowlist(
+    key_id: UUID,
+    request: UpdateIPAllowlistRequest,
+    org: Organization = Depends(get_current_organization),
+    db=Depends(get_db),
+) -> APIKeyResponse:
+    """Update the IP allowlist for an API key."""
+    from sqlalchemy import and_, select
+    from .models import APIKey
+    import ipaddress
+    
+    # Validate IPs
+    for ip in request.ip_allowlist:
+        try:
+            ipaddress.ip_address(ip)
+        except ValueError:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"Invalid IP address: {ip}",
+            )
+    
+    result = await db.execute(
+        select(APIKey).where(
+            and_(
+                APIKey.id == key_id,
+                APIKey.organization_id == org.id,
+            )
+        )
+    )
+    api_key = result.scalar_one_or_none()
+    
+    if not api_key:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="API key not found",
+        )
+    
+    api_key.ip_allowlist = request.ip_allowlist
+    await db.commit()
+    await db.refresh(api_key)
+    
+    return APIKeyResponse(
+        id=api_key.id,
+        name=api_key.name,
+        key_prefix=api_key.key_prefix,
+        scopes=api_key.scopes,
+        ip_allowlist=api_key.ip_allowlist,
+        is_test=api_key.is_test,
+        expires_at=api_key.expires_at,
+        revoked_at=api_key.revoked_at,
+        last_used_at=api_key.last_used_at,
+        created_at=api_key.created_at,
+    )
 
 
 @api_key_router.post(
@@ -486,6 +732,7 @@ async def rotate_api_key(
         ip_allowlist=api_key.ip_allowlist,
         is_test=api_key.is_test,
         expires_at=api_key.expires_at,
+        revoked_at=None,  # New keys are never revoked
         last_used_at=api_key.last_used_at,
         created_at=api_key.created_at,
         secret=raw_key,
@@ -549,6 +796,20 @@ async def create_webhook(
     """
     import secrets
     from .models import WebhookEndpoint
+    from urllib.parse import urlparse
+    
+    # Validate URL
+    try:
+        parsed = urlparse(request.url)
+        if not all([parsed.scheme, parsed.netloc]):
+            raise ValueError("Invalid URL")
+        if parsed.scheme not in ["http", "https"]:
+            raise ValueError("URL must use http or https")
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Invalid webhook URL",
+        )
     
     # Generate secret
     webhook_secret = secrets.token_hex(32)
@@ -580,15 +841,21 @@ async def create_webhook(
     )
 
 
+class WebhookListResponse(BaseModel):
+    """Paginated webhook list response."""
+    webhooks: list[WebhookResponse]
+    total: int
+
+
 @webhook_router.get(
     "",
-    response_model=list[WebhookResponse],
+    response_model=WebhookListResponse,
     summary="List Webhook Endpoints",
 )
 async def list_webhooks(
     org: Organization = Depends(get_current_organization),
     db=Depends(get_db),
-) -> list[WebhookResponse]:
+) -> WebhookListResponse:
     """List all webhook endpoints for the organization."""
     from sqlalchemy import select
     from .models import WebhookEndpoint
@@ -600,7 +867,7 @@ async def list_webhooks(
     )
     endpoints = result.scalars().all()
     
-    return [
+    items = [
         WebhookResponse(
             id=ep.id,
             url=ep.url,
@@ -611,6 +878,115 @@ async def list_webhooks(
         )
         for ep in endpoints
     ]
+    
+    return WebhookListResponse(webhooks=items, total=len(items))
+
+
+@webhook_router.get(
+    "/{webhook_id}",
+    response_model=WebhookResponse,
+    summary="Get Webhook Endpoint",
+)
+async def get_webhook(
+    webhook_id: UUID,
+    org: Organization = Depends(get_current_organization),
+    db=Depends(get_db),
+) -> WebhookResponse:
+    """Get details of a webhook endpoint."""
+    from sqlalchemy import and_, select
+    from .models import WebhookEndpoint
+    
+    result = await db.execute(
+        select(WebhookEndpoint).where(
+            and_(
+                WebhookEndpoint.id == webhook_id,
+                WebhookEndpoint.organization_id == org.id,
+            )
+        )
+    )
+    endpoint = result.scalar_one_or_none()
+    
+    if not endpoint:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Webhook not found",
+        )
+    
+    return WebhookResponse(
+        id=endpoint.id,
+        url=endpoint.url,
+        event_types=endpoint.event_types,
+        enabled=endpoint.enabled,
+        description=endpoint.description,
+        created_at=endpoint.created_at,
+    )
+
+
+@webhook_router.patch(
+    "/{webhook_id}",
+    response_model=WebhookResponse,
+    summary="Update Webhook Endpoint",
+)
+async def update_webhook(
+    webhook_id: UUID,
+    request: UpdateWebhookRequest,
+    org: Organization = Depends(get_current_organization),
+    db=Depends(get_db),
+) -> WebhookResponse:
+    """Update a webhook endpoint."""
+    from sqlalchemy import and_, select
+    from .models import WebhookEndpoint
+    from urllib.parse import urlparse
+    
+    result = await db.execute(
+        select(WebhookEndpoint).where(
+            and_(
+                WebhookEndpoint.id == webhook_id,
+                WebhookEndpoint.organization_id == org.id,
+            )
+        )
+    )
+    endpoint = result.scalar_one_or_none()
+    
+    if not endpoint:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Webhook not found",
+        )
+    
+    # Validate URL if provided
+    if request.url is not None:
+        try:
+            parsed = urlparse(request.url)
+            if not all([parsed.scheme, parsed.netloc]):
+                raise ValueError("Invalid URL")
+            if parsed.scheme not in ["http", "https"]:
+                raise ValueError("URL must use http or https")
+        except Exception:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Invalid webhook URL",
+            )
+        endpoint.url = request.url
+    
+    if request.event_types is not None:
+        endpoint.event_types = request.event_types
+    
+    if request.enabled is not None:
+        endpoint.enabled = request.enabled
+    
+    endpoint.updated_at = datetime.now(timezone.utc)
+    await db.commit()
+    await db.refresh(endpoint)
+    
+    return WebhookResponse(
+        id=endpoint.id,
+        url=endpoint.url,
+        event_types=endpoint.event_types,
+        enabled=endpoint.enabled,
+        description=endpoint.description,
+        created_at=endpoint.created_at,
+    )
 
 
 @webhook_router.delete(
@@ -645,6 +1021,44 @@ async def delete_webhook(
     
     await db.delete(endpoint)
     await db.commit()
+
+
+@webhook_router.get(
+    "/{webhook_id}/deliveries",
+    summary="Get Webhook Delivery Attempts",
+)
+async def get_webhook_delivery_attempts(
+    webhook_id: UUID,
+    org: Organization = Depends(get_current_organization),
+    db=Depends(get_db),
+) -> dict[str, Any]:
+    """Get delivery attempt history for a webhook."""
+    from sqlalchemy import and_, select
+    from .models import WebhookEndpoint
+    
+    result = await db.execute(
+        select(WebhookEndpoint).where(
+            and_(
+                WebhookEndpoint.id == webhook_id,
+                WebhookEndpoint.organization_id == org.id,
+            )
+        )
+    )
+    endpoint = result.scalar_one_or_none()
+    
+    if not endpoint:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Webhook not found",
+        )
+    
+    # Return mock delivery attempts for now
+    # TODO: Implement actual delivery tracking
+    return {
+        "webhook_id": str(webhook_id),
+        "deliveries": [],
+        "total": 0,
+    }
 
 
 @webhook_router.post(
@@ -708,19 +1122,19 @@ async def test_webhook(
                 content=body,
                 headers={
                     "Content-Type": "application/json",
-                    "X-Marty-Signature": signature,
+                    "X-Webhook-Signature": f"sha256={signature}",
                     "X-Marty-Event": "webhook.test",
                 },
             )
         
         return {
-            "success": response.status_code < 400,
+            "status": "success" if response.status_code < 400 else "error",
             "status_code": response.status_code,
             "response_time_ms": response.elapsed.total_seconds() * 1000,
         }
     except httpx.RequestError as e:
         return {
-            "success": False,
+            "status": "error",
             "error": str(e),
         }
 

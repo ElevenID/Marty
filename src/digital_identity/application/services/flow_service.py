@@ -13,8 +13,14 @@ This service handles:
 
 from __future__ import annotations
 
+import asyncio
+import hashlib
+import hmac
+import json
 import logging
 from typing import Any
+
+import httpx
 
 from digital_identity.domain.entities import Flow, FlowExecution
 from digital_identity.domain.events import (
@@ -71,6 +77,13 @@ class FlowService:
         self._event_publisher = event_publisher
         self._step_registry = step_registry
         self._approval_strategies = approval_strategies or {}
+        
+        # Register default manual approval strategy if not provided
+        if ApprovalStrategy.MANUAL not in self._approval_strategies:
+            from digital_identity.infrastructure.adapters.approval_strategies import ManualApprovalStrategy
+            self._approval_strategies[ApprovalStrategy.MANUAL] = ManualApprovalStrategy(
+                event_publisher=event_publisher
+            )
     
     # =========================================================================
     # Flow CRUD
@@ -255,6 +268,10 @@ class FlowService:
         """Execute flow steps sequentially."""
         steps = flow.get_steps()
         
+        # Get retry configuration from flow metadata
+        max_retries = flow.metadata.get("max_retries", 3)
+        retry_delay_seconds = flow.metadata.get("retry_delay_seconds", 1.0)
+        
         while execution.current_step_index < len(steps):
             step = steps[execution.current_step_index]
             execution.current_step = step.name
@@ -292,8 +309,43 @@ class FlowService:
                         await self._execution_repository.save(execution)
                         return
                 
-                # Execute step handler
-                result = await self._execute_step_handler(step.name, execution)
+                # Execute step handler with retry logic
+                result = None
+                last_error = None
+                
+                for attempt in range(max_retries):
+                    try:
+                        result = await self._execute_step_handler(step.name, execution)
+                        # Success - break retry loop
+                        break
+                    except Exception as step_error:
+                        last_error = step_error
+                        is_last_attempt = attempt == max_retries - 1
+                        
+                        # Update step results with attempt info
+                        attempt_key = f"{step.name}_attempt_{attempt + 1}"
+                        execution.step_results[attempt_key] = {
+                            "attempt": attempt + 1,
+                            "error": str(step_error),
+                            "timestamp": execution.updated_at.isoformat(),
+                        }
+                        
+                        if is_last_attempt:
+                            logger.error(
+                                f"Step {step.name} failed after {max_retries} attempts "
+                                f"for execution {execution.id}: {step_error}"
+                            )
+                            # Re-raise to trigger failure handling
+                            raise
+                        else:
+                            # Exponential backoff
+                            delay = retry_delay_seconds * (2 ** attempt)
+                            logger.warning(
+                                f"Step {step.name} attempt {attempt + 1}/{max_retries} failed "
+                                f"for execution {execution.id}: {step_error}. "
+                                f"Retrying in {delay}s..."
+                            )
+                            await asyncio.sleep(delay)
                 
                 # Run post-hooks
                 post_hooks = flow.get_post_hooks(step.name)
@@ -319,6 +371,14 @@ class FlowService:
                 execution.fail(str(e))
                 await self._execution_repository.save(execution)
                 
+                # Run on_failure hooks
+                failure_hooks = flow.hooks.get("on_failure", [])
+                for hook in failure_hooks:
+                    try:
+                        await self._run_hook(hook, execution)
+                    except Exception as hook_error:
+                        logger.error(f"Failure hook error: {hook_error}")
+                
                 if self._event_publisher:
                     await self._event_publisher.publish(
                         FlowFailedEvent(
@@ -334,6 +394,14 @@ class FlowService:
         # All steps completed
         execution.complete()
         await self._execution_repository.save(execution)
+        
+        # Run on_complete hooks
+        complete_hooks = flow.hooks.get("on_complete", [])
+        for hook in complete_hooks:
+            try:
+                await self._run_hook(hook, execution)
+            except Exception as hook_error:
+                logger.error(f"Complete hook error: {hook_error}")
         
         if self._event_publisher:
             await self._event_publisher.publish(
@@ -367,9 +435,97 @@ class FlowService:
         hook_config: dict[str, Any],
         execution: FlowExecution,
     ) -> None:
-        """Run a hook callback."""
-        # Hook execution is extensible - can be webhook, function call, etc.
-        logger.debug(f"Running hook: {hook_config}")
+        """
+        Run a hook callback with HTTP webhook support, retry logic, and HMAC signing.
+        
+        Supported hook config:
+        - url: HTTP endpoint to POST to (required for webhook)
+        - secret: HMAC secret for signing (optional but recommended)
+        - timeout: Request timeout in seconds (default: 10)
+        - max_retries: Maximum retry attempts (default: 3)
+        - retry_delay: Initial delay between retries in seconds (default: 1)
+        
+        Hook types (from flow.hooks):
+        - pre_step: Before step execution
+        - post_step: After step execution
+        - on_complete: After flow completion
+        - on_failure: After flow failure
+        
+        Args:
+            hook_config: Configuration dict from flow.hooks
+            execution: Current flow execution state
+        """
+        url = hook_config.get("url")
+        
+        if not url:
+            logger.debug(f"Hook config has no URL, skipping: {hook_config}")
+            return
+        
+        # Build payload
+        payload = {
+            "event": hook_config.get("event_type", "hook_triggered"),
+            "flow_id": execution.flow_id,
+            "execution_id": execution.id,
+            "status": execution.status.value,
+            "current_step": execution.current_step,
+            "step_index": execution.current_step_index,
+            "context": execution.context_data,
+            "step_results": execution.step_results,
+        }
+        
+        # Configuration
+        secret = hook_config.get("secret")
+        timeout = hook_config.get("timeout", 10)
+        max_retries = hook_config.get("max_retries", 3)
+        retry_delay = hook_config.get("retry_delay", 1.0)
+        
+        # Serialize payload
+        payload_json = json.dumps(payload, sort_keys=True, default=str)
+        
+        # Compute HMAC signature if secret provided
+        headers = {"Content-Type": "application/json"}
+        if secret:
+            signature = hmac.new(
+                secret.encode("utf-8"),
+                payload_json.encode("utf-8"),
+                hashlib.sha256,
+            ).hexdigest()
+            headers["X-Webhook-Signature"] = f"sha256={signature}"
+        
+        # Retry logic with exponential backoff
+        for attempt in range(max_retries):
+            try:
+                async with httpx.AsyncClient() as client:
+                    response = await client.post(
+                        url,
+                        content=payload_json,
+                        headers=headers,
+                        timeout=timeout,
+                    )
+                    response.raise_for_status()
+                
+                logger.info(
+                    f"Hook succeeded for execution {execution.id}: "
+                    f"{url} (attempt {attempt + 1}/{max_retries})"
+                )
+                return
+                
+            except (httpx.HTTPError, httpx.TimeoutException) as e:
+                is_last_attempt = attempt == max_retries - 1
+                
+                if is_last_attempt:
+                    logger.error(
+                        f"Hook failed after {max_retries} attempts for execution {execution.id}: "
+                        f"{url} - {e}"
+                    )
+                else:
+                    # Exponential backoff: 1s, 2s, 4s
+                    delay = retry_delay * (2 ** attempt)
+                    logger.warning(
+                        f"Hook attempt {attempt + 1}/{max_retries} failed for execution {execution.id}: "
+                        f"{url} - {e}. Retrying in {delay}s..."
+                    )
+                    await asyncio.sleep(delay)
     
     async def _handle_approval(
         self,

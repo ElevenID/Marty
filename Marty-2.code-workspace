@@ -17,6 +17,12 @@
 		},
 		{
 			"path": "../product-catalog"
+		},
+		{
+			"path": "../marty-microservices-framework"
+		},
+		{
+			"path": "../marty-ui"
 		}
 	],
 	"settings": {}

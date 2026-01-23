@@ -529,6 +529,7 @@ class PushChallenge(Base):
     Attributes:
         id: Unique challenge ID
         device_id: Target device ID
+        organization_id: Organization context for multi-tenant isolation (indexed)
         title: Challenge title for display
         question: Challenge question/prompt
         nonce: Random nonce for signing
@@ -542,6 +543,10 @@ class PushChallenge(Base):
 
     id = Column(String(36), primary_key=True)
     device_id = Column(String(255), ForeignKey("device_registrations.device_id"), nullable=False)
+    
+    # Multi-tenant isolation: Link challenges to organizations
+    # Indexed for efficient org-scoped queries and authorization checks
+    organization_id = Column(String(36), ForeignKey("organizations.id"), nullable=True, index=True)
     
     # Challenge content
     title = Column(String(255), nullable=False)

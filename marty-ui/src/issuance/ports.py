@@ -110,6 +110,7 @@ class StoredOffer:
     
     id: str
     issuance_session_id: str
+    organization_id: str
     offer_uri: str
     offer_payload: dict[str, Any]
     is_active: bool = True
@@ -123,6 +124,7 @@ class StoredOffer:
         return {
             "id": self.id,
             "issuance_session_id": self.issuance_session_id,
+            "organization_id": self.organization_id,
             "offer_uri": self.offer_uri,
             "offer_payload": self.offer_payload,
             "is_active": self.is_active,
@@ -138,6 +140,7 @@ class StoredOffer:
         return cls(
             id=data["id"],
             issuance_session_id=data["issuance_session_id"],
+            organization_id=data["organization_id"],
             offer_uri=data["offer_uri"],
             offer_payload=data["offer_payload"],
             is_active=data.get("is_active", True),

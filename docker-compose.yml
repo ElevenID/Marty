@@ -440,8 +440,24 @@ services:
       - test-local
 
   # ---------------------------------------------------------------------------
-  # Redis
+  # Redis (Development - Single Instance)
   # ---------------------------------------------------------------------------
+  # Single Redis instance for development. This is intentionally simple for local development.
+  # For staging/production HA:
+  #   - Use docker-compose.sentinel.yml for Redis Sentinel (recommended for HA)
+  #   - Use docker-compose.cluster.yml for Redis Cluster (for horizontal scaling)
+  #
+  # Redis Key Patterns (Multi-Tenant with Hash Tags):
+  #   Auth:      marty:{org-id}:pkce:{state}, marty:{org-id}:session:{id}
+  #   Issuance:  {org-id}:session:id:{id}, {org-id}:offer:id:{id}
+  #   Challenge: {org:{org-id}}:challenges:{device_id}:{challenge_id}
+  #   Signing:   {org-id}-{algorithm}-test
+  #
+  # Hash tags {...} ensure all keys for an organization hash to the same Redis Cluster slot,
+  # enabling multi-key operations and efficient org-scoped queries.
+  #
+  # TODO: Add integration tests for Redis Sentinel failover simulation to validate
+  #       automatic master failover and ensure the application handles it gracefully.
   redis:
     image: redis:7-alpine
     ports:

@@ -53,7 +53,7 @@ class TrustProfileService:
     async def create(
         self,
         name: str,
-        profile_type: TrustProfileType,
+        profile_type: str | TrustProfileType,  # Accept both string and enum
         description: str | None = None,
         trust_sources: list[dict[str, Any]] | None = None,
         allowed_algorithms: list[str] | None = None,
@@ -67,6 +67,10 @@ class TrustProfileService:
         existing = await self._repository.get_by_name(name)
         if existing:
             raise ValueError(f"Trust Profile with name '{name}' already exists")
+        
+        # Convert profile_type to enum if it's a string
+        if isinstance(profile_type, str):
+            profile_type = TrustProfileType(profile_type)
         
         # Parse algorithms
         algorithms = [
@@ -91,11 +95,35 @@ class TrustProfileService:
         
         # Apply revocation policy if provided
         if revocation_policy:
-            profile.revocation_policy = RevocationPolicy(**revocation_policy)
+            from digital_identity.domain.value_objects import RevocationCheckMode
+            from datetime import timedelta
+            
+            # Convert schema format to value object format
+            policy_data = {
+                "mode": RevocationCheckMode(revocation_policy.get("mode", "hard_fail")),
+                "check_ocsp": revocation_policy.get("check_ocsp", True),
+                "check_crl": revocation_policy.get("check_crl", True),
+                "check_status_list": revocation_policy.get("check_status_list", True),
+                "offline_grace_period": timedelta(hours=revocation_policy.get("offline_grace_period_hours", 24)),
+                "cache_ttl": timedelta(hours=revocation_policy.get("cache_ttl_hours", 1)),
+            }
+            profile.revocation_policy = RevocationPolicy(**policy_data)
         
         # Apply time policy if provided
         if time_policy:
-            profile.time_policy = TimePolicy(**time_policy)
+            from datetime import timedelta
+            
+            # Convert schema format to value object format
+            clock_skew = timedelta(seconds=time_policy.get("clock_skew_tolerance_seconds", 300))
+            max_age_days = time_policy.get("max_credential_age_days")
+            max_age = timedelta(days=max_age_days) if max_age_days else None
+            
+            profile.time_policy = TimePolicy(
+                clock_skew_tolerance=clock_skew,
+                max_credential_age=max_age,
+                require_not_before=time_policy.get("require_not_before", True),
+                require_not_after=time_policy.get("require_not_after", True),
+            )
         
         # Save
         saved = await self._repository.save(profile)

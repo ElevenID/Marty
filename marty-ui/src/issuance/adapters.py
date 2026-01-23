@@ -70,6 +70,16 @@ class RedisIssuanceStorage(IIssuanceStorage):
     Implements IIssuanceStorage using MMF's RedisCacheManager.
     Sessions are indexed by id, transaction_id, and pre_authorized_code
     for efficient lookup during the OID4VCI flow.
+    
+    Multi-Tenant Redis Key Patterns (with organization hash tags):
+      - Session by ID:  {org-id}:session:id:{session_id}
+      - Session by TXN: {org-id}:session:txn:{transaction_id}
+      - Session by PAC: {org-id}:session:pac:{pre_auth_code}
+      - Offer by ID:    {org-id}:offer:id:{offer_id}
+      - Offers list:    {org-id}:offer:session:{session_id}
+    
+    Hash tags {...} ensure all issuance data for an organization hashes to the
+    same Redis Cluster slot, enabling efficient multi-key operations.
     """
 
     def __init__(
@@ -101,39 +111,91 @@ class RedisIssuanceStorage(IIssuanceStorage):
         session_dict = session.to_dict()
         session_json = json.dumps(session_dict)
         
+        # Multi-tenant key pattern with hash tags for Redis Cluster
+        # Extract organization_id from session (should be present)
+        org_id = session_dict.get("organization_id")
+        if org_id:
+            org_prefix = f"{{{org_id}}}"
+        else:
+            # Fallback for sessions without org_id (deprecated)
+            org_prefix = ""
+            logger.warning(
+                f"Session {session.id} stored without organization_id. "
+                "This breaks multi-tenant isolation."
+            )
+        
         # Store by session ID (primary)
-        id_key = f"{self._config.SESSION_ID_PREFIX}:{session.id}"
+        id_key = f"{org_prefix}:{self._config.SESSION_ID_PREFIX}:{session.id}" if org_prefix else f"{self._config.SESSION_ID_PREFIX}:{session.id}"
         await self._cache.set(id_key, session_json, ttl=ttl)
         
         # Index by transaction ID
-        txn_key = f"{self._config.SESSION_TXN_PREFIX}:{session.transaction_id}"
+        txn_key = f"{org_prefix}:{self._config.SESSION_TXN_PREFIX}:{session.transaction_id}" if org_prefix else f"{self._config.SESSION_TXN_PREFIX}:{session.transaction_id}"
         await self._cache.set(txn_key, session_json, ttl=ttl)
         
         # Index by pre-authorized code (if present)
         if session.pre_authorized_code:
-            pac_key = f"{self._config.SESSION_PAC_PREFIX}:{session.pre_authorized_code}"
+            pac_key = f"{org_prefix}:{self._config.SESSION_PAC_PREFIX}:{session.pre_authorized_code}" if org_prefix else f"{self._config.SESSION_PAC_PREFIX}:{session.pre_authorized_code}"
             await self._cache.set(pac_key, session_json, ttl=ttl)
         
         self._logger.debug(
-            f"Stored session {session.id}, txn={session.transaction_id}"
+            f"Stored session {session.id}, txn={session.transaction_id}, org={org_id}"
         )
 
-    async def get_session_by_id(self, session_id: str) -> StoredSession | None:
-        """Get a session by its ID."""
+    async def get_session_by_id(self, session_id: str, organization_id: str | None = None) -> StoredSession | None:
+        """Get a session by its ID.
+        
+        Args:
+            session_id: Session identifier
+            organization_id: Optional organization context for scoped lookup
+        """
+        # Try org-scoped key first if org_id provided
+        if organization_id:
+            key = f"{{{organization_id}}}:{self._config.SESSION_ID_PREFIX}:{session_id}"
+            session = await self._get_session(key)
+            if session:
+                return session
+        
+        # Fall back to legacy key (no org prefix)
         key = f"{self._config.SESSION_ID_PREFIX}:{session_id}"
         return await self._get_session(key)
 
     async def get_session_by_transaction_id(
-        self, transaction_id: str
+        self, transaction_id: str, organization_id: str | None = None
     ) -> StoredSession | None:
-        """Get a session by its transaction ID."""
+        """Get a session by its transaction ID.
+        
+        Args:
+            transaction_id: Transaction identifier
+            organization_id: Optional organization context for scoped lookup
+        """
+        # Try org-scoped key first if org_id provided
+        if organization_id:
+            key = f"{{{organization_id}}}:{self._config.SESSION_TXN_PREFIX}:{transaction_id}"
+            session = await self._get_session(key)
+            if session:
+                return session
+        
+        # Fall back to legacy key (no org prefix)
         key = f"{self._config.SESSION_TXN_PREFIX}:{transaction_id}"
         return await self._get_session(key)
 
     async def get_session_by_pre_auth_code(
-        self, pre_authorized_code: str
+        self, pre_authorized_code: str, organization_id: str | None = None
     ) -> StoredSession | None:
-        """Get a session by its pre-authorized code."""
+        """Get a session by its pre-authorized code.
+        
+        Args:
+            pre_authorized_code: Pre-authorization code
+            organization_id: Optional organization context for scoped lookup
+        """
+        # Try org-scoped key first if org_id provided
+        if organization_id:
+            key = f"{{{organization_id}}}:{self._config.SESSION_PAC_PREFIX}:{pre_authorized_code}"
+            session = await self._get_session(key)
+            if session:
+                return session
+        
+        # Fall back to legacy key (no org prefix)
         key = f"{self._config.SESSION_PAC_PREFIX}:{pre_authorized_code}"
         return await self._get_session(key)
 
@@ -195,12 +257,23 @@ class RedisIssuanceStorage(IIssuanceStorage):
         offer_dict = offer.to_dict()
         offer_json = json.dumps(offer_dict)
         
+        # Multi-tenant key pattern with hash tags
+        org_id = offer_dict.get("organization_id")
+        if org_id:
+            org_prefix = f"{{{org_id}}}"
+        else:
+            org_prefix = ""
+            logger.warning(
+                f"Offer {offer.id} stored without organization_id. "
+                "This breaks multi-tenant isolation."
+            )
+        
         # Store by offer ID
-        id_key = f"{self._config.OFFER_ID_PREFIX}:{offer.id}"
+        id_key = f"{org_prefix}:{self._config.OFFER_ID_PREFIX}:{offer.id}" if org_prefix else f"{self._config.OFFER_ID_PREFIX}:{offer.id}"
         await self._cache.set(id_key, offer_json, ttl=ttl)
         
         # Add to session's offer list (using a set-like pattern)
-        session_key = f"{self._config.OFFER_SESSION_PREFIX}:{offer.issuance_session_id}"
+        session_key = f"{org_prefix}:{self._config.OFFER_SESSION_PREFIX}:{offer.issuance_session_id}" if org_prefix else f"{self._config.OFFER_SESSION_PREFIX}:{offer.issuance_session_id}"
         existing_offers = await self._cache.get(session_key)
         
         if existing_offers:
@@ -216,11 +289,28 @@ class RedisIssuanceStorage(IIssuanceStorage):
             await self._cache.set(session_key, json.dumps(offer_ids), ttl=ttl)
         
         self._logger.debug(
-            f"Stored offer {offer.id} for session {offer.issuance_session_id}"
+            f"Stored offer {offer.id} for session {offer.issuance_session_id}, org={org_id}"
         )
 
-    async def get_offer_by_id(self, offer_id: str) -> StoredOffer | None:
-        """Get an offer by its ID."""
+    async def get_offer_by_id(self, offer_id: str, organization_id: str | None = None) -> StoredOffer | None:
+        """Get an offer by its ID.
+        
+        Args:
+            offer_id: Offer identifier
+            organization_id: Optional organization context for scoped lookup
+        """
+        # Try org-scoped key first if org_id provided
+        if organization_id:
+            key = f"{{{organization_id}}}:{self._config.OFFER_ID_PREFIX}:{offer_id}"
+            data = await self._cache.get(key)
+            if data:
+                try:
+                    offer_dict = json.loads(data)
+                    return StoredOffer.from_dict(offer_dict)
+                except (json.JSONDecodeError, KeyError) as e:
+                    self._logger.warning(f"Failed to deserialize offer from {key}: {e}")
+        
+        # Fall back to legacy key (no org prefix)
         key = f"{self._config.OFFER_ID_PREFIX}:{offer_id}"
         data = await self._cache.get(key)
         

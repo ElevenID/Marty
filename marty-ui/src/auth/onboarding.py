@@ -130,6 +130,11 @@ class CompleteOnboardingRequest(BaseModel):
         "invite_only",
         description="How users can join: invite_only, approval (request), or open"
     )
+    # Trust profile selection (for vendors)
+    trust_framework_codes: list[str] | None = Field(
+        None,
+        description="Trust framework codes: icao, aamva, eudi, or custom (for vendors). Can select multiple."
+    )
     # Explicit confirmation
     confirm_organization: bool = Field(
         False,
@@ -314,6 +319,50 @@ async def use_invite_code(code: str, db: AsyncSession) -> bool:
 # In-memory storage for membership requests (until we add a proper table)
 # Key: request_id -> request data
 _membership_requests: dict[str, dict] = {}
+
+
+async def _create_organization_trust_profile(
+    organization_id: str,
+    framework_code: str,
+    user_id: str,
+    db: AsyncSession,
+) -> None:
+    """
+    Store trust framework preference during onboarding.
+    
+    This saves the user's trust framework selection to organization settings.
+    Actual trust configuration happens later in the Trust Registry UI.
+    """
+    from subscription.models import Organization
+    
+    # Get organization
+    result = await db.execute(
+        select(Organization).where(Organization.id == organization_id)
+    )
+    org = result.scalar_one_or_none()
+    
+    if not org:
+        logger.warning(f"Organization '{organization_id}' not found - skipping profile creation")
+        return
+    
+    # Store trust framework preference in org settings
+    if not org.settings:
+        org.settings = {}
+    
+    if 'trust_framework_preferences' not in org.settings:
+        org.settings['trust_framework_preferences'] = []
+    
+    # Add framework code if not already present
+    if framework_code not in org.settings['trust_framework_preferences']:
+        org.settings['trust_framework_preferences'].append(framework_code)
+    
+    # Mark as updated (SQLAlchemy needs explicit flag for JSON column updates)
+    from sqlalchemy.orm.attributes import flag_modified
+    flag_modified(org, 'settings')
+    
+    await db.commit()
+    
+    logger.info(f"Stored trust framework preference for org {organization_id}: {framework_code}")
 
 
 # =============================================================================
@@ -906,6 +955,17 @@ async def complete_onboarding(
                 # Generate invite code for the organization
                 invite_code = await generate_invite_code(org_id, db, created_by=user_id)
                 logger.info(f"Created org '{org_name}' with invite code: {invite_code}")
+
+                # Create trust profile(s) for the organization if framework(s) selected
+                if request_data.trust_framework_codes:
+                    for framework_code in request_data.trust_framework_codes:
+                        await _create_organization_trust_profile(
+                            organization_id=org_id,
+                            framework_code=framework_code,
+                            user_id=user_id,
+                            db=db,
+                        )
+                    logger.info(f"Created {len(request_data.trust_framework_codes)} trust profile(s): {', '.join(request_data.trust_framework_codes)}")
 
                 # Add user to organization as owner
                 await keycloak.add_user_to_organization(org_id, user_id)

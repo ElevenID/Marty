@@ -51,9 +51,10 @@ help: ## Show this help message
 	@echo "$(BLUE)━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━$(NC)"
 	@echo ""
 	@echo "$(GREEN)Quick Start (Docker):$(NC)"
-	@echo "  make dev         Start full environment in Docker"
-	@echo "  make test        Run E2E tests with full browser matrix"
-	@echo "  make test-local  Run fast Chromium-only E2E tests"
+	@echo "  make dev           Start full environment in Docker"
+	@echo "  make dev-sentinel  Start with Redis Sentinel (HA testing)"
+	@echo "  make test          Run E2E tests with full browser matrix"
+	@echo "  make test-local    Run fast Chromium-only E2E tests"
 	@echo ""
 	@echo "$(GREEN)Quick Start (Native - faster feedback):$(NC)"
 	@echo "  make dev-setup      One-time setup (UV, deps, browsers)"
@@ -97,6 +98,41 @@ dev: ## Start development environment
 	@echo "$(YELLOW)Tip:$(NC) Run 'make logs' to follow service logs"
 
 up: dev ## Alias for 'dev'
+
+dev-sentinel: ## Start development environment with Redis Sentinel (HA testing)
+	@echo "$(BLUE)🚀 Starting development environment with Redis Sentinel...$(NC)"
+	$(COMPOSE) -f docker-compose.yml -f docker-compose.sentinel.yml --profile dev up -d
+	@echo ""
+	@echo "$(GREEN)✅ Development environment with Redis Sentinel ready!$(NC)"
+	@echo ""
+	@echo "  🌐 UI:         http://localhost:9080"
+	@echo "  🔗 API:        http://localhost:8000"
+	@echo "  🔐 Keycloak:   http://localhost:8180"
+	@echo "  📧 MailHog:    http://localhost:9025"
+	@echo "  🔴 Redis:      Single instance replaced by Sentinel cluster"
+	@echo "  🛡️  Sentinel:  Ports 26379, 26380, 26381"
+	@echo ""
+	@echo "$(YELLOW)Note:$(NC) Redis Sentinel provides automatic failover for HA testing"
+	@echo "$(YELLOW)Tip:$(NC) Run 'make logs' to follow service logs"
+
+dev-cluster: ## Start development environment with Redis Cluster (experimental)
+	@echo "$(BLUE)🚀 Starting development environment with Redis Cluster...$(NC)"
+	@echo "$(YELLOW)⚠️  Warning: Requires all code to use hash tags {org-id} for multi-key ops$(NC)"
+	@echo "$(YELLOW)⚠️  This is experimental - use for testing cluster compatibility only$(NC)"
+	@echo ""
+	$(COMPOSE) -f docker-compose.yml -f docker-compose.cluster.yml --profile dev up -d
+	@echo ""
+	@echo "$(GREEN)✅ Redis Cluster environment ready!$(NC)"
+	@echo ""
+	@echo "  🔴 Redis Nodes: localhost:7000-7002"
+	@echo "  🔗 API:         http://localhost:8000"
+	@echo "  🌐 UI:          http://localhost:9080"
+	@echo ""
+	@echo "$(YELLOW)Note:$(NC) Connect to any node - cluster topology auto-discovered"
+	@echo "$(YELLOW)Tip:$(NC) Check cluster status: docker exec redis-node-1 redis-cli -p 7000 cluster info"
+
+	@echo "For now, use 'make dev-sentinel' for high availability testing."
+	@exit 1
 
 # =============================================================================
 # Testing

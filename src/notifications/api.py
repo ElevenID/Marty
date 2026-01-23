@@ -693,10 +693,15 @@ async def create_challenge(
         "signature": challenge.signature,
         "format": challenge.format,
     }
+    
+    # Extract organization_id from device for multi-tenant isolation
+    organization_id = str(device.organization_id) if device.organization_id else None
+    
     await challenge_store.create_challenge(
         device_id=device_id,
         challenge_data=challenge_data,
         ttl_seconds=request.ttl_seconds,
+        organization_id=organization_id,
     )
     
     return ChallengeCreatedResponse(
@@ -737,7 +742,13 @@ async def get_pending_challenges(
             detail="Device not registered",
         )
     
-    challenges = await challenge_store.get_pending_challenges(device_id)
+    # Extract organization_id for scoped challenge query
+    organization_id = str(device.organization_id) if device.organization_id else None
+    
+    challenges = await challenge_store.get_pending_challenges(
+        device_id,
+        organization_id=organization_id,
+    )
     
     return ChallengeListResponse(
         challenges=[
@@ -786,6 +797,9 @@ async def respond_to_challenge(
             detail="Device not registered",
         )
     
+    # Extract organization_id for scoped challenge lookup
+    organization_id = str(device.organization_id) if device.organization_id else None
+    
     # Lookup device public key for signature verification
     public_key_der = None
     if request.signature:
@@ -800,6 +814,7 @@ async def respond_to_challenge(
         challenge_id=challenge_id,
         response=request.response,
         signature=request.signature,
+        organization_id=organization_id,
     )
     
     if not success:

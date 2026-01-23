@@ -1,0 +1,125 @@
+# Redis Cluster Configuration
+# Minimal 3-node cluster for horizontal scaling and automatic sharding
+#
+# Usage:
+#   make dev-cluster  # Start cluster environment
+#
+# Architecture:
+#   - 3 master nodes (ports 7000-7002) with automatic slot assignment (0-16383)
+#   - Each master gets ~5461 slots for balanced data distribution
+#   - Cluster bus ports (17000-17002) for node communication
+#   - No replicas in dev - add 3 replicas for production HA
+#
+# Multi-tenant Compatibility:
+#   - Hash tags {org-id} ensure all organization data maps to same slot
+#   - Multi-key operations (MGET, DEL multiple keys) work within organization
+#   - Cross-organization operations require client-side coordination
+#
+# Limitations:
+#   - SELECT database not supported (always db 0)
+#   - Multi-key operations across different hash tags will fail
+#   - Lua scripts must access keys from single slot
+#   - Resharding requires manual intervention or automation tools
+
+services:
+  redis-cluster-init:
+    image: redis:7-alpine
+    depends_on:
+      - redis-node-1
+      - redis-node-2
+      - redis-node-3
+    command: >
+      sh -c '
+        sleep 5 &&
+        redis-cli --cluster create
+          redis-node-1:7000
+          redis-node-2:7001
+          redis-node-3:7002
+          --cluster-yes
+      '
+    networks:
+      - backend
+
+  redis-node-1:
+    image: redis:7-alpine
+    container_name: redis-node-1
+    command: >
+      redis-server
+        --port 7000
+        --cluster-enabled yes
+        --cluster-config-file nodes-7000.conf
+        --cluster-node-timeout 5000
+        --appendonly yes
+        --maxmemory 256mb
+        --maxmemory-policy allkeys-lru
+    ports:
+      - "7000:7000"
+      - "17000:17000"
+    volumes:
+      - redis-cluster-1-data:/data
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD", "redis-cli", "-p", "7000", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  redis-node-2:
+    image: redis:7-alpine
+    container_name: redis-node-2
+    command: >
+      redis-server
+        --port 7001
+        --cluster-enabled yes
+        --cluster-config-file nodes-7001.conf
+        --cluster-node-timeout 5000
+        --appendonly yes
+        --maxmemory 256mb
+        --maxmemory-policy allkeys-lru
+    ports:
+      - "7001:7001"
+      - "17001:17001"
+    volumes:
+      - redis-cluster-2-data:/data
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD", "redis-cli", "-p", "7001", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  redis-node-3:
+    image: redis:7-alpine
+    container_name: redis-node-3
+    command: >
+      redis-server
+        --port 7002
+        --cluster-enabled yes
+        --cluster-config-file nodes-7002.conf
+        --cluster-node-timeout 5000
+        --appendonly yes
+        --maxmemory 256mb
+        --maxmemory-policy allkeys-lru
+    ports:
+      - "7002:7002"
+      - "17002:17002"
+    volumes:
+      - redis-cluster-3-data:/data
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD", "redis-cli", "-p", "7002", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+volumes:
+  redis-cluster-1-data:
+  redis-cluster-2-data:
+  redis-cluster-3-data:
+
+networks:
+  backend:
+    external: true

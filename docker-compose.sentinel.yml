@@ -1,0 +1,162 @@
+# Redis Sentinel Configuration for High Availability
+# ===================================================
+#
+# This configuration provides automatic failover for Redis without horizontal scaling.
+# Use this for staging/production environments where high availability is required
+# but data volume doesn't require Redis Cluster sharding.
+#
+# USAGE:
+#   make dev-sentinel    # Start dev environment with Sentinel
+#   docker compose -f docker-compose.yml -f docker-compose.sentinel.yml --profile dev up -d
+#
+# ARCHITECTURE:
+#   - 1 Redis master (primary write/read node)
+#   - 1 Redis replica (read-only, promoted to master on failure)
+#   - 3 Redis Sentinels (monitor and coordinate failover)
+#
+# FAILOVER:
+#   - Sentinels continuously monitor master health
+#   - On master failure, Sentinels vote to promote replica to master
+#   - Applications automatically reconnect to new master
+#   - Quorum: 2 Sentinels must agree (majority of 3)
+#
+# APPLICATION CONFIGURATION:
+#   Set these environment variables in your services:
+#     REDIS_SENTINEL_HOSTS: sentinel-1:26379,sentinel-2:26379,sentinel-3:26379
+#     REDIS_SENTINEL_SERVICE_NAME: mymaster
+#     REDIS_SENTINEL_PASSWORD: (optional, if auth enabled)
+
+services:
+  # ---------------------------------------------------------------------------
+  # Redis Master (Primary)
+  # ---------------------------------------------------------------------------
+  redis-master:
+    image: redis:7-alpine
+    command: >
+      redis-server
+      --appendonly yes
+      --maxmemory 128mb
+      --maxmemory-policy allkeys-lru
+      --replica-announce-ip redis-master
+    volumes:
+      - redis-master-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      default:
+        aliases:
+          - redis  # Override single-instance Redis service
+
+  # ---------------------------------------------------------------------------
+  # Redis Replica (Standby)
+  # ---------------------------------------------------------------------------
+  redis-replica-1:
+    image: redis:7-alpine
+    command: >
+      redis-server
+      --replicaof redis-master 6379
+      --appendonly yes
+      --maxmemory 128mb
+      --maxmemory-policy allkeys-lru
+      --replica-announce-ip redis-replica-1
+    depends_on:
+      redis-master:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # ---------------------------------------------------------------------------
+  # Redis Sentinels (Monitoring & Failover Coordination)
+  # ---------------------------------------------------------------------------
+  sentinel-1:
+    image: redis:7-alpine
+    command:
+      - sh
+      - -c
+      - |
+        # Wait for redis-master and get its IP
+        until REDIS_IP=$$(getent hosts redis-master | awk '{ print $$1 }'); do
+          echo "Waiting for redis-master..."
+          sleep 1
+        done
+        # Create sentinel config with IP address
+        cat > /tmp/sentinel.conf <<EOF
+        sentinel monitor mymaster $$REDIS_IP 6379 2
+        sentinel down-after-milliseconds mymaster 5000
+        sentinel parallel-syncs mymaster 1
+        sentinel failover-timeout mymaster 10000
+        sentinel deny-scripts-reconfig yes
+        EOF
+        redis-sentinel /tmp/sentinel.conf
+    depends_on:
+      redis-master:
+        condition: service_healthy
+    ports:
+      - "26379:26379"
+    networks:
+      - default
+
+  sentinel-2:
+    image: redis:7-alpine
+    command:
+      - sh
+      - -c
+      - |
+        # Wait for redis-master and get its IP
+        until REDIS_IP=$$(getent hosts redis-master | awk '{ print $$1 }'); do
+          echo "Waiting for redis-master..."
+          sleep 1
+        done
+        # Create sentinel config with IP address
+        cat > /tmp/sentinel.conf <<EOF
+        sentinel monitor mymaster $$REDIS_IP 6379 2
+        sentinel down-after-milliseconds mymaster 5000
+        sentinel parallel-syncs mymaster 1
+        sentinel failover-timeout mymaster 10000
+        sentinel deny-scripts-reconfig yes
+        EOF
+        redis-sentinel /tmp/sentinel.conf
+    depends_on:
+      redis-master:
+        condition: service_healthy
+    ports:
+      - "26380:26379"
+    networks:
+      - default
+
+  sentinel-3:
+    image: redis:7-alpine
+    command:
+      - sh
+      - -c
+      - |
+        # Wait for redis-master and get its IP
+        until REDIS_IP=$$(getent hosts redis-master | awk '{ print $$1 }'); do
+          echo "Waiting for redis-master..."
+          sleep 1
+        done
+        # Create sentinel config with IP address
+        cat > /tmp/sentinel.conf <<EOF
+        sentinel monitor mymaster $$REDIS_IP 6379 2
+        sentinel down-after-milliseconds mymaster 5000
+        sentinel parallel-syncs mymaster 1
+        sentinel failover-timeout mymaster 10000
+        sentinel deny-scripts-reconfig yes
+        EOF
+        redis-sentinel /tmp/sentinel.conf
+    depends_on:
+      redis-master:
+        condition: service_healthy
+    ports:
+      - "26381:26379"
+    networks:
+      - default
+
+volumes:
+  redis-master-data:

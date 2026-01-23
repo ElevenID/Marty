@@ -40,6 +40,8 @@ import {
   IssuerIdentityStep,
   TrustSourcesStep,
   TrustHealthCheckStep,
+  BusinessContextStep,
+  TechnicalIdentityStep,
 } from './onboarding';
 import UseCaseStep from './onboarding/steps/UseCaseStep';
 import AcceptanceStep from './onboarding/steps/AcceptanceStep';
@@ -51,8 +53,8 @@ const API_BASE_URL = process.env.REACT_APP_API_URL || '';
 const ONBOARDING_API_BASE = `${API_BASE_URL}/api/onboarding`;
 
 const STEPS_APPLICANT = ['Choose Your Role', 'Join Organization', 'Connect Wallet', 'Complete'];
-const STEPS_VENDOR = ['Choose Your Role', 'Create Organization', 'Use Cases', 'Acceptance', 'Trust Profile', 'Verifier Identity', 'Issuer Identity', 'Trust Sources', 'Review', 'Complete'];
-const STEPS_VENDOR_SKIP_TRUST = ['Choose Your Role', 'Create Organization', 'Complete'];
+const STEPS_VENDOR = ['Choose Your Role', 'Create Organization', 'Trust Profile', 'Business Context', 'Technical Identity', 'Review', 'Complete'];
+const STEPS_VENDOR_SKIP_TRUST = ['Choose Your Role', 'Create Organization', 'Trust Profile', 'Complete'];
 
 /**
  * Dot-based Progress Indicator Component
@@ -115,6 +117,9 @@ const OnboardingPage = () => {
   const [jurisdiction, setJurisdiction] = useState('');
   const [isDiscoverable, setIsDiscoverable] = useState(false);
   const [membershipMode, setMembershipMode] = useState('invite_only');
+  const [orgNameChecking, setOrgNameChecking] = useState(false);
+  const [orgNameAvailable, setOrgNameAvailable] = useState(null);
+  const [orgNameError, setOrgNameError] = useState(null);
   
   // Result state
   const [resultInviteCode, setResultInviteCode] = useState(null);
@@ -131,7 +136,7 @@ const OnboardingPage = () => {
   const [manualProfiles, setManualProfiles] = useState([]);
 
   // Trust configuration state
-  const [trustProfile, setTrustProfile] = useState(null);
+  const [trustProfile, setTrustProfile] = useState([]);
   const [verifierConfig, setVerifierConfig] = useState({
     certificate: null,
     keyLocation: null,
@@ -407,11 +412,98 @@ const OnboardingPage = () => {
     }
   };
 
+  const checkOrgNameAvailability = useCallback(async (name) => {
+    if (!name || name.trim().length < 3) {
+      setOrgNameAvailable(null);
+      setOrgNameError(null);
+      return;
+    }
+
+    setOrgNameChecking(true);
+    setOrgNameError(null);
+
+    try {
+      const response = await fetch(
+        `${ONBOARDING_API_BASE}/check-organization-name?name=${encodeURIComponent(name.trim())}`,
+        { credentials: 'include' }
+      );
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        setOrgNameError(data.detail || 'Failed to check name availability');
+        setOrgNameAvailable(false);
+      } else {
+        setOrgNameAvailable(data.available);
+        if (!data.available) {
+          setOrgNameError(`Organization name "${name}" is already taken. Please choose a different name.`);
+        }
+      }
+    } catch (err) {
+      console.error('Error checking org name:', err);
+      setOrgNameError('Failed to check name availability');
+      setOrgNameAvailable(null);
+    } finally {
+      setOrgNameChecking(false);
+    }
+  }, []);
+
+  // Debounce organization name checking
+  useEffect(() => {
+    const isExistingOrg = Boolean(existingOrganization?.id);
+    if (isExistingOrg || userType !== 'vendor') {
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      if (newOrgName && newOrgName.trim().length >= 3) {
+        checkOrgNameAvailability(newOrgName);
+      }
+    }, 500); // 500ms debounce
+
+    return () => clearTimeout(timer);
+  }, [newOrgName, existingOrganization, userType, checkOrgNameAvailability]);
+
+  const handleCreateOrgNext = () => {
+    const isExistingOrg = Boolean(existingOrganization?.id);
+
+    if (!isExistingOrg && !newOrgName.trim()) {
+      setError('Please enter an organization name');
+      return;
+    }
+
+    if (!isExistingOrg && newOrgName.trim().length < 3) {
+      setError('Organization name must be at least 3 characters');
+      return;
+    }
+
+    // Check if name validation is still in progress
+    if (orgNameChecking) {
+      setError('Checking organization name availability...');
+      return;
+    }
+
+    // Check if name is available
+    if (orgNameAvailable === false) {
+      setError(orgNameError || 'Organization name is already taken');
+      return;
+    }
+
+    // Name validation passed, move to trust profile step
+    setError(null);
+    setActiveStep(2); // Move to trust profile selection
+  };
+
   const handleCompleteVendor = async () => {
     const isExistingOrg = Boolean(existingOrganization?.id);
 
     if (!isExistingOrg && !newOrgName.trim()) {
       setError('Please enter an organization name');
+      return;
+    }
+
+    if (!trustProfile || trustProfile.length === 0) {
+      setError('Please select at least one trust profile');
       return;
     }
 
@@ -423,6 +515,7 @@ const OnboardingPage = () => {
         user_type: 'vendor',
         is_discoverable: isDiscoverable,
         membership_mode: membershipMode,
+        trust_framework_codes: trustProfile, // Send array of codes
       };
 
       if (isExistingOrg) {
@@ -454,8 +547,8 @@ const OnboardingPage = () => {
       setResultInviteCode(data.invite_code);
       setMembershipStatus('owner');
       
-      // Move to use case selection step (step 2)
-      setActiveStep(2);
+      // Move to business context step (step 3)
+      setActiveStep(3);
       setSubmitting(false);
     } catch (err) {
       setError(err.message);
@@ -464,13 +557,30 @@ const OnboardingPage = () => {
   };
 
   // Business-focused step handlers
+  const handleBusinessContextNext = () => {
+    if (selectedUseCases.length === 0) {
+      setError('Please select at least one credential type');
+      return;
+    }
+    if (selectedAcceptance.length === 0) {
+      setError('Please select at least one acceptance type');
+      return;
+    }
+    if (!jurisdiction) {
+      setError('Please select your jurisdiction');
+      return;
+    }
+    setError(null);
+    setActiveStep(4); // Move to Technical Identity
+  };
+
   const handleUseCasesNext = () => {
     if (selectedUseCases.length === 0) {
       setError('Please select at least one credential type');
       return;
     }
     setError(null);
-    setActiveStep(3); // Move to Acceptance step
+    setActiveStep(4); // Legacy - now handled by BusinessContextNext
   };
 
   const handleAcceptanceNext = () => {
@@ -483,21 +593,34 @@ const OnboardingPage = () => {
       return;
     }
     setError(null);
-    setActiveStep(4); // Move to Trust Profile (legacy compatibility)
+    setActiveStep(5); // Move to Trust Profile (legacy compatibility)
   };
 
-  // Trust step handlers
+  const handleTechnicalIdentityNext = () => {
+    setError(null);
+    setActiveStep(5); // Move to Health Check
+  };
+
+  // Trust step handlers (legacy compatibility)
   const handleTrustProfileSelect = (profile) => {
-    setTrustProfile(profile);
+    // Toggle selection for multi-select
+    setTrustProfile(prev => {
+      if (prev.includes(profile)) {
+        return prev.filter(p => p !== profile);
+      } else {
+        return [...prev, profile];
+      }
+    });
   };
 
   const handleTrustProfileNext = () => {
-    if (!trustProfile) {
-      setError('Please select a trust profile to continue');
+    if (!trustProfile || trustProfile.length === 0) {
+      setError('Please select at least one trust profile to continue');
       return;
     }
     setError(null);
-    setActiveStep(5); // Move to Verifier Identity (adjusted for new flow)
+    // After selecting trust profile(s), create the organization
+    handleCompleteVendor();
   };
 
   const handleVerifierConfigChange = useCallback((config) => {
@@ -506,7 +629,7 @@ const OnboardingPage = () => {
 
   const handleVerifierNext = () => {
     setError(null);
-    setActiveStep(6); // Move to Issuer Identity (adjusted for new flow)
+    setActiveStep(7); // Move to Issuer Identity (adjusted for new flow)
   };
 
   const handleIssuerConfigChange = useCallback((config) => {
@@ -515,7 +638,7 @@ const OnboardingPage = () => {
 
   const handleIssuerNext = () => {
     setError(null);
-    setActiveStep(7); // Move to Trust Sources (adjusted for new flow)
+    setActiveStep(8); // Move to Trust Sources (adjusted for new flow)
   };
 
   const handleTrustSettingsChange = useCallback((settings) => {
@@ -524,7 +647,7 @@ const OnboardingPage = () => {
 
   const handleTrustSourcesNext = () => {
     setError(null);
-    setActiveStep(8); // Move to Health Check (adjusted for new flow)
+    setActiveStep(4); // Move to Health Check (new consolidated flow)
   };
 
   const handleTrustHealthComplete = async (activate = true) => {
@@ -532,7 +655,9 @@ const OnboardingPage = () => {
     setError(null);
 
     try {
-      // Save trust configuration to backend
+      // TODO: Save trust configuration to backend when endpoint is ready
+      // For now, skip the API call and just complete onboarding
+      /*
       const trustConfig = {
         trust_profile: trustProfile,
         verifier_config: verifierConfig,
@@ -557,9 +682,10 @@ const OnboardingPage = () => {
         const data = await response.json();
         throw new Error(data.detail || 'Failed to save trust configuration');
       }
+      */
 
       setTrustHealthValidated(true);
-      setActiveStep(9); // Move to Completion (adjusted for new flow)
+      setActiveStep(5); // Move to Completion (new consolidated flow)
       setSubmitting(false);
 
       // Refresh user and redirect
@@ -575,7 +701,7 @@ const OnboardingPage = () => {
 
   const handleSkipTrustSetup = async () => {
     setSkipTrustSetup(true);
-    setActiveStep(9); // Jump directly to completion (adjusted for new flow)
+    setActiveStep(6); // Jump directly to completion (new consolidated flow with trust profile step)
     
     // Still refresh user and redirect
     await refreshUser();
@@ -603,7 +729,7 @@ const OnboardingPage = () => {
   }
 
   const vendorSteps = existingOrganization
-    ? ['Choose Your Role', 'Organization Settings', 'Use Cases', 'Acceptance', 'Trust Profile', 'Verifier Identity', 'Issuer Identity', 'Trust Sources', 'Review', 'Complete']
+    ? ['Choose Your Role', 'Organization Settings', 'Business Context', 'Technical Identity', 'Review', 'Complete']
     : (skipTrustSetup ? STEPS_VENDOR_SKIP_TRUST : STEPS_VENDOR);
   const steps = userType === 'vendor' ? vendorSteps : STEPS_APPLICANT;
 
@@ -622,7 +748,7 @@ const OnboardingPage = () => {
         <Box sx={{ textAlign: 'center', mb: 4 }} data-testid="onboarding-header">
           <FlightTakeoffIcon sx={{ fontSize: 48, color: 'white', mb: 1 }} />
           <Typography variant="h4" fontWeight="bold" color="white" data-testid="onboarding-title">
-            Welcome to {branding.appName}
+            Welcome
           </Typography>
           <Typography variant="subtitle1" color="rgba(255,255,255,0.9)">
             Let's get you set up
@@ -687,6 +813,9 @@ const OnboardingPage = () => {
                   membershipMode={membershipMode}
                   onMembershipModeChange={setMembershipMode}
                   orgDetailsLocked={Boolean(existingOrganization)}
+                  orgNameChecking={orgNameChecking}
+                  orgNameAvailable={orgNameAvailable}
+                  orgNameError={orgNameError}
                 />
               )}
             </Box>
@@ -696,26 +825,22 @@ const OnboardingPage = () => {
           <Fade in={activeStep === 2 && userType === 'vendor'} timeout={300} unmountOnExit>
             <Box>
               {activeStep === 2 && userType === 'vendor' && (
-                <>
-                  <UseCaseStep
-                    selectedUseCases={selectedUseCases}
-                    onUseCasesChange={setSelectedUseCases}
-                  />
-                  <AdvancedConfigStep
-                    manualProfiles={manualProfiles}
-                    onManualProfilesChange={setManualProfiles}
-                  />
-                </>
+                <TrustProfileStep
+                  selectedProfile={trustProfile}
+                  onProfileChange={handleTrustProfileSelect}
+                  disabled={submitting}
+                />
               )}
             </Box>
           </Fade>
 
-          {/* Step 4: Vendor - Acceptance Context */}
+          {/* Step 4: Vendor - Business Context (consolidates Use Cases + Acceptance + Jurisdiction) */}
           <Fade in={activeStep === 3 && userType === 'vendor'} timeout={300} unmountOnExit>
             <Box>
               {activeStep === 3 && userType === 'vendor' && (
-                <AcceptanceStep
+                <BusinessContextStep
                   selectedUseCases={selectedUseCases}
+                  onUseCasesChange={setSelectedUseCases}
                   selectedAcceptance={selectedAcceptance}
                   onAcceptanceChange={setSelectedAcceptance}
                   jurisdiction={jurisdiction}
@@ -725,61 +850,27 @@ const OnboardingPage = () => {
             </Box>
           </Fade>
 
-          {/* Step 5: Vendor - Legacy Trust Profile (for advanced users) */}
+          {/* Step 5: Vendor - Technical Identity (consolidates Verifier + Issuer + Trust Sources) */}
           <Fade in={activeStep === 4 && userType === 'vendor'} timeout={300} unmountOnExit>
             <Box>
               {activeStep === 4 && userType === 'vendor' && (
-                <TrustProfileStep
-                  selectedProfile={trustProfile}
-                  onProfileChange={handleTrustProfileSelect}
+                <TechnicalIdentityStep
+                  verifierConfig={verifierConfig}
+                  onVerifierConfigChange={handleVerifierConfigChange}
+                  issuerConfig={issuerConfig}
+                  onIssuerConfigChange={handleIssuerConfigChange}
+                  trustSettings={trustSettings}
+                  onTrustSettingsChange={handleTrustSettingsChange}
+                  trustProfile={trustProfile}
                 />
               )}
             </Box>
           </Fade>
 
-          {/* Step 6: Vendor - Verifier Identity */}
+          {/* Step 6: Vendor - Trust Health Check (Review) */}
           <Fade in={activeStep === 5 && userType === 'vendor'} timeout={300} unmountOnExit>
             <Box>
               {activeStep === 5 && userType === 'vendor' && (
-                <VerifierIdentityStep
-                  config={verifierConfig}
-                  onConfigChange={handleVerifierConfigChange}
-                  trustProfile={trustProfile}
-                />
-              )}
-            </Box>
-          </Fade>
-
-          {/* Step 7: Vendor - Issuer Identity */}
-          <Fade in={activeStep === 6 && userType === 'vendor'} timeout={300} unmountOnExit>
-            <Box>
-              {activeStep === 6 && userType === 'vendor' && (
-                <IssuerIdentityStep
-                  config={issuerConfig}
-                  onConfigChange={handleIssuerConfigChange}
-                  trustProfile={trustProfile}
-                />
-              )}
-            </Box>
-          </Fade>
-
-          {/* Step 8: Vendor - Trust Sources */}
-          <Fade in={activeStep === 7 && userType === 'vendor'} timeout={300} unmountOnExit>
-            <Box>
-              {activeStep === 7 && userType === 'vendor' && (
-                <TrustSourcesStep
-                  settings={trustSettings}
-                  onSettingsChange={handleTrustSettingsChange}
-                  trustProfile={trustProfile}
-                />
-              )}
-            </Box>
-          </Fade>
-
-          {/* Step 9: Vendor - Trust Health Check */}
-          <Fade in={activeStep === 8 && userType === 'vendor'} timeout={300} unmountOnExit>
-            <Box>
-              {activeStep === 8 && userType === 'vendor' && (
                 <TrustHealthCheckStep
                   trustProfile={trustProfile}
                   verifierConfig={verifierConfig}
@@ -810,12 +901,12 @@ const OnboardingPage = () => {
             </Box>
           </Fade>
 
-          {/* Step 3/4: Completion */}
-          <Fade in={(activeStep === 3 && userType === 'applicant') || (activeStep === 9 && userType === 'vendor') || (activeStep === 2 && userType === 'vendor' && skipTrustSetup)} timeout={300} unmountOnExit>
+          {/* Step 3/6: Completion */}
+          <Fade in={(activeStep === 3 && userType === 'applicant') || (activeStep === 6 && userType === 'vendor') || (activeStep === 3 && userType === 'vendor' && skipTrustSetup)} timeout={300} unmountOnExit>
             <Box>
               {((activeStep === 3 && userType === 'applicant') || 
-                (activeStep === 9 && userType === 'vendor') ||
-                (activeStep === 2 && userType === 'vendor' && skipTrustSetup)) && (
+                (activeStep === 6 && userType === 'vendor') ||
+                (activeStep === 3 && userType === 'vendor' && skipTrustSetup)) && (
                 <CompletionStep
                   userType={userType}
                   resultOrgName={resultOrgName}
@@ -832,7 +923,7 @@ const OnboardingPage = () => {
           </Fade>
 
           {/* Navigation Buttons */}
-          {activeStep < (userType === 'vendor' ? 9 : 2) && (
+          {activeStep < (userType === 'vendor' ? 5 : 2) && (
             <Box
               sx={{
                 display: 'flex',
@@ -855,7 +946,7 @@ const OnboardingPage = () => {
               </Button>
 
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                {/* Skip trust setup link - show on use case step */}
+                {/* Skip trust setup link - show on trust profile step */}
                 {activeStep === 2 && userType === 'vendor' && (
                   <Link
                     component="button"
@@ -873,32 +964,32 @@ const OnboardingPage = () => {
                 {activeStep === 1 && userType === 'vendor' && (
                   <Button
                     variant="contained"
-                    onClick={handleCompleteVendor}
+                    onClick={handleCreateOrgNext}
                     disabled={submitting || (existingOrganization ? false : !newOrgName.trim())}
                     endIcon={submitting ? <CircularProgress size={20} /> : <ArrowForwardIcon />}
-                    data-testid="onboarding-next-btn"
-                  >
-                    {submitting ? 'Creating...' : 'Next'}
-                  </Button>
-                )}
-
-                {activeStep === 2 && userType === 'vendor' && (
-                  <Button
-                    variant="contained"
-                    onClick={handleUseCasesNext}
-                    disabled={submitting || selectedUseCases.length === 0}
-                    endIcon={<ArrowForwardIcon />}
                     data-testid="onboarding-next-btn"
                   >
                     Next
                   </Button>
                 )}
 
+                {activeStep === 2 && userType === 'vendor' && (
+                  <Button
+                    variant="contained"
+                    onClick={handleTrustProfileNext}
+                    disabled={submitting || !trustProfile || trustProfile.length === 0}
+                    endIcon={submitting ? <CircularProgress size={20} /> : <ArrowForwardIcon />}
+                    data-testid="onboarding-next-btn"
+                  >
+                    {submitting ? 'Creating Organization...' : 'Continue'}
+                  </Button>
+                )}
+
                 {activeStep === 3 && userType === 'vendor' && (
                   <Button
                     variant="contained"
-                    onClick={handleAcceptanceNext}
-                    disabled={submitting || selectedAcceptance.length === 0 || !jurisdiction}
+                    onClick={handleBusinessContextNext}
+                    disabled={submitting || selectedUseCases.length === 0 || selectedAcceptance.length === 0 || !jurisdiction}
                     endIcon={<ArrowForwardIcon />}
                     data-testid="onboarding-next-btn"
                   >
@@ -909,43 +1000,7 @@ const OnboardingPage = () => {
                 {activeStep === 4 && userType === 'vendor' && (
                   <Button
                     variant="contained"
-                    onClick={handleTrustProfileNext}
-                    disabled={submitting || !trustProfile}
-                    endIcon={<ArrowForwardIcon />}
-                    data-testid="onboarding-next-btn"
-                  >
-                    Next
-                  </Button>
-                )}
-
-                {activeStep === 5 && userType === 'vendor' && (
-                  <Button
-                    variant="contained"
-                    onClick={handleVerifierNext}
-                    disabled={submitting}
-                    endIcon={<ArrowForwardIcon />}
-                    data-testid="onboarding-next-btn"
-                  >
-                    Next
-                  </Button>
-                )}
-
-                {activeStep === 6 && userType === 'vendor' && (
-                  <Button
-                    variant="contained"
-                    onClick={handleIssuerNext}
-                    disabled={submitting}
-                    endIcon={<ArrowForwardIcon />}
-                    data-testid="onboarding-next-btn"
-                  >
-                    Next
-                  </Button>
-                )}
-
-                {activeStep === 7 && userType === 'vendor' && (
-                  <Button
-                    variant="contained"
-                    onClick={handleTrustSourcesNext}
+                    onClick={handleTechnicalIdentityNext}
                     disabled={submitting}
                     endIcon={<ArrowForwardIcon />}
                     data-testid="onboarding-next-btn"

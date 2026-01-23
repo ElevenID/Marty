@@ -18,6 +18,8 @@ import {
   Alert,
   Switch,
   Fade,
+  InputAdornment,
+  CircularProgress,
   InputLabel,
   Select,
   MenuItem,
@@ -27,6 +29,7 @@ import LockOpenIcon from '@mui/icons-material/LockOpen';
 import HowToRegIcon from '@mui/icons-material/HowToReg';
 import VisibilityIcon from '@mui/icons-material/Visibility';
 import VisibilityOffIcon from '@mui/icons-material/VisibilityOff';
+import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 
 const VendorCreateOrgStep = ({
   orgName,
@@ -42,6 +45,9 @@ const VendorCreateOrgStep = ({
   membershipMode,
   onMembershipModeChange,
   orgDetailsLocked = false,
+  orgNameChecking = false,
+  orgNameAvailable = null,
+  orgNameError = null,
 }) => {
   return (
     <Fade in>
@@ -79,7 +85,35 @@ const VendorCreateOrgStep = ({
             placeholder="e.g., Acme Travel Services"
             required
             disabled={orgDetailsLocked}
-            sx={{ mb: 2 }}
+            error={!orgDetailsLocked && orgNameAvailable === false}
+            helperText={
+              !orgDetailsLocked && orgName && orgName.trim().length >= 3
+                ? orgNameChecking
+                  ? 'Checking availability...'
+                  : orgNameAvailable === true
+                  ? '✓ Name available'
+                  : orgNameError || ''
+                : !orgDetailsLocked && orgName && orgName.trim().length > 0 && orgName.trim().length < 3
+                ? 'Name must be at least 3 characters'
+                : ''
+            }
+            InputProps={{
+              endAdornment: !orgDetailsLocked && orgName && orgName.trim().length >= 3 && (
+                <InputAdornment position="end">
+                  {orgNameChecking ? (
+                    <CircularProgress size={20} />
+                  ) : orgNameAvailable === true ? (
+                    <CheckCircleIcon color="success" />
+                  ) : null}
+                </InputAdornment>
+              ),
+            }}
+            sx={{
+              mb: 2,
+              '& .MuiFormHelperText-root': {
+                color: orgNameAvailable === true ? 'success.main' : undefined,
+              },
+            }}
             data-testid="org-name-input"
           />
           
@@ -102,17 +136,40 @@ const VendorCreateOrgStep = ({
             </Select>
           </FormControl>
           
-          <TextField
-            fullWidth
-            label="Jurisdiction"
-            value={jurisdiction || ''}
-            onChange={(e) => onJurisdictionChange(e.target.value)}
-            placeholder="e.g., US-TX, EU, CA-ON"
-            helperText="Region or jurisdiction your organization operates in"
-            disabled={orgDetailsLocked}
-            sx={{ mb: 2 }}
-            data-testid="jurisdiction-input"
-          />
+          <FormControl fullWidth sx={{ mb: 2 }}>
+            <InputLabel id="jurisdiction-label">Jurisdiction</InputLabel>
+            <Select
+              labelId="jurisdiction-label"
+              value={jurisdiction || ''}
+              onChange={(e) => onJurisdictionChange(e.target.value)}
+              label="Jurisdiction"
+              disabled={orgDetailsLocked}
+              data-testid="jurisdiction-select"
+            >
+              <MenuItem value="US">United States</MenuItem>
+              <MenuItem value="US-CA">United States - California</MenuItem>
+              <MenuItem value="US-TX">United States - Texas</MenuItem>
+              <MenuItem value="US-NY">United States - New York</MenuItem>
+              <MenuItem value="US-FL">United States - Florida</MenuItem>
+              <MenuItem value="CA">Canada</MenuItem>
+              <MenuItem value="CA-ON">Canada - Ontario</MenuItem>
+              <MenuItem value="CA-BC">Canada - British Columbia</MenuItem>
+              <MenuItem value="CA-QC">Canada - Quebec</MenuItem>
+              <MenuItem value="UK">United Kingdom</MenuItem>
+              <MenuItem value="EU">European Union</MenuItem>
+              <MenuItem value="DE">Germany</MenuItem>
+              <MenuItem value="FR">France</MenuItem>
+              <MenuItem value="ES">Spain</MenuItem>
+              <MenuItem value="IT">Italy</MenuItem>
+              <MenuItem value="NL">Netherlands</MenuItem>
+              <MenuItem value="AU">Australia</MenuItem>
+              <MenuItem value="NZ">New Zealand</MenuItem>
+              <MenuItem value="JP">Japan</MenuItem>
+              <MenuItem value="SG">Singapore</MenuItem>
+              <MenuItem value="AE">United Arab Emirates</MenuItem>
+              <MenuItem value="OTHER">Other</MenuItem>
+            </Select>
+          </FormControl>
           
           <TextField
             fullWidth

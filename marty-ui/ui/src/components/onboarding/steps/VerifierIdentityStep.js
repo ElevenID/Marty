@@ -87,15 +87,15 @@ const VerifierIdentityStep = ({
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
               <VerifiedUserIcon color="primary" />
               <Typography variant="subtitle1" fontWeight="bold">
-                Verifier certificate (Access Certificate)
+                Verifier public certificate
               </Typography>
             </Box>
             <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-              This is the certificate your gate / app presents to the wallet to prove who you are.
+              Upload your <strong>public certificate</strong> (not your private key). This is presented to wallets to prove who you are.
             </Typography>
 
             <CertificateUploader
-              label="Upload certificate file"
+              label="Upload public certificate file"
               helperText="A chain may include intermediate certificates. We'll detect it."
               value={verifierConfig?.accessCert}
               onChange={handleAccessCertChange}
@@ -107,8 +107,11 @@ const VerifierIdentityStep = ({
 
           {/* Section: Key Location */}
           <Paper variant="outlined" sx={{ p: 3, mb: 3 }}>
-            <Typography variant="subtitle1" fontWeight="bold" sx={{ mb: 2 }}>
-              Where your verifier key lives
+            <Typography variant="subtitle1" fontWeight="bold" sx={{ mb: 1 }}>
+              Where is your private signing key?
+            </Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+              Your private key never leaves your infrastructure. We just need to know how to request signatures.
             </Typography>
 
             <KeyLocationSelector

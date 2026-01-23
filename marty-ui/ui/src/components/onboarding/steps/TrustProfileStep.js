@@ -62,7 +62,9 @@ const PROFILE_OPTIONS = [
  * Profile option card component.
  */
 const ProfileCard = ({ option, selected, onSelect, disabled }) => {
-  const isSelected = selected === option.value;
+  // Handle both single value (legacy) and array (multi-select)
+  const selectedArray = Array.isArray(selected) ? selected : (selected ? [selected] : []);
+  const isSelected = selectedArray.includes(option.value);
 
   return (
     <Paper
@@ -130,7 +132,7 @@ const ProfileCard = ({ option, selected, onSelect, disabled }) => {
  * Trust Profile Step Component.
  * 
  * @param {Object} props
- * @param {string} [props.selectedProfile] - Currently selected profile
+ * @param {string[]|string} [props.selectedProfile] - Currently selected profile(s) - array for multi-select
  * @param {function} props.onProfileChange - Callback when profile is selected
  * @param {boolean} [props.disabled] - Disable selection
  */
@@ -139,6 +141,8 @@ const TrustProfileStep = ({
   onProfileChange,
   disabled = false,
 }) => {
+  const selectedArray = Array.isArray(selectedProfile) ? selectedProfile : (selectedProfile ? [selectedProfile] : []);
+  
   return (
     <Fade in>
       <Box data-testid="trust-profile-step">
@@ -149,9 +153,19 @@ const TrustProfileStep = ({
           variant="body1"
           color="text.secondary"
           textAlign="center"
-          sx={{ mb: 4 }}
+          sx={{ mb: 2 }}
         >
-          This sets the defaults for trusted lists, certificate checks, and wallet compatibility.
+          Select one or more frameworks for credential verification and issuance.
+        </Typography>
+        <Typography
+          variant="body2"
+          color="primary"
+          textAlign="center"
+          sx={{ mb: 4, fontWeight: 'medium' }}
+        >
+          {selectedArray.length > 0 
+            ? `${selectedArray.length} framework${selectedArray.length > 1 ? 's' : ''} selected` 
+            : 'Click to select frameworks'}
         </Typography>
 
         <Grid container spacing={3} sx={{ maxWidth: 900, mx: 'auto' }}>
@@ -172,7 +186,7 @@ const TrustProfileStep = ({
           color="text.secondary"
           sx={{ display: 'block', textAlign: 'center', mt: 3 }}
         >
-          You can change this later in Settings.
+          You can change this later in Trust Registry.
         </Typography>
       </Box>
     </Fade>

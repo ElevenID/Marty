@@ -2,13 +2,17 @@ import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { ThemeProvider, createTheme } from '@mui/material/styles';
 import CssBaseline from '@mui/material/CssBaseline';
-import { AppBar, Toolbar, Typography, Container, Box, Button, Avatar, Chip, Tooltip } from '@mui/material';
+import { AppBar, Toolbar, Typography, Container, Box, Button, Avatar, Chip, Tooltip, IconButton, Menu, MenuItem, ListItemIcon, ListItemText, Divider } from '@mui/material';
 import LoginIcon from '@mui/icons-material/Login';
 import LogoutIcon from '@mui/icons-material/Logout';
 import AdminPanelSettingsIcon from '@mui/icons-material/AdminPanelSettings';
 import PersonIcon from '@mui/icons-material/Person';
 import BusinessIcon from '@mui/icons-material/Business';
 import StorefrontIcon from '@mui/icons-material/Storefront';
+import SettingsIcon from '@mui/icons-material/Settings';
+import AccountCircleIcon from '@mui/icons-material/AccountCircle';
+import NotificationsIcon from '@mui/icons-material/Notifications';
+import PaymentIcon from '@mui/icons-material/Payment';
 
 import { AuthProvider } from './contexts/AuthContext';
 import { NotificationProvider } from './contexts/NotificationContext';
@@ -41,7 +45,7 @@ import MyDocuments from './components/MyDocuments';
 import ProfilePage from './components/ProfilePage';
 import WalletSetup from './components/WalletSetup';
 import NotificationPreferences from './components/NotificationPreferences';
-import { VendorDashboard, APIKeyManager, CredentialConfigManager, MDocConfigManager, InviteApplicants, VendorApplicationReview } from './components/vendor';
+import { VendorDashboard, APIKeyManager, CredentialConfigManager, MDocConfigManager, InviteApplicants, VendorApplicationReview, TrustRegistry, Team, AuditLogs, Verification } from './components/vendor';
 import { ApplicationForm, CredentialCatalog } from './components/applicant';
 import InviteAcceptPage from './components/InviteAcceptPage';
 
@@ -64,6 +68,18 @@ function createDynamicTheme(branding) {
 function AppContent() {
   const { isAuthenticated, isAdministrator, isApplicant, isVendor, organizationName, user, login, logout } = useAuth();
   const { branding, isLoading } = useBranding();
+
+  // Settings menu state
+  const [settingsAnchorEl, setSettingsAnchorEl] = React.useState(null);
+  const settingsMenuOpen = Boolean(settingsAnchorEl);
+
+  const handleSettingsClick = (event) => {
+    setSettingsAnchorEl(event.currentTarget);
+  };
+
+  const handleSettingsClose = () => {
+    setSettingsAnchorEl(null);
+  };
 
   // Create theme from branding config
   const theme = React.useMemo(() => createDynamicTheme(branding), [branding]);
@@ -141,6 +157,59 @@ function AppContent() {
                     {getUserDisplayName()}
                   </Typography>
                 </Box>
+
+                {/* Settings Menu (Vendor only) */}
+                {isVendor && (
+                  <>
+                    <Tooltip title="Settings">
+                      <IconButton
+                        onClick={handleSettingsClick}
+                        size="small"
+                        sx={{ color: 'white' }}
+                        aria-controls={settingsMenuOpen ? 'settings-menu' : undefined}
+                        aria-haspopup="true"
+                        aria-expanded={settingsMenuOpen ? 'true' : undefined}
+                        data-testid="settings-button"
+                      >
+                        <SettingsIcon />
+                      </IconButton>
+                    </Tooltip>
+                    <Menu
+                      id="settings-menu"
+                      anchorEl={settingsAnchorEl}
+                      open={settingsMenuOpen}
+                      onClose={handleSettingsClose}
+                      MenuListProps={{
+                        'aria-labelledby': 'settings-button',
+                      }}
+                      transformOrigin={{ horizontal: 'right', vertical: 'top' }}
+                      anchorOrigin={{ horizontal: 'right', vertical: 'bottom' }}
+                    >
+                      <MenuItem component="a" href="/vendor/settings" onClick={handleSettingsClose}>
+                        <ListItemIcon>
+                          <BusinessIcon fontSize="small" />
+                        </ListItemIcon>
+                        <ListItemText>Organization Profile</ListItemText>
+                      </MenuItem>
+                      <MenuItem disabled>
+                        <ListItemIcon>
+                          <NotificationsIcon fontSize="small" />
+                        </ListItemIcon>
+                        <ListItemText>Notifications</ListItemText>
+                      </MenuItem>
+                      <MenuItem disabled>
+                        <ListItemIcon>
+                          <PaymentIcon fontSize="small" />
+                        </ListItemIcon>
+                        <ListItemText>Billing & Subscription</ListItemText>
+                      </MenuItem>
+                      <Divider />
+                      <MenuItem disabled>
+                        <ListItemText sx={{ color: 'error.main' }}>Delete Organization</ListItemText>
+                      </MenuItem>
+                    </Menu>
+                  </>
+                )}
 
                 {/* Logout Button */}
                 <Button
@@ -360,6 +429,38 @@ function AppContent() {
                   element={
                     <VendorRoute>
                       <VendorApplicationReview />
+                    </VendorRoute>
+                  }
+                />
+                <Route
+                  path="/vendor/trust"
+                  element={
+                    <VendorRoute>
+                      <TrustRegistry />
+                    </VendorRoute>
+                  }
+                />
+                <Route
+                  path="/vendor/team"
+                  element={
+                    <VendorRoute>
+                      <Team />
+                    </VendorRoute>
+                  }
+                />
+                <Route
+                  path="/vendor/logs"
+                  element={
+                    <VendorRoute>
+                      <AuditLogs />
+                    </VendorRoute>
+                  }
+                />
+                <Route
+                  path="/vendor/verification"
+                  element={
+                    <VendorRoute>
+                      <Verification />
                     </VendorRoute>
                   }
                 />
