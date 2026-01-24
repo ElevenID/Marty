@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Protocol
 
-from marty_plugin.common.infrastructure.key_vault import KeyVaultClient
+from marty_common.infrastructure.key_vault import KeyVaultClient
 
 from digital_identity.application.ports.secrets import SecretsServicePort
 from digital_identity.domain.entities import TrustFramework

@@ -20,7 +20,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import cbor2
 
 # Use crypto_bridge for Rust-backed cryptographic operations
-from marty_plugin.common.crypto_bridge import (
+from marty_common.crypto_bridge import (
     hkdf_sha256,
     pbkdf2_sha256,
     aes_gcm_encrypt,

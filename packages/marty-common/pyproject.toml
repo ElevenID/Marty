@@ -25,6 +25,9 @@ classifiers = [
 
 # Core dependencies for infrastructure, crypto, gRPC, database, monitoring
 dependencies = [
+    # Web framework (for error handlers)
+    "fastapi>=0.104.0",
+    
     # Cryptography
     "cryptography>=41.0.0",
     "pycryptodome>=3.19.0",
@@ -64,6 +67,12 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# Rust FFI bindings (for crypto_bridge functionality)
+ffi = [
+    "marty-credentials[ffi]>=0.1.0",  # Provides _marty_rs module for credential operations
+    "marty-verification-py>=0.1.0",    # Provides _marty_verification module for verification operations
+]
+
 # Development dependencies
 dev = [
     "pytest>=7.4.0",

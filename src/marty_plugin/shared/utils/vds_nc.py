@@ -34,7 +34,7 @@ except ImportError:
     qrcode = None
 
 # Use crypto_bridge for Rust-backed cryptographic operations
-from marty_plugin.common.crypto_bridge import (
+from marty_common.crypto_bridge import (
     sha256,
     ecdsa_p256_sign,
     ecdsa_p256_verify,

@@ -44,7 +44,7 @@ class IcaoTrustProfile:
     
     def __post_init__(self):
         """Initialize the trust store."""
-        from marty_plugin.common.crypto.csca_trust_store import CSCATrustStore
+        from marty_common.crypto.csca_trust_store import CSCATrustStore
         
         self._trust_store = CSCATrustStore(trust_store_path=self.trust_store_path)
         
@@ -207,7 +207,7 @@ class IcaoTrustProfile:
             cert = x509.load_pem_x509_certificate(certificate.encode('utf-8'))
             
             # TODO: Integrate with existing revocation checking
-            # from marty_plugin.common.crypto.certificate_validator import CertificateChainValidator
+            # from marty_common.crypto.certificate_validator import CertificateChainValidator
             
             # For now, return unknown
             return RevocationCheckResult(

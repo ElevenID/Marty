@@ -15,7 +15,7 @@ from typing import Any
 
 from cryptography.hazmat.primitives import serialization
 
-from marty_plugin.common.crypto_bridge import (
+from marty_common.crypto_bridge import (
     ecdsa_p256_sign,
     ecdsa_p384_sign,
     ecdsa_p521_sign,

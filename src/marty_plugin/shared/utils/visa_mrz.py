@@ -12,7 +12,7 @@ and check digit computation algorithms (via Rust marty_rs).
 import re
 from datetime import date
 
-from marty_plugin.common.crypto_bridge import compute_check_digit as _rust_compute_check_digit
+from marty_common.crypto_bridge import compute_check_digit as _rust_compute_check_digit
 from marty_plugin.shared.models.visa import MRZData, Visa, VisaType
 
 

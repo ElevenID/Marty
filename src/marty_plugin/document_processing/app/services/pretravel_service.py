@@ -21,19 +21,19 @@ from app.models.doc_models_clean import (
 )
 from app.services.mrz_service import MRZProcessingService
 from cryptography.hazmat.primitives import serialization
-from marty_plugin.common.infrastructure.key_vault import (
+from marty_common.infrastructure.key_vault import (
     FileKeyVaultClient,
     KeyVaultConfig,
     build_key_vault_client,
 )
-from marty_plugin.common.services.certificate_validation import CertificateValidationService
-from marty_plugin.common.verification.trust_list_manager import (
+from marty_common.services.certificate_validation import CertificateValidationService
+from marty_common.verification.trust_list_manager import (
     PKDClient,
     TrustListCache,
     TrustListManager,
     TrustPolicy,
 )
-from marty_plugin.common.vc.sd_jwt import (
+from marty_common.vc.sd_jwt import (
     SdJwtConfig,
     SdJwtIssuanceInput,
     SdJwtIssuer,

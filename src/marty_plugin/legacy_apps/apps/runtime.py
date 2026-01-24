@@ -13,13 +13,13 @@ from grpc import aio as grpc_aio
 from grpc_health.v1 import health_pb2, health_pb2_grpc
 from grpc_health.v1.health import HealthServicer
 
-from marty_plugin.common.auth_interceptor import create_auth_interceptor
-from marty_plugin.common.config import Config as MartyConfig
-from marty_plugin.common.grpc_interceptors import AsyncExceptionToStatusInterceptor
-from marty_plugin.common.grpc_logging import LoggingStreamerServicer
-from marty_plugin.common.grpc_metrics import create_async_metrics_interceptor
-from marty_plugin.common.grpc_tls import build_client_credentials, configure_server_security
-from marty_plugin.common.infrastructure import (
+from marty_common.auth_interceptor import create_auth_interceptor
+from marty_common.config import Config as MartyConfig
+from marty_common.grpc_interceptors import AsyncExceptionToStatusInterceptor
+from marty_common.grpc_logging import LoggingStreamerServicer
+from marty_common.grpc_metrics import create_async_metrics_interceptor
+from marty_common.grpc_tls import build_client_credentials, configure_server_security
+from marty_common.infrastructure import (
     DatabaseManager,
     EventBusProvider,
     KeyVaultClient,
@@ -27,9 +27,9 @@ from marty_plugin.common.infrastructure import (
     OutboxDispatcher,
     build_key_vault_client,
 )
-from marty_plugin.common.logging_config import setup_logging
-from marty_plugin.common.metrics_server import start_metrics_server
-from marty_plugin.common.otel import init_tracing, instrument_grpc
+from marty_common.logging_config import setup_logging
+from marty_common.metrics_server import start_metrics_server
+from marty_common.otel import init_tracing, instrument_grpc
 from marty_plugin.lib.certificate_lifecycle_monitor import CertificateLifecycleMonitor
 from marty_plugin.proto.v1 import common_services_pb2_grpc
 
@@ -393,7 +393,7 @@ def add_open_badges_service(
     health: HealthServicer,
     dependencies: ServiceDependencies,
 ) -> None:
-    from marty_plugin.common.config import Config
+    from marty_common.config import Config
     from marty_plugin.lib.open_badges import OpenBadgesService
     from marty_plugin.proto.v1 import open_badges_service_pb2_grpc
 
@@ -476,7 +476,7 @@ async def serve_service_async(
     channels = create_service_channels(config, tls_options)
     # Resilience interceptor (circuit breaker, failure injection) can be toggled via env
     # Local import to avoid circular dependencies
-    from marty_plugin.common.resilience import ResilienceServerInterceptor
+    from marty_common.resilience import ResilienceServerInterceptor
 
     enable_resilience = os.environ.get("MARTY_RESILIENCE_ENABLED", "true").lower() in {
         "1",

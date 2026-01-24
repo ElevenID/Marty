@@ -21,10 +21,10 @@ from typing import Any
 import grpc
 import qrcode
 
-from marty_plugin.common import crypto_bridge
-from marty_plugin.common.config import Config
-from marty_plugin.common.crypto import hash_password, verify_password, verify_signature
-from marty_plugin.common.grpc_client import GRPCClient
+from marty_common import crypto_bridge
+from marty_common.config import Config
+from marty_common.crypto import hash_password, verify_password, verify_signature
+from marty_common.grpc_client import GRPCClient
 from marty_plugin.proto import (
     document_signer_pb2,
     document_signer_pb2_grpc,

@@ -16,8 +16,8 @@ from pathlib import Path
 from typing import Any
 
 # Import shared utilities
-from marty_plugin.common.certificate import CertificateProcessor
-from marty_plugin.common.service_config_factory import get_config_manager
+from marty_common.certificate import CertificateProcessor
+from marty_common.service_config_factory import get_config_manager
 
 # Configure logging
 logging.basicConfig(

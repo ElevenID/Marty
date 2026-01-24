@@ -308,7 +308,7 @@ class MockNotificationAdapter:
                 import base64
                 # Import Rust crypto bridge for RSA verification
                 try:
-                    from marty_plugin.common.crypto_bridge import rsa_pkcs1_sha256_verify
+                    from marty_common.crypto_bridge import rsa_pkcs1_sha256_verify
                 except ImportError:
                     # Fallback: skip verification in environments without Rust bindings
                     logger.warning("Rust crypto bridge not available, skipping signature verification")

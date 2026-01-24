@@ -22,7 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from marty_plugin.common.infrastructure import CertificateRepository, KeyVaultClient
 
 # Import Rust bindings for certificate building
-from marty_plugin._marty_rs import (
+from _marty_verification import (
     build_self_signed_certificate_with_key as rust_build_cert_with_key,
     certificate_der_to_pem as rust_cert_der_to_pem,
 )

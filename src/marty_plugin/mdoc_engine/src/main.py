@@ -10,12 +10,12 @@ from pathlib import Path
 # Ensure we can import from the parent directory
 sys.path.append(str(Path(__file__).resolve().parents[3]))
 
-from marty_plugin.common.database import create_service_database_tables
+from marty_common.database import create_service_database_tables
 
 # Import ultra-DRY service utilities
-from marty_plugin.common.grpc_service_factory import serve_auto_service
-from marty_plugin.common.logging_config import get_logger
-from marty_plugin.common.service_config_factory import get_config_manager
+from marty_common.grpc_service_factory import serve_auto_service
+from marty_common.logging_config import get_logger
+from marty_common.service_config_factory import get_config_manager
 
 # Import database utility
 from marty_plugin.shared.database import Base, engine

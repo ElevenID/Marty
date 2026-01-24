@@ -186,9 +186,11 @@ The project follows a modular plugin architecture:
 - `/tests/` - Test suites for plugin functionality
 - `/docs/` - Documentation and API specifications
 
-## 🚀 Quick Start
+## 🚀 Quick Start & Demo
 
 Get Marty MMF plugin running in under 5 minutes:
+
+### Installation
 
 ```bash
 # Clone the repository
@@ -197,9 +199,18 @@ cd Marty
 
 # Set up the development environment (installs dependencies)
 uv install -e .
+```
 
-# Test the plugin
+### Demo: Plugin Integration
+
+Test the Marty plugin integration with MMF:
+
+```bash
+# Run the plugin demo
 python demo_mmf_integration.py
+
+# Test plugin services individually  
+python -c "from src.mmf_plugin.plugin import MartyPlugin; p=MartyPlugin(); print(f'Plugin: {p.get_metadata()}')"
 
 # Run the test suite
 uv run pytest tests/
@@ -207,9 +218,51 @@ uv run pytest tests/
 
 **🎯 Verify installation**: The demo will show plugin discovery, service initialization, and health checks.
 
+### What the Demo Shows
+
+#### Plugin Discovery
+```
+🔍 Plugin Discovery Demo
+==================================================
+✅ Discovered plugin: marty
+   Version: 1.0.0
+   Description: Marty Trust PKI services for ICAO compliance
+   Services: 4 services
+```
+
+#### Service Lifecycle  
+```
+🔄 Plugin Lifecycle Demo
+==================================================
+🚀 Initializing plugin...
+✅ Started trust_anchor service
+✅ Started pkd service  
+✅ Started document_signer service
+✅ Started csca service
+```
+
+#### Health Monitoring
+```
+❤️  Checking health status...
+   Overall status: healthy
+   - trust_anchor: healthy
+   - pkd: healthy
+   - document_signer: healthy
+   - csca: healthy
+```
+
+### Available Plugin Services
+
+The Marty plugin exposes four core trust and PKI services:
+
+- **Trust Anchor Service**: Root certificate management and trust validation
+- **PKD Service**: Public Key Directory synchronization and certificate discovery
+- **Document Signer Service**: Digital signature creation for travel documents
+- **CSCA Service**: Country Signing Certificate Authority management
+
 > **💡 Tip**: Use the MMF framework to deploy Marty as a plugin in production environments.
 
-## Plugin Development
+## 🚀 Getting Started with Development
 
 ### Development Setup
 
@@ -389,6 +442,38 @@ Plugin services are configured through MMF framework configuration in the host d
 **🌟 Educational Portfolio Project** - This implementation demonstrates modern approaches to international digital identity standards, plugin architecture, and secure certificate management in a comprehensive, well-documented MMF plugin.
 
 For questions about educational use or portfolio review, please contact the repository owner.
+
+## 📚 Documentation
+
+Comprehensive documentation is available in the [docs/](docs/) directory:
+
+### Core Documentation
+- **[ISO 18013-5 Architecture](docs/iso18013/ARCHITECTURE.md)** - ISO 18013-5 architecture and performance analysis
+- **[ISO 18013-5 Build Guide](docs/iso18013/BUILD_GUIDE.md)** - Build instructions and Python-to-Rust migration guide
+- **[ISO 18013 Interoperability](docs/iso18013/INTEROPERABILITY_GUIDE.md)** - Standards compliance and API mappings
+- **[ISO 18013 Implementation](docs/iso18013/IMPLEMENTATION_SUMMARY.md)** - Complete mDL/mDoc implementation overview
+
+### Migration & Integration
+- **[MMF Migration Guide](docs/migration/MMF_MIGRATION_GUIDE.md)** - Comprehensive guide for migrating to MMF plugin architecture
+- **[Certificate Management Migration](docs/guides/CERTIFICATE_MANAGEMENT_MIGRATION_PLAN.md)** - Certificate framework migration plan
+
+### Operational Guides
+- **[Docker Guide](docs/guides/DOCKER.md)** - Docker development setup and deployment
+- **[Native Development](docs/guides/NATIVE_DEVELOPMENT.md)** - Hybrid TDD development environment
+- **[Push Notification Guide](docs/guides/PUSH_NOTIFICATION_GUIDE.md)** - Firebase/SSE notification infrastructure
+- **[Configuration Consolidation](docs/guides/CONFIGURATION_CONSOLIDATION_GUIDE.md)** - Unified configuration system migration
+- **[Deployment Profile Migration](docs/guides/DEPLOYMENT_PROFILE_MIGRATION_GUIDE.md)** - Deployment profile migration steps
+- **[Deployment Profile Reference](docs/guides/DEPLOYMENT_PROFILE_QUICK_REFERENCE.md)** - Quick reference for deployment profiles
+
+### Architecture & Features
+- **[Certificate Management Framework](docs/architecture/CERTIFICATE_MANAGEMENT_FRAMEWORK_DESIGN.md)** - Certificate management architecture design
+- **[Presentation Policy](docs/features/PRESENTATION_POLICY_IMPLEMENTATION.md)** - Presentation policy implementation
+- **[Redis Multi-Tenant](docs/features/REDIS_MULTI_TENANT_IMPLEMENTATION.md)** - Multi-tenant Redis implementation
+- **[Update Manager Integration](docs/features/UPDATE_MANAGER_INTEGRATION.md)** - Update manager and deployment profiles
+- **[Quality Gates](docs/features/QUALITY_GATES_IMPLEMENTATION.md)** - Quality gates and reliability implementation
+
+### Additional Resources
+For more documentation, see the [docs/](docs/) directory which contains 50+ additional guides covering API documentation, testing strategies, security practices, and more.
 
 ---
 

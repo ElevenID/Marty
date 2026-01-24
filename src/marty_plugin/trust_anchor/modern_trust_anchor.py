@@ -26,7 +26,7 @@ from marty_msf.framework.observability.unified_observability import (
 )
 
 if TYPE_CHECKING:
-    from marty_plugin.common.grpc_types import ServiceDependencies
+    from marty_common.grpc_types import ServiceDependencies
 
 import grpc
 

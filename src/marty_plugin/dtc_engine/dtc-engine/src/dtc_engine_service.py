@@ -23,11 +23,11 @@ from typing import Any
 import qrcode
 
 # Import common utilities
-from marty_plugin.common.config import Config
-from marty_plugin.common import crypto_bridge
-from marty_plugin.common.crypto import generate_hash
-from marty_plugin.common.grpc_client import GRPCClient as GrpcClient
-from marty_plugin.common.logging_config import get_logger
+from marty_common.config import Config
+from marty_common import crypto_bridge
+from marty_common.crypto import generate_hash
+from marty_common.grpc_client import GRPCClient as GrpcClient
+from marty_common.logging_config import get_logger
 from marty_plugin.proto import document_signer_pb2
 from marty_plugin.proto.document_signer_pb2_grpc import DocumentSignerStub
 

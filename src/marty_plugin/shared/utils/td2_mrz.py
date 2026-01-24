@@ -20,7 +20,7 @@ from __future__ import annotations
 import re
 from datetime import date
 
-from marty_plugin.common.crypto_bridge import compute_check_digit as _rust_compute_check_digit
+from marty_common.crypto_bridge import compute_check_digit as _rust_compute_check_digit
 from marty_plugin.shared.models.td2 import PersonalData, TD2Document, TD2DocumentData, TD2MRZData
 
 

@@ -9,11 +9,11 @@ sys.path.append(str(Path(__file__).resolve().parents[3]))
 # Import DTC engine servicer
 from dtc_engine_service import DTCEngineService
 
-from marty_plugin.common.config import Config
-from marty_plugin.common.service_config_factory import get_config_manager
+from marty_common.config import Config
+from marty_common.service_config_factory import get_config_manager
 
 # Import shared utilities
-from marty_plugin.common.services import BaseGrpcService
+from marty_common.services import BaseGrpcService
 from marty_plugin.proto.v1 import dtc_engine_pb2_grpc
 
 

@@ -49,11 +49,10 @@ dependencies = [
     "grpcio>=1.76.0",
 ]
 
-[tool.maturin]
-manifest-path = "rust/marty-rs/Cargo.toml"
-features = ["pyo3/extension-module"]
-python-source = "src"
-module-name = "marty_plugin._marty_rs"
+# Note: Rust FFI modules are now provided by separate packages:
+# - marty-credentials[ffi] provides _marty_rs (credential operations)
+# - marty-verification-py provides _marty_verification (verification operations)
+# Install marty-common[ffi] to get both automatically
 
 [project.optional-dependencies]
 biometric = [

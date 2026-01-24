@@ -14,7 +14,7 @@ import asn1crypto.pem
 import asn1crypto.x509
 from app.models.pkd_models import Certificate, RevokedCertificate
 from app.utils.asn1_utils import ASN1Encoder
-from marty_plugin.common.crypto_bridge import (
+from marty_common.crypto_bridge import (
     certificate_pem_to_der,
     get_certificate_info,
 )

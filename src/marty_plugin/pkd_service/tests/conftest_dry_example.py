@@ -12,7 +12,7 @@ from app.main import app as pkd_app
 from fastapi import FastAPI
 
 # DRY: Import shared testing infrastructure
-from marty_plugin.common.testing import (  # Core utilities; Enhanced fixtures; Service-specific config
+from marty_common.testing import (  # Core utilities; Enhanced fixtures; Service-specific config
     CommonTestData,
     MockFactory,
     PKDServiceTestConfig,
@@ -148,7 +148,7 @@ AFTER_CONFTEST = '''
 DRY approach - minimal service-specific code
 """
 
-from marty_plugin.common.testing import PKDServiceTestConfig, test_data_factory
+from marty_common.testing import PKDServiceTestConfig, test_data_factory
 from app.main import app as pkd_app
 
 # Create test configuration instance

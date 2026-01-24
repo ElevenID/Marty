@@ -9,7 +9,7 @@ from typing import Any
 
 from pydantic import Field, field_validator
 
-from marty_plugin.common.base_config import FastAPIServiceConfig
+from marty_common.base_config import FastAPIServiceConfig
 
 
 class PKDServiceConfig(FastAPIServiceConfig):

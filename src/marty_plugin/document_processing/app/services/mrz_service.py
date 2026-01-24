@@ -35,7 +35,7 @@ from pytesseract import pytesseract  # type: ignore
 # document processing integration tests. This avoids pulling in the heavy grpc dependency
 # chain just to parse basic MRZ data for the doc-processing service.
 try:  # pragma: no cover - exercised only in environments missing grpc/marty_common deps
-    from marty_plugin.common.utils.mrz_utils import MRZException, MRZParser  # type: ignore[attr-defined]
+    from marty_common.utils.mrz_utils import MRZException, MRZParser  # type: ignore[attr-defined]
 except (ImportError, ModuleNotFoundError):  # Fallback only for import-related failures
 
     class MRZException(Exception):

@@ -5,7 +5,7 @@ This demonstrates the ultimate DRY pattern for gRPC services,
 reducing the main.py to just a few lines while maintaining full functionality.
 """
 
-from marty_plugin.common.grpc_service_factory import create_grpc_service_factory
+from marty_common.grpc_service_factory import create_grpc_service_factory
 from marty_plugin.proto.trust_anchor_pb2_grpc import add_TrustAnchorServicer_to_server
 from marty_plugin.trust_anchor.app.grpc_service import TrustAnchorService
 

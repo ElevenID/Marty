@@ -8,7 +8,7 @@ import base64
 import logging
 from typing import Any
 
-from marty_plugin.common.services.base_openxpki_service import BaseOpenXPKIService
+from marty_common.services.base_openxpki_service import BaseOpenXPKIService
 
 logger = logging.getLogger(__name__)
 

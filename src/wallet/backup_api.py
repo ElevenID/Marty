@@ -19,7 +19,7 @@ from sqlalchemy import Column, DateTime, Integer, LargeBinary, String, select
 from sqlalchemy.orm import declarative_base
 
 if TYPE_CHECKING:
-    from marty_plugin.common.infrastructure.database import DatabaseManager
+    from marty_common.infrastructure.database import DatabaseManager
 
 # Create a local Base for this module
 # In production, this would be imported from shared infrastructure

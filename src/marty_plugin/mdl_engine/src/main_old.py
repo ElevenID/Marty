@@ -11,10 +11,10 @@ from pathlib import Path
 sys.path.append(str(Path(__file__).resolve().parents[3]))
 
 # Import ultra-DRY auto-service utilities
-from marty_plugin.common.config import ConfigurationManager
-from marty_plugin.common.database import create_service_database_tables
-from marty_plugin.common.grpc_service_factory import serve_auto_service
-from marty_plugin.common.logging_config import get_logger
+from marty_common.config import ConfigurationManager
+from marty_common.database import create_service_database_tables
+from marty_common.grpc_service_factory import serve_auto_service
+from marty_common.logging_config import get_logger
 
 # Import database utility
 from marty_plugin.shared.database import Base, engine
@@ -67,10 +67,10 @@ from pathlib import Path
 # Ensure we can import from the parent directory
 sys.path.append(str(Path(__file__).resolve().parents[3]))
 
-from marty_plugin.common.config import ConfigurationManager
+from marty_common.config import ConfigurationManager
 
 # Import ultra-DRY auto-service utilities
-from marty_plugin.common.logging_config import get_logger
+from marty_common.logging_config import get_logger
 
 # Import database utility
 
@@ -124,9 +124,9 @@ from pathlib import Path
 sys.path.append(str(Path(__file__).resolve().parents[3]))
 
 # Import DRY utilities
-from marty_plugin.common.config import ConfigurationManager
-from marty_plugin.common.grpc_service_factory import create_grpc_service_factory
-from marty_plugin.common.logging_config import get_logger
+from marty_common.config import ConfigurationManager
+from marty_common.grpc_service_factory import create_grpc_service_factory
+from marty_common.logging_config import get_logger
 
 # Import the MDL Engine service implementation
 from marty_plugin.proto.mdl_engine_pb2_grpc import add_MDLEngineServicer_to_server

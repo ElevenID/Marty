@@ -33,7 +33,7 @@ from cryptography.hazmat.primitives.asymmetric import ec, rsa
 from cryptography.hazmat.primitives.serialization import pkcs12
 
 # Import Rust bindings for key generation (required)
-from marty_plugin.common.crypto_bridge import (
+from marty_common.crypto_bridge import (
     generate_key as rust_generate_key,
     rsa_generate as rust_rsa_generate,
     ecdsa_p256_generate as rust_ecdsa_p256_generate,

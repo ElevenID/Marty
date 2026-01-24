@@ -12,11 +12,11 @@ from fastapi import APIRouter, Depends, HTTPException, Path, Query
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from marty_plugin.common.crypto.database_vds_nc_manager import (
+from marty_common.crypto.database_vds_nc_manager import (
     DatabaseVDSNCKeyManager,
     VDSNCKeyRepository,
 )
-from marty_plugin.common.crypto.vds_nc_keys import (
+from marty_common.crypto.vds_nc_keys import (
     KeyRole,
     KeyStatus,
     VDSNCKeyManager,

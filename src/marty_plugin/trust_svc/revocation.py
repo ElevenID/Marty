@@ -25,7 +25,7 @@ from .database import DatabaseManager
 from .models import RevocationStatus
 
 # Import Rust bindings for OCSP/CRL operations and crypto
-from marty_plugin.common.crypto_bridge import (
+from marty_common.crypto_bridge import (
     parse_crl as rust_parse_crl,
     build_ocsp_request as rust_build_ocsp_request,
     parse_ocsp_response as rust_parse_ocsp_response,
