@@ -18,6 +18,12 @@ from digital_identity.infrastructure.adapters.rest.schemas import (
     TrustProfileCreate,
     TrustProfileUpdate,
     TrustProfileResponse,
+    # Issuer Registry
+    TrustProfileIssuerAdd,
+    TrustProfileIssuerUpdate,
+    TrustProfileIssuerResponse,
+    RevocationServicesConfig,
+    SystemIssuerOverride,
     # Credential Template
     CredentialTemplateCreate,
     CredentialTemplateUpdate,
@@ -52,6 +58,7 @@ from digital_identity.infrastructure.adapters.rest.dependencies import (
     get_deployment_profile_service,
     get_lane_service,
     get_flow_service,
+    get_issuer_registry_service,
 )
 from digital_identity.domain.value_objects import FLOW_STEPS, FlowType
 
@@ -231,6 +238,206 @@ async def refresh_trust_profile(
     """Refresh a Trust Profile's anchors."""
     result = await service.refresh_trust_data(profile_id)
     return result
+
+
+# Issuer Management Endpoints
+
+@trust_profile_router.post(
+    "/{profile_id}/issuers",
+    response_model=TrustProfileIssuerResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Add Issuer to Trust Profile",
+    description="Add an issuer to a trust profile with trust level and cascade policy.",
+)
+async def add_issuer_to_trust_profile(
+    profile_id: str,
+    data: TrustProfileIssuerAdd,
+    issuer_service=Depends(get_issuer_registry_service),
+) -> TrustProfileIssuerResponse:
+    """Add an issuer to a trust profile."""
+    try:
+        relationship = await issuer_service.add_issuer_to_trust_profile(
+            trust_profile_id=profile_id,
+            issuer_id=data.issuer_id,
+            trust_level=data.trust_level,
+            cascade_policy=data.cascade_revocation_policy,
+            relationship_status=data.relationship_status,
+        )
+        return _trust_profile_issuer_to_response(relationship)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except Exception as e:
+        logger.exception("Failed to add issuer to trust profile")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+
+
+@trust_profile_router.get(
+    "/{profile_id}/issuers",
+    response_model=list[TrustProfileIssuerResponse],
+    summary="List Trust Profile Issuers",
+    description="List all issuers associated with a trust profile (includes system issuers).",
+)
+async def list_trust_profile_issuers(
+    profile_id: str,
+    include_system: bool = Query(default=True, description="Include system issuers"),
+    issuer_service=Depends(get_issuer_registry_service),
+) -> list[TrustProfileIssuerResponse]:
+    """List issuers for a trust profile."""
+    try:
+        relationships = await issuer_service.get_trust_profile_issuers(
+            profile_id, include_system=include_system
+        )
+        return [_trust_profile_issuer_to_response(r) for r in relationships]
+    except Exception as e:
+        logger.exception("Failed to list trust profile issuers")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+
+
+@trust_profile_router.patch(
+    "/{profile_id}/issuers/{issuer_id}",
+    response_model=TrustProfileIssuerResponse,
+    summary="Update Issuer Relationship",
+    description="Update trust level or cascade policy for an issuer.",
+)
+async def update_trust_profile_issuer(
+    profile_id: str,
+    issuer_id: str,
+    data: TrustProfileIssuerUpdate,
+    issuer_service=Depends(get_issuer_registry_service),
+) -> TrustProfileIssuerResponse:
+    """Update issuer relationship in trust profile."""
+    try:
+        if data.trust_level is not None:
+            relationship = await issuer_service.update_trust_level(
+                trust_profile_id=profile_id,
+                issuer_id=issuer_id,
+                new_level=data.trust_level,
+                reason=data.reason,
+            )
+        else:
+            relationship = await issuer_service.update_relationship(
+                trust_profile_id=profile_id,
+                issuer_id=issuer_id,
+                cascade_policy=data.cascade_revocation_policy,
+                relationship_status=data.relationship_status,
+            )
+        return _trust_profile_issuer_to_response(relationship)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except Exception as e:
+        logger.exception("Failed to update trust profile issuer")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+
+
+@trust_profile_router.delete(
+    "/{profile_id}/issuers/{issuer_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Remove Issuer from Trust Profile",
+    description="Remove an issuer relationship from a trust profile.",
+)
+async def remove_issuer_from_trust_profile(
+    profile_id: str,
+    issuer_id: str,
+    issuer_service=Depends(get_issuer_registry_service),
+) -> None:
+    """Remove issuer from trust profile."""
+    try:
+        await issuer_service.remove_issuer_from_trust_profile(profile_id, issuer_id)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    except Exception as e:
+        logger.exception("Failed to remove issuer from trust profile")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+
+
+# Revocation Configuration Endpoints
+
+@trust_profile_router.get(
+    "/{profile_id}/revocation-config",
+    response_model=RevocationServicesConfig,
+    summary="Get Revocation Configuration",
+    description="Get revocation services configuration for a trust profile.",
+)
+async def get_revocation_config(
+    profile_id: str,
+    service=Depends(get_trust_profile_service),
+) -> RevocationServicesConfig:
+    """Get revocation configuration."""
+    try:
+        profile = await service.get(profile_id)
+        if not profile:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Trust profile not found")
+        return RevocationServicesConfig(**profile.revocation_services)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Failed to get revocation config")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+
+
+@trust_profile_router.put(
+    "/{profile_id}/revocation-config",
+    response_model=RevocationServicesConfig,
+    summary="Update Revocation Configuration",
+    description="Update revocation services configuration for a trust profile.",
+)
+async def update_revocation_config(
+    profile_id: str,
+    config: RevocationServicesConfig,
+    service=Depends(get_trust_profile_service),
+) -> RevocationServicesConfig:
+    """Update revocation configuration."""
+    try:
+        profile = await service.update_revocation_services(profile_id, config.model_dump())
+        if not profile:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Trust profile not found")
+        return RevocationServicesConfig(**profile.revocation_services)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except Exception as e:
+        logger.exception("Failed to update revocation config")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+
+
+# System Issuer Override Endpoints
+
+@trust_profile_router.put(
+    "/{profile_id}/system-issuer-overrides",
+    response_model=dict[str, SystemIssuerOverride],
+    summary="Update System Issuer Overrides",
+    description="Bulk update system issuer overrides for a trust profile.",
+)
+async def update_system_issuer_overrides(
+    profile_id: str,
+    overrides: dict[str, SystemIssuerOverride],
+    service=Depends(get_trust_profile_service),
+) -> dict[str, SystemIssuerOverride]:
+    """Update system issuer overrides."""
+    try:
+        overrides_dict = {k: v.model_dump() for k, v in overrides.items()}
+        profile = await service.update_system_issuer_overrides(profile_id, overrides_dict)
+        if not profile:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Trust profile not found")
+        return {k: SystemIssuerOverride(**v) for k, v in profile.system_issuer_overrides.items()}
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except Exception as e:
+        logger.exception("Failed to update system issuer overrides")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+
+
+def _trust_profile_issuer_to_response(relationship) -> TrustProfileIssuerResponse:
+    """Convert relationship entity to response schema."""
+    return TrustProfileIssuerResponse(
+        trust_profile_id=relationship.trust_profile_id,
+        issuer_id=relationship.issuer_id,
+        trust_level=relationship.trust_level,
+        relationship_status=relationship.relationship_status,
+        cascade_revocation_policy=relationship.cascade_revocation_policy,
+        metadata=relationship.metadata,
+        created_at=relationship.created_at,
+        updated_at=relationship.updated_at,
+    )
 
 
 def _trust_profile_to_response(profile) -> TrustProfileResponse:

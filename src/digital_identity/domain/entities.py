@@ -233,17 +233,59 @@ class TrustProfile(Entity):
     allowed_formats: list[CredentialFormat] = field(default_factory=list)
     revocation_policy: RevocationPolicy = field(default_factory=RevocationPolicy)
     time_policy: TimePolicy = field(default_factory=TimePolicy)
+    
+    # Revocation service configuration
+    revocation_services: dict[str, Any] = field(default_factory=dict)
+    
+    # Issuer constraints
     allowed_issuers: list[str] | None = None
     denied_issuers: list[str] | None = None
+    
+    # System issuer overrides
+    system_issuer_overrides: dict[str, Any] = field(default_factory=dict)
+    
     metadata: dict[str, Any] = field(default_factory=dict)
     
-    def is_issuer_allowed(self, issuer_id: str) -> bool:
-        """Check if an issuer is allowed by this profile."""
+    def is_issuer_allowed(self, issuer_id: str, is_system_issuer: bool = False) -> bool:
+        """
+        Check if an issuer is allowed by this profile.
+        
+        Args:
+            issuer_id: The issuer identifier
+            is_system_issuer: Whether this is a system issuer (ICAO/AAMVA)
+            
+        Returns:
+            True if allowed, False otherwise
+        """
+        # Check system issuer overrides first
+        if is_system_issuer and issuer_id in self.system_issuer_overrides:
+            override = self.system_issuer_overrides[issuer_id]
+            if override.get("action") == "DENY":
+                return False
+        
+        # Apply standard allow/deny lists
         if self.denied_issuers and issuer_id in self.denied_issuers:
             return False
         if self.allowed_issuers is not None:
             return issuer_id in self.allowed_issuers
         return True
+    
+    def get_effective_trust_level(self, issuer_id: str, default_level: int = 100) -> int:
+        """
+        Get effective trust level for an issuer considering overrides.
+        
+        Args:
+            issuer_id: The issuer identifier
+            default_level: Default trust level if no override exists
+            
+        Returns:
+            Effective trust level (0-100)
+        """
+        if issuer_id in self.system_issuer_overrides:
+            override = self.system_issuer_overrides[issuer_id]
+            if override.get("action") == "DOWNGRADE":
+                return override.get("trust_level", default_level)
+        return default_level
     
     def is_algorithm_allowed(self, algorithm: CryptoAlgorithm) -> bool:
         """Check if an algorithm is allowed by this profile."""
@@ -252,6 +294,31 @@ class TrustProfile(Entity):
     def is_format_allowed(self, format: CredentialFormat) -> bool:
         """Check if a credential format is allowed by this profile."""
         return format in self.allowed_formats
+    
+    def get_revocation_methods(self) -> list[str]:
+        """Get enabled revocation methods from revocation_services config."""
+        return self.revocation_services.get("enabled_methods", [])
+    
+    def should_auto_discover_revocation(self) -> bool:
+        """Check if auto-discovery of revocation endpoints is enabled."""
+        return self.revocation_services.get("auto_discover", False)
+    
+    def should_merge_discovered_endpoints(self) -> bool:
+        """Check if discovered endpoints should be merged with explicit ones."""
+        return self.revocation_services.get("merge_discovered", False)
+    
+    def get_explicit_revocation_endpoints(self, method: str) -> list[str]:
+        """
+        Get explicit revocation endpoints for a specific method.
+        
+        Args:
+            method: Revocation method (CRL, OCSP, STATUS_LIST)
+            
+        Returns:
+            List of endpoint URLs
+        """
+        method_key = f"{method.lower()}_endpoints" if method == "CRL" else f"{method.lower()}_urls"
+        return self.revocation_services.get(method_key, [])
     
     def add_trust_source(
         self,
@@ -266,6 +333,241 @@ class TrustProfile(Entity):
             **({"config": config} if config else {}),
         }
         self.trust_sources.append(source)
+        self.touch()
+
+
+# =============================================================================
+# Issuer Registry
+# =============================================================================
+
+@dataclass
+class IssuerEntity(Entity):
+    """
+    Issuer Entity - represents a trusted issuer with lifecycle management.
+    
+    Separate from Trust Anchors. An Issuer is an organization or authority
+    that issues credentials. Trust Anchors are cryptographic roots used for
+    validation. An Issuer may be backed by one or more Trust Anchors.
+    
+    Attributes:
+        organization_id: Organization this issuer belongs to (NULL = global/system)
+        issuer_id: Unique issuer identifier (DID, domain, or custom ID)
+        issuer_type: Type of issuer (ORGANIZATION, GOVERNMENT, DEVICE)
+        display_name: Human-readable name
+        description: Optional description
+        is_system_issuer: Auto-visible to all organizations (ICAO/AAMVA issuers)
+        compliance_status: Current compliance state
+        accreditation_body: Who accredited this issuer
+        accreditation_date: When accreditation was granted
+        valid_from: Start of validity period
+        valid_until: End of validity period (NULL = indefinite)
+        trust_anchor_id: Optional link to trust anchor (for X.509 chains)
+        revoked_at: Revocation timestamp
+        revocation_reason: Why revoked
+        revoked_by: Who revoked
+        metadata: Additional issuer data
+    """
+    
+    organization_id: str | None = None
+    issuer_id: str = ""
+    issuer_type: str = "ORGANIZATION"  # ORGANIZATION, GOVERNMENT, DEVICE
+    display_name: str = ""
+    description: str | None = None
+    is_system_issuer: bool = False
+    compliance_status: str = "COMPLIANT"  # ACCREDITED, COMPLIANT, SUSPENDED, REVOKED
+    accreditation_body: str | None = None
+    accreditation_date: datetime | None = None
+    valid_from: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    valid_until: datetime | None = None
+    trust_anchor_id: str | None = None
+    revoked_at: datetime | None = None
+    revocation_reason: str | None = None
+    revoked_by: str | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
+    
+    def is_active(self) -> bool:
+        """Check if issuer is currently active (not revoked, within validity)."""
+        if self.revoked_at is not None:
+            return False
+        now = datetime.now(timezone.utc)
+        if now < self.valid_from:
+            return False
+        if self.valid_until and now > self.valid_until:
+            return False
+        return True
+    
+    def is_compliant(self) -> bool:
+        """Check if issuer has acceptable compliance status."""
+        return self.compliance_status in ["ACCREDITED", "COMPLIANT"]
+    
+    def revoke(self, reason: str, revoked_by: str) -> None:
+        """Revoke this issuer."""
+        self.revoked_at = datetime.now(timezone.utc)
+        self.revocation_reason = reason
+        self.revoked_by = revoked_by
+        self.compliance_status = "REVOKED"
+        self.touch()
+    
+    def suspend(self, reason: str) -> None:
+        """Suspend this issuer (reversible)."""
+        self.compliance_status = "SUSPENDED"
+        self.metadata["suspension_reason"] = reason
+        self.metadata["suspended_at"] = datetime.now(timezone.utc).isoformat()
+        self.touch()
+    
+    def reinstate(self) -> None:
+        """Reinstate a suspended issuer."""
+        if self.compliance_status == "SUSPENDED":
+            self.compliance_status = "COMPLIANT"
+            self.metadata.pop("suspension_reason", None)
+            self.metadata.pop("suspended_at", None)
+            self.touch()
+
+
+@dataclass
+class TrustProfileIssuer(Entity):
+    """
+    Trust Profile to Issuer relationship with trust scoring.
+    
+    Represents the relationship between a Trust Profile and an Issuer,
+    including trust level scoring and cascade revocation policy.
+    
+    Attributes:
+        trust_profile_id: Trust profile ID
+        issuer_id: Issuer entity ID
+        trust_level: Trust score 0-100 (future: auto-adjust based on history)
+        relationship_status: Current status (TRUSTED, DENIED, UNDER_REVIEW)
+        cascade_revocation_policy: What happens when issuer is revoked
+        metadata: Additional relationship data
+    """
+    
+    trust_profile_id: str = ""
+    issuer_id: str = ""
+    trust_level: int = 100  # 0-100 score
+    # TODO: Future feature - auto-adjust trust_level based on issuer history:
+    #       - Failed validations, revocation events, compliance lapses
+    #       - Implement reputation scoring algorithm with configurable decay
+    relationship_status: str = "TRUSTED"  # TRUSTED, DENIED, UNDER_REVIEW
+    cascade_revocation_policy: str = "MANUAL"  # AUTO_CASCADE, MANUAL, NOTIFY_ONLY
+    metadata: dict[str, Any] = field(default_factory=dict)
+    
+    def is_trusted(self) -> bool:
+        """Check if relationship is in trusted status."""
+        return self.relationship_status == "TRUSTED"
+    
+    def meets_minimum_trust_level(self, minimum: int) -> bool:
+        """Check if trust level meets minimum threshold."""
+        return self.trust_level >= minimum
+    
+    def update_trust_level(self, new_level: int, reason: str | None = None) -> None:
+        """Update trust level with optional reason tracking."""
+        if not 0 <= new_level <= 100:
+            raise ValueError("Trust level must be between 0 and 100")
+        old_level = self.trust_level
+        self.trust_level = new_level
+        if reason:
+            if "trust_level_history" not in self.metadata:
+                self.metadata["trust_level_history"] = []
+            self.metadata["trust_level_history"].append({
+                "from": old_level,
+                "to": new_level,
+                "reason": reason,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            })
+        self.touch()
+
+
+@dataclass
+class CascadeRevocationOperation(Entity):
+    """
+    Cascade Revocation Operation - tracks issuer/anchor revocation cascades.
+    
+    When an issuer or trust anchor is revoked, this tracks the cascade operation
+    to dependent credentials, with rollback support and circuit breaker protection.
+    
+    Attributes:
+        operation_type: Type of cascade (ISSUER_REVOCATION, ANCHOR_REVOCATION)
+        trigger_entity_type: What triggered it (ISSUER, TRUST_ANCHOR)
+        trigger_entity_id: ID of entity that was revoked
+        status: Current operation status
+        affected_credential_count: How many credentials affected
+        affected_credential_ids: List of credential IDs
+        requires_confirmation: Whether manual confirmation needed (high impact)
+        confirmed_at: When operation was confirmed
+        confirmed_by: Who confirmed
+        max_cascade_depth: Maximum depth to cascade
+        current_depth: Current depth in cascade tree
+        circuit_breaker_threshold: Max credentials before requiring confirmation
+        circuit_breaker_triggered: Whether circuit breaker stopped cascade
+        can_rollback: Whether operation can be rolled back
+        rollback_snapshot: Pre-revocation state for rollback
+        rolled_back_at: When rolled back
+        rolled_back_by: Who rolled back
+        error_message: Error if operation failed
+        metadata: Additional operation data
+    """
+    
+    operation_type: str = "ISSUER_REVOCATION"  # ISSUER_REVOCATION, ANCHOR_REVOCATION
+    trigger_entity_type: str = "ISSUER"  # ISSUER, TRUST_ANCHOR
+    trigger_entity_id: str = ""
+    status: str = "PENDING_CONFIRMATION"  # PENDING_CONFIRMATION, IN_PROGRESS, COMPLETED, ROLLED_BACK, FAILED
+    affected_credential_count: int = 0
+    affected_credential_ids: list[str] = field(default_factory=list)
+    requires_confirmation: bool = False
+    confirmed_at: datetime | None = None
+    confirmed_by: str | None = None
+    max_cascade_depth: int = 3
+    current_depth: int = 0
+    circuit_breaker_threshold: int = 1000
+    circuit_breaker_triggered: bool = False
+    can_rollback: bool = True
+    rollback_snapshot: dict[str, Any] = field(default_factory=dict)
+    rolled_back_at: datetime | None = None
+    rolled_back_by: str | None = None
+    error_message: str | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
+    
+    def is_pending_confirmation(self) -> bool:
+        """Check if operation awaits manual confirmation."""
+        return self.status == "PENDING_CONFIRMATION" and self.requires_confirmation
+    
+    def can_be_executed(self) -> bool:
+        """Check if operation can proceed."""
+        if self.requires_confirmation and not self.confirmed_at:
+            return False
+        return self.status in ["PENDING_CONFIRMATION", "IN_PROGRESS"]
+    
+    def can_be_rolled_back(self) -> bool:
+        """Check if operation can be rolled back."""
+        return self.can_rollback and self.status == "COMPLETED" and not self.rolled_back_at
+    
+    def confirm(self, confirmed_by: str) -> None:
+        """Confirm high-impact operation."""
+        if not self.requires_confirmation:
+            raise ValueError("Operation does not require confirmation")
+        self.confirmed_at = datetime.now(timezone.utc)
+        self.confirmed_by = confirmed_by
+        self.status = "IN_PROGRESS"
+        self.touch()
+    
+    def complete(self) -> None:
+        """Mark operation as completed."""
+        self.status = "COMPLETED"
+        self.touch()
+    
+    def fail(self, error: str) -> None:
+        """Mark operation as failed."""
+        self.status = "FAILED"
+        self.error_message = error
+        self.touch()
+    
+    def rollback(self, rolled_back_by: str) -> None:
+        """Roll back the operation."""
+        if not self.can_be_rolled_back():
+            raise ValueError("Operation cannot be rolled back")
+        self.rolled_back_at = datetime.now(timezone.utc)
+        self.rolled_back_by = rolled_back_by
+        self.status = "ROLLED_BACK"
         self.touch()
 
 
@@ -588,6 +890,14 @@ class PresentationPolicy(Entity):
     trust_profile_id: str | None = None
     allowed_issuers: list[str] = field(default_factory=list)  # Explicit issuer DID/certificate allowlist
     
+    # Issuer constraints (enforced at verification time)
+    # Structure: {
+    #   "min_trust_level": 80,
+    #   "required_compliance_statuses": ["ACCREDITED", "COMPLIANT"],
+    #   "required_accreditations": ["ISO27001", "FIPS140-2"]
+    # }
+    issuer_constraints: dict[str, Any] = field(default_factory=dict)
+    
     # Freshness
     freshness_requirements: FreshnessRequirements = field(
         default_factory=FreshnessRequirements
@@ -624,6 +934,45 @@ class PresentationPolicy(Entity):
     def get_claims_by_credential_type(self, credential_type: str) -> list[RequiredClaim]:
         """Get required claims for a specific credential type."""
         return [c for c in self.required_claims if c.credential_type == credential_type]
+    
+    def get_min_trust_level(self) -> int | None:
+        """Get minimum required trust level for issuers."""
+        return self.issuer_constraints.get("min_trust_level")
+    
+    def get_required_compliance_statuses(self) -> list[str]:
+        """Get required compliance statuses for issuers."""
+        return self.issuer_constraints.get("required_compliance_statuses", [])
+    
+    def get_required_accreditations(self) -> list[str]:
+        """Get required accreditations for issuers."""
+        return self.issuer_constraints.get("required_accreditations", [])
+    
+    def set_issuer_constraints(
+        self,
+        min_trust_level: int | None = None,
+        required_compliance_statuses: list[str] | None = None,
+        required_accreditations: list[str] | None = None,
+    ) -> None:
+        """
+        Set issuer constraints for this policy.
+        
+        Args:
+            min_trust_level: Minimum trust level (0-100) required for issuers
+            required_compliance_statuses: Required compliance statuses (e.g., ["ACCREDITED", "COMPLIANT"])
+            required_accreditations: Required accreditation standards (e.g., ["ISO27001"])
+        """
+        if min_trust_level is not None:
+            if not 0 <= min_trust_level <= 100:
+                raise ValueError("min_trust_level must be between 0 and 100")
+            self.issuer_constraints["min_trust_level"] = min_trust_level
+        
+        if required_compliance_statuses is not None:
+            self.issuer_constraints["required_compliance_statuses"] = required_compliance_statuses
+        
+        if required_accreditations is not None:
+            self.issuer_constraints["required_accreditations"] = required_accreditations
+        
+        self.touch()
 
 
 # =============================================================================
@@ -1044,6 +1393,54 @@ class IssuedCredential(Entity):
             self.touch()
             return True
         return False
+
+
+class RevocationBatch(Entity):
+    """
+    Revocation Batch entity - tracks batch revocation operations for privacy.
+    
+    Implements privacy-preserving revocation by batching updates at regular intervals
+    (1h, 6h, or 24h) instead of immediate updates. This prevents timing correlation
+    attacks where observing status list changes could reveal which credential was revoked.
+    
+    Attributes:
+        organization_id: Which organization owns this batch
+        credential_template_id: Which template these credentials use
+        credential_count: Number of credentials in this batch
+        credential_ids: List of credential IDs to revoke
+        status: Current batch status (queued, processing, completed, failed)
+        scheduled_for: When the batch should be processed
+        completed_at: When the batch was completed
+        revocation_interval: Privacy interval (1h, 6h, 24h)
+        error_message: Error message if batch failed
+    """
+    
+    organization_id: str = ""
+    credential_template_id: str = ""
+    credential_count: int = 0
+    credential_ids: list[str] = field(default_factory=list)
+    status: str = "queued"  # queued, processing, completed, failed
+    scheduled_for: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    completed_at: datetime | None = None
+    revocation_interval: str = "6h"  # 1h, 6h, 24h
+    error_message: str | None = None
+    
+    def mark_processing(self) -> None:
+        """Mark batch as currently processing."""
+        self.status = "processing"
+        self.touch()
+    
+    def mark_completed(self) -> None:
+        """Mark batch as successfully completed."""
+        self.status = "completed"
+        self.completed_at = datetime.now(timezone.utc)
+        self.touch()
+    
+    def mark_failed(self, error: str) -> None:
+        """Mark batch as failed."""
+        self.status = "failed"
+        self.error_message = error
+        self.touch()
 
 
 # =============================================================================

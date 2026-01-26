@@ -25,5 +25,17 @@
 			"path": "../marty-ui"
 		}
 	],
-	"settings": {}
+	"settings": {
+		"chat.tools.terminal.autoApprove": {
+			"/^cd \"/Volumes/Heart of Gold/Github/work/marty-credentials/rust/marty-rs\" && source \\.\\./\\.\\./\\.venv/bin/activate && maturin develop --release 2>&1 \\| tail -50$/": {
+				"approve": true,
+				"matchCommandLine": true
+			},
+			"/^cd \"/Volumes/Heart of Gold/Github/work/marty-credentials\" && source \\.venv/bin/activate && python -m pytest tests/ -k \"open_badge\" -v$/": {
+				"approve": true,
+				"matchCommandLine": true
+			}
+		},
+		"makefile.configureOnOpen": false
+	}
 }

@@ -491,6 +491,163 @@ class FlowExecutionResponse(BaseModel):
 
 
 # ---------------------------------------------------------
+# Issuer Registry Schemas
+# ---------------------------------------------------------
+
+class IssuerCreate(BaseModel):
+    """Schema for creating an Issuer."""
+    
+    issuer_id: str = Field(..., min_length=1, max_length=255, description="Unique issuer identifier (DID, domain, etc.)")
+    display_name: str = Field(..., min_length=1, max_length=255, description="Human-readable name")
+    issuer_type: str = Field(default="ORGANIZATION", description="Issuer type: ORGANIZATION, GOVERNMENT, DEVICE")
+    description: str | None = Field(default=None, description="Optional description")
+    organization_id: str | None = Field(default=None, description="Organization ID (NULL for global issuers)")
+    trust_anchor_id: str | None = Field(default=None, description="Optional trust anchor linkage")
+    is_system_issuer: bool = Field(default=False, description="System issuer (auto-visible to all orgs)")
+    compliance_status: str = Field(default="COMPLIANT", description="Compliance status")
+    accreditation_body: str | None = Field(default=None, description="Accreditation body")
+    valid_from: datetime | None = Field(default=None, description="Validity start (defaults to now)")
+    valid_until: datetime | None = Field(default=None, description="Validity end (NULL = indefinite)")
+    metadata: dict[str, Any] = Field(default_factory=dict, description="Additional metadata")
+
+
+class IssuerUpdate(BaseModel):
+    """Schema for updating an Issuer."""
+    
+    display_name: str | None = Field(default=None, min_length=1, max_length=255)
+    description: str | None = None
+    trust_anchor_id: str | None = None
+    compliance_status: str | None = None
+    accreditation_body: str | None = None
+    valid_from: datetime | None = None
+    valid_until: datetime | None = None
+    metadata: dict[str, Any] | None = None
+
+
+class IssuerResponse(BaseModel):
+    """Schema for Issuer response."""
+    
+    id: str
+    issuer_id: str
+    display_name: str
+    issuer_type: str
+    description: str | None
+    organization_id: str | None
+    trust_anchor_id: str | None
+    is_system_issuer: bool
+    compliance_status: str
+    accreditation_body: str | None
+    accreditation_date: datetime | None
+    valid_from: datetime
+    valid_until: datetime | None
+    revoked_at: datetime | None
+    revocation_reason: str | None
+    revoked_by: str | None
+    metadata: dict[str, Any]
+    created_at: datetime
+    updated_at: datetime
+    version: int
+    
+    class Config:
+        from_attributes = True
+
+
+class TrustProfileIssuerAdd(BaseModel):
+    """Schema for adding an issuer to a trust profile."""
+    
+    issuer_id: str = Field(..., description="Issuer entity ID")
+    trust_level: int = Field(default=100, ge=0, le=100, description="Trust score 0-100")
+    cascade_revocation_policy: str = Field(default="MANUAL", description="CASCADE policy: AUTO_CASCADE, MANUAL, NOTIFY_ONLY")
+    relationship_status: str = Field(default="TRUSTED", description="Status: TRUSTED, DENIED, UNDER_REVIEW")
+
+
+class TrustProfileIssuerUpdate(BaseModel):
+    """Schema for updating an issuer relationship."""
+    
+    trust_level: int | None = Field(default=None, ge=0, le=100, description="Trust score 0-100")
+    cascade_revocation_policy: str | None = Field(default=None, description="CASCADE policy")
+    relationship_status: str | None = Field(default=None, description="Status")
+    reason: str | None = Field(default=None, description="Reason for changes")
+
+
+class TrustProfileIssuerResponse(BaseModel):
+    """Schema for trust profile issuer relationship response."""
+    
+    trust_profile_id: str
+    issuer_id: str
+    trust_level: int
+    relationship_status: str
+    cascade_revocation_policy: str
+    metadata: dict[str, Any]
+    created_at: datetime
+    updated_at: datetime
+    
+    class Config:
+        from_attributes = True
+
+
+class RevocationServicesConfig(BaseModel):
+    """Schema for revocation services configuration."""
+    
+    enabled_methods: list[str] = Field(default_factory=list, description="Enabled methods: CRL, OCSP, STATUS_LIST")
+    auto_discover: bool = Field(default=False, description="Auto-discover endpoints from credentials")
+    merge_discovered: bool = Field(default=False, description="Merge discovered with explicit endpoints")
+    crl_endpoints: list[str] = Field(default_factory=list, description="Explicit CRL endpoints")
+    ocsp_urls: list[str] = Field(default_factory=list, description="Explicit OCSP URLs")
+    status_list_urls: list[str] = Field(default_factory=list, description="Explicit Status List URLs")
+
+
+class SystemIssuerOverride(BaseModel):
+    """Schema for system issuer override."""
+    
+    action: str = Field(..., description="Action: DENY or DOWNGRADE")
+    trust_level: int | None = Field(default=None, ge=0, le=100, description="Trust level for DOWNGRADE action")
+    reason: str | None = Field(default=None, description="Reason for override")
+
+
+class CascadeOperationConfirm(BaseModel):
+    """Schema for confirming cascade operation."""
+    
+    confirmed_by: str = Field(..., description="Who confirmed the operation")
+
+
+class CascadeOperationRollback(BaseModel):
+    """Schema for rolling back cascade operation."""
+    
+    rolled_back_by: str = Field(..., description="Who initiated rollback")
+
+
+class CascadeOperationResponse(BaseModel):
+    """Schema for cascade operation response."""
+    
+    id: str
+    operation_type: str
+    trigger_entity_type: str
+    trigger_entity_id: str
+    status: str
+    affected_credential_count: int
+    affected_credential_ids: list[str]
+    requires_confirmation: bool
+    confirmed_at: datetime | None
+    confirmed_by: str | None
+    max_cascade_depth: int
+    current_depth: int
+    circuit_breaker_threshold: int
+    circuit_breaker_triggered: bool
+    can_rollback: bool
+    rolled_back_at: datetime | None
+    rolled_back_by: str | None
+    error_message: str | None
+    metadata: dict[str, Any]
+    created_at: datetime
+    updated_at: datetime
+    version: int
+    
+    class Config:
+        from_attributes = True
+
+
+# ---------------------------------------------------------
 # Common Schemas
 # ---------------------------------------------------------
 

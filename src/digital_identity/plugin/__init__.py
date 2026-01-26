@@ -18,6 +18,7 @@ from digital_identity.infrastructure.adapters.rest import (
     presentation_policy_router,
     deployment_profile_router,
     flow_router,
+    credential_router,
 )
 from digital_identity.infrastructure.persistence.database import (
     DigitalIdentityDatabaseConfig,
@@ -77,6 +78,7 @@ class DigitalIdentityPlugin:
             ("Presentation Policies", presentation_policy_router),
             ("Deployment Profiles", deployment_profile_router),
             ("Flows", flow_router),
+            ("Credentials", credential_router),
         ]
         
         for name, router in routers:
@@ -222,6 +224,45 @@ class DigitalIdentityPlugin:
         
         await init_database(db_config)
         logger.info("Database initialized")
+        
+        # Initialize credential services
+        from digital_identity.application.services.credential_issuance_service import (
+            CredentialIssuanceService,
+        )
+        from digital_identity.infrastructure.persistence.repositories import (
+            IssuedCredentialRepository,
+            CredentialTemplateRepository,
+            RevocationBatchRepository,
+        )
+        from digital_identity.infrastructure.adapters.rest.credential_router import (
+            set_credential_services,
+        )
+        
+        # Create repository and service instances
+        # Note: Session will be provided by FastAPI dependency injection
+        # For now, create service with None - will be properly injected per-request
+        credential_repo = IssuedCredentialRepository(session=None)  # type: ignore
+        template_repo = CredentialTemplateRepository(session=None)  # type: ignore
+        batch_repo = RevocationBatchRepository(session=None)  # type: ignore
+        
+        # Create credential issuance service
+        # TODO: Initialize status_list_service from marty-credentials
+        issuance_service = CredentialIssuanceService(
+            credential_repository=credential_repo,
+            credential_template_repository=template_repo,
+            revocation_batch_repository=batch_repo,
+            status_list_service=None,  # TODO: Wire up status list service
+            jwt_issuer=None,  # TODO: Wire up JWT issuer from marty-credentials
+            mdoc_issuer=None,  # TODO: Wire up mDoc issuer when ready
+        )
+        
+        # Register services with credential router
+        set_credential_services(
+            issuance_service=issuance_service,
+            credential_repository=credential_repo,
+        )
+        
+        logger.info("Credential issuance services initialized")
         
         # Configure dependencies for FastAPI routes
         trust_adapters = self._get_configured_trust_adapters()

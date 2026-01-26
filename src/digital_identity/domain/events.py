@@ -285,6 +285,60 @@ class CredentialRevokedEvent(DomainEvent):
 
 
 # =============================================================================
+# Issuer Registry Events
+# =============================================================================
+
+@dataclass
+class IssuerRegisteredEvent(DomainEvent):
+    """Emitted when a new issuer is registered."""
+    
+    issuer_id: str = ""
+    issuer_identifier: str = ""
+    organization_id: str | None = None
+    is_system_issuer: bool = False
+
+
+@dataclass
+class IssuerRevokedEvent(DomainEvent):
+    """Emitted when an issuer is revoked."""
+    
+    issuer_id: str = ""
+    issuer_identifier: str = ""
+    reason: str = ""
+    revoked_by: str = ""
+
+
+@dataclass
+class IssuerSuspendedEvent(DomainEvent):
+    """Emitted when an issuer is suspended."""
+    
+    issuer_id: str = ""
+    issuer_identifier: str = ""
+    reason: str = ""
+
+
+@dataclass
+class TrustLevelUpdatedEvent(DomainEvent):
+    """Emitted when an issuer's trust level is updated in a trust profile."""
+    
+    trust_profile_id: str = ""
+    issuer_id: str = ""
+    old_level: int = 0
+    new_level: int = 0
+    reason: str | None = None
+
+
+@dataclass
+class CascadeOperationCreatedEvent(DomainEvent):
+    """Emitted when a cascade revocation operation is created."""
+    
+    operation_id: str = ""
+    trigger_entity_id: str = ""
+    affected_count: int = 0
+    requires_confirmation: bool = False
+
+
+# =============================================================================
 # Presentation Events
 # =============================================================================
 

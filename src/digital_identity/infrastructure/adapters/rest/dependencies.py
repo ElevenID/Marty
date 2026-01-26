@@ -199,3 +199,29 @@ async def get_custom_anchor_repository(
     from digital_identity.infrastructure.persistence.repositories import CustomAnchorRepository
     
     return CustomAnchorRepository(session)
+
+
+async def get_issuer_registry_service(
+    session: AsyncSession = Depends(get_db_session),
+):
+    """Get Issuer Registry service instance."""
+    from digital_identity.infrastructure.persistence.repositories import (
+        IssuerRepository,
+        TrustProfileIssuerRepository,
+        CascadeOperationRepository,
+        IssuedCredentialRepository,
+    )
+    from digital_identity.application.services.issuer_registry_service import IssuerRegistryService
+    
+    issuer_repo = IssuerRepository(session)
+    tp_issuer_repo = TrustProfileIssuerRepository(session)
+    cascade_repo = CascadeOperationRepository(session)
+    credential_repo = IssuedCredentialRepository(session)
+    
+    return IssuerRegistryService(
+        issuer_repository=issuer_repo,
+        trust_profile_issuer_repository=tp_issuer_repo,
+        cascade_operation_repository=cascade_repo,
+        credential_repository=credential_repo,
+        event_publisher=get_event_publisher(),
+    )

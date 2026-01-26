@@ -1358,3 +1358,145 @@ class IssuedCredentialRepository:
             updated_at=model.updated_at,
             version=model.version,
         )
+
+
+class RevocationBatchRepository:
+    """
+    Repository for Revocation Batch persistence.
+    
+    Tracks batch revocation operations for privacy-preserving credential lifecycle management.
+    """
+    
+    def __init__(self, session: AsyncSession):
+        self._session = session
+    
+    async def save(self, entity) -> Any:
+        """Save a Revocation Batch (create or update)."""
+        from ..persistence.models import RevocationBatchModel
+        from ...domain.entities import RevocationBatch
+        
+        existing = await self._session.get(RevocationBatchModel, entity.id)
+        
+        if existing:
+            existing.organization_id = entity.organization_id
+            existing.credential_template_id = entity.credential_template_id
+            existing.credential_count = entity.credential_count
+            existing.credential_ids = entity.credential_ids
+            existing.status = entity.status
+            existing.scheduled_for = entity.scheduled_for
+            existing.completed_at = entity.completed_at
+            existing.revocation_interval = entity.revocation_interval
+            existing.error_message = entity.error_message
+            existing.updated_at = entity.updated_at
+            existing.version = entity.version
+        else:
+            model = RevocationBatchModel(
+                id=entity.id,
+                organization_id=entity.organization_id,
+                credential_template_id=entity.credential_template_id,
+                credential_count=entity.credential_count,
+                credential_ids=entity.credential_ids,
+                status=entity.status,
+                scheduled_for=entity.scheduled_for,
+                completed_at=entity.completed_at,
+                revocation_interval=entity.revocation_interval,
+                error_message=entity.error_message,
+                created_at=entity.created_at,
+                updated_at=entity.updated_at,
+                version=entity.version,
+            )
+            self._session.add(model)
+        
+        await self._session.commit()
+        return entity
+    
+    async def get(self, batch_id: str) -> Any | None:
+        """Get a Revocation Batch by ID."""
+        from ..persistence.models import RevocationBatchModel
+        
+        model = await self._session.get(RevocationBatchModel, batch_id)
+        return self._to_entity(model) if model else None
+    
+    async def list_by_organization(
+        self,
+        organization_id: str,
+        skip: int = 0,
+        limit: int = 100,
+    ) -> list[Any]:
+        """List batches for a specific organization."""
+        from ..persistence.models import RevocationBatchModel
+        
+        stmt = select(RevocationBatchModel).where(
+            RevocationBatchModel.organization_id == organization_id
+        ).offset(skip).limit(limit)
+        result = await self._session.execute(stmt)
+        return [self._to_entity(m) for m in result.scalars().all()]
+    
+    async def list_pending(
+        self,
+        scheduled_before: datetime | None = None,
+    ) -> list[Any]:
+        """List pending batches (queued status) scheduled before the given time."""
+        from ..persistence.models import RevocationBatchModel
+        
+        stmt = select(RevocationBatchModel).where(
+            RevocationBatchModel.status == "queued"
+        )
+        if scheduled_before:
+            stmt = stmt.where(RevocationBatchModel.scheduled_for <= scheduled_before)
+        
+        result = await self._session.execute(stmt)
+        return [self._to_entity(m) for m in result.scalars().all()]
+    
+    async def update_status(
+        self,
+        batch_id: str,
+        status: str,
+        completed_at: datetime | None = None,
+        error_message: str | None = None,
+    ) -> bool:
+        """Update batch status."""
+        from ..persistence.models import RevocationBatchModel
+        
+        batch = await self._session.get(RevocationBatchModel, batch_id)
+        if not batch:
+            return False
+        
+        batch.status = status
+        if completed_at:
+            batch.completed_at = completed_at
+        if error_message:
+            batch.error_message = error_message
+        batch.updated_at = datetime.now(timezone.utc)
+        
+        await self._session.commit()
+        return True
+    
+    async def delete(self, batch_id: str) -> bool:
+        """Delete a Revocation Batch."""
+        from ..persistence.models import RevocationBatchModel
+        
+        stmt = delete(RevocationBatchModel).where(RevocationBatchModel.id == batch_id)
+        result = await self._session.execute(stmt)
+        await self._session.commit()
+        return result.rowcount > 0
+    
+    def _to_entity(self, model: Any) -> Any:
+        """Convert model to entity."""
+        from ...domain.entities import RevocationBatch
+        
+        return RevocationBatch(
+            id=model.id,
+            organization_id=model.organization_id,
+            credential_template_id=model.credential_template_id,
+            credential_count=model.credential_count,
+            credential_ids=model.credential_ids,
+            status=model.status,
+            scheduled_for=model.scheduled_for,
+            completed_at=model.completed_at,
+            revocation_interval=model.revocation_interval,
+            error_message=model.error_message,
+            created_at=model.created_at,
+            updated_at=model.updated_at,
+            version=model.version,
+        )

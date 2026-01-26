@@ -217,9 +217,25 @@ class TrustProfileModel(Base):
     revocation_policy: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     time_policy: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     
+    # Revocation service configuration
+    # Structure: {
+    #   "enabled_methods": ["CRL", "OCSP", "STATUS_LIST"],
+    #   "auto_discover": true,
+    #   "merge_discovered": false,
+    #   "crl_endpoints": ["https://..."],
+    #   "ocsp_urls": ["https://..."],
+    #   "status_list_urls": ["https://..."]
+    # }
+    revocation_services: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    
     # Issuer constraints
     allowed_issuers: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
     denied_issuers: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
+    
+    # System issuer overrides
+    # Structure: {"issuer_id": {"action": "DENY" | "DOWNGRADE", "trust_level": 50, "reason": "..."}, ...}
+    # Allows organizations to override trust for system issuers (ICAO/AAMVA)
+    system_issuer_overrides: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     
     # Metadata
     metadata_: Mapped[dict[str, Any]] = mapped_column("metadata", JSON, default=dict)
@@ -386,6 +402,14 @@ class PresentationPolicyModel(Base):
         nullable=True,
     )
     allowed_issuers: Mapped[list[str]] = mapped_column(JSON, default=list)
+    
+    # Issuer constraints (enforced at verification time)
+    # Structure: {
+    #   \"min_trust_level\": 80,
+    #   \"required_compliance_statuses\": [\"ACCREDITED\", \"COMPLIANT\"],
+    #   \"required_accreditations\": [\"ISO27001\", \"FIPS140-2\"]
+    # }
+    issuer_constraints: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     
     # Freshness
     freshness_requirements: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
@@ -594,6 +618,199 @@ class IssuedCredentialModel(Base):
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     revocation_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     revoked_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    
+    # Timestamps
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+
+
+class RevocationBatchModel(Base):
+    """SQLAlchemy model for Revocation Batch - tracks batch revocation operations."""
+    
+    __tablename__ = "digital_identity_revocation_batches"
+    
+    # Primary key
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    
+    # Organization context
+    organization_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    
+    # Template identification
+    credential_template_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    
+    # Batch metadata
+    credential_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    credential_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
+    
+    # Status tracking
+    status: Mapped[str] = mapped_column(String(20), default="queued", nullable=False, index=True)
+    # Status values: queued, processing, completed, failed
+    
+    # Scheduling
+    scheduled_for: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    
+    # Privacy settings
+    revocation_interval: Mapped[str] = mapped_column(String(10), nullable=False)  # 1h, 6h, 24h
+    
+    # Error tracking
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    
+    # Timestamps
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+
+
+class IssuerEntityModel(Base):
+    """
+    SQLAlchemy model for Issuer Entity.
+    
+    Represents a trusted issuer with lifecycle management, separate from Trust Anchors.
+    Supports organization scoping and system issuers (ICAO/AAMVA).
+    """
+    
+    __tablename__ = "digital_identity_issuers"
+    
+    # Primary key
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    
+    # Organization scoping (NULL = global/system issuer)
+    organization_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey("organizations.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
+    )
+    
+    # Issuer identification
+    issuer_id: Mapped[str] = mapped_column(String(255), nullable=False, index=True)  # DID or identifier
+    issuer_type: Mapped[str] = mapped_column(String(50), nullable=False, index=True)  # ORGANIZATION, GOVERNMENT, DEVICE
+    display_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    
+    # System issuer flag (auto-visible to all orgs, e.g., ICAO/AAMVA issuers)
+    is_system_issuer: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, index=True)
+    
+    # Compliance and accreditation
+    compliance_status: Mapped[str] = mapped_column(
+        String(50), default="COMPLIANT", nullable=False, index=True
+    )  # ACCREDITED, COMPLIANT, SUSPENDED, REVOKED
+    accreditation_body: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    accreditation_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    
+    # Validity period
+    valid_from: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
+    valid_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    
+    # Link to trust anchor (optional, for X.509-based issuers)
+    trust_anchor_id: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
+    
+    # Revocation
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    revocation_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    revoked_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    
+    # Metadata
+    metadata_: Mapped[dict[str, Any]] = mapped_column("metadata", JSON, default=dict)
+    
+    # Timestamps
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+
+
+class TrustProfileIssuerModel(Base):
+    """
+    SQLAlchemy model for Trust Profile to Issuer relationship.
+    
+    Join table with additional relationship metadata including trust level and cascade policy.
+    """
+    
+    __tablename__ = "digital_identity_trust_profile_issuers"
+    
+    # Composite primary key
+    trust_profile_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("digital_identity_trust_profiles.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    issuer_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("digital_identity_issuers.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    
+    # Relationship metadata
+    trust_level: Mapped[int] = mapped_column(Integer, default=100, nullable=False)  # 0-100 score
+    # TODO: Future feature - auto-adjust trust_level based on issuer history (validation failures, revocation events)
+    relationship_status: Mapped[str] = mapped_column(
+        String(50), default="TRUSTED", nullable=False, index=True
+    )  # TRUSTED, DENIED, UNDER_REVIEW
+    
+    # Cascade policy for issuer revocation
+    cascade_revocation_policy: Mapped[str] = mapped_column(
+        String(50), default="MANUAL", nullable=False
+    )  # AUTO_CASCADE, MANUAL, NOTIFY_ONLY
+    
+    # Metadata
+    metadata_: Mapped[dict[str, Any]] = mapped_column("metadata", JSON, default=dict)
+    
+    # Timestamps
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class CascadeRevocationOperationModel(Base):
+    """
+    SQLAlchemy model for Cascade Revocation Operation.
+    
+    Tracks cascade revocation operations with rollback support.
+    When an issuer or trust anchor is revoked, tracks affected credentials.
+    """
+    
+    __tablename__ = "digital_identity_cascade_operations"
+    
+    # Primary key
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    
+    # Operation metadata
+    operation_type: Mapped[str] = mapped_column(String(50), nullable=False, index=True)  # ISSUER_REVOCATION, ANCHOR_REVOCATION
+    trigger_entity_type: Mapped[str] = mapped_column(String(50), nullable=False)  # ISSUER, TRUST_ANCHOR
+    trigger_entity_id: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    
+    # Status tracking
+    status: Mapped[str] = mapped_column(
+        String(50), default="PENDING_CONFIRMATION", nullable=False, index=True
+    )  # PENDING_CONFIRMATION, IN_PROGRESS, COMPLETED, ROLLED_BACK, FAILED
+    
+    # Impact assessment
+    affected_credential_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    affected_credential_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
+    
+    # Confirmation requirement (for high-impact operations)
+    requires_confirmation: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    confirmed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    confirmed_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    
+    # Cascade depth and circuit breaker
+    max_cascade_depth: Mapped[int] = mapped_column(Integer, default=3, nullable=False)
+    current_depth: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    circuit_breaker_threshold: Mapped[int] = mapped_column(Integer, default=1000, nullable=False)
+    circuit_breaker_triggered: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    
+    # Rollback support
+    can_rollback: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    rollback_snapshot: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)  # Stores pre-revocation state
+    rolled_back_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    rolled_back_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    
+    # Error tracking
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    
+    # Metadata
+    metadata_: Mapped[dict[str, Any]] = mapped_column("metadata", JSON, default=dict)
     
     # Timestamps
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
