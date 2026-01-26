@@ -65,7 +65,7 @@ jobs:
           TWINE_USERNAME: __token__
           TWINE_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          REPO_URL="https://upload.pypi.org/legacy/"
+          REPO_URL="https://pypi.pkg.github.com/ElevenID/"
           
           twine upload dist/* \
             --repository-url "$REPO_URL" \
