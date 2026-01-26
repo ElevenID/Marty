@@ -16,10 +16,10 @@ on:
   #   branches: [ main, develop ]
   #   paths:
   #     - 'proto/**'
-      - 'src/compile_protos.py'
-      - '.github/workflows/proto-validation.yml'
-      - 'buf.yaml'
-      - 'buf.work.yaml'
+  #     - 'src/compile_protos.py'
+  #     - '.github/workflows/proto-validation.yml'
+  #     - 'buf.yaml'
+  #     - 'buf.work.yaml'
 
 jobs:
   validate-protos:
