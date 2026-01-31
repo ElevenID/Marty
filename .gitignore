@@ -161,3 +161,6 @@ fix_imports.py
 .playwright-mcp/
 tests/e2e/traces/
 tests/e2e/videos/
+
+# Local build tracking
+.last-build-sha

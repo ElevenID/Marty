@@ -1,0 +1,29 @@
+{
+	"folders": [
+		{
+			"path": "."
+		},
+		{
+			"path": "../marty-microservices-framework"
+		},
+		{
+			"path": "../marty-ui"
+		},
+		{
+			"path": "../marty-core"
+		},
+		{
+			"path": "../marty-credentials"
+		},
+		{
+			"path": "../marty-verifier"
+		},
+		{
+			"path": "../product-catalog"
+		},
+		{
+			"path": "../marty-authenticator"
+		}
+	],
+	"settings": {}
+}

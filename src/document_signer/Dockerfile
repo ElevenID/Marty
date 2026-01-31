@@ -1,44 +1,59 @@
-# syntax=docker/dockerfile:1
 # Multi-stage Dockerfile for document-signer service
 # Optimized with BuildKit cache mounts
 
 # =============================================================================
 # Builder Stage
 # =============================================================================
-FROM python:3.10-slim AS builder
+FROM python:3.11-slim AS builder
 
 WORKDIR /app
+
+# Install build dependencies for packages like pyscard
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    g++ \
+    make \
+    libpcsclite-dev \
+    swig \
+    && rm -rf /var/lib/apt/lists/*
 
 # Install UV and build dependencies
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir uv
 
-COPY ../../pyproject.toml ../../uv.lock /app/
+COPY Marty/pyproject.toml Marty/uv.lock Marty/README.md /app/
 
 # Install dependencies with BuildKit cache
-RUN --mount=type=cache,target=/root/.cache/uv \
-    --mount=type=cache,target=/root/.cache/pip \
-    uv pip install --system -e .
+RUN uv pip install --system -e .
 
 # =============================================================================
 # Runtime Stage
 # =============================================================================
-FROM python:3.10-slim AS runtime
+FROM python:3.11-slim AS runtime
 
 WORKDIR /app
 
+# Install build dependencies for packages like pyscard
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    g++ \
+    make \
+    libpcsclite-dev \
+    swig \
+    && rm -rf /var/lib/apt/lists/*
+
 # Copy installed packages from builder
-COPY --from=builder /usr/local/lib/python3.10/site-packages /usr/local/lib/python3.10/site-packages
+COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
 COPY --from=builder /usr/local/bin /usr/local/bin
 
 # Create the proto directory structure
 RUN mkdir -p /app/src/proto
 
 # Copy the proto files
-COPY ../../proto/ /app/proto/
+COPY Marty/proto/ /app/proto/
 
 # Copy the source code
-COPY ../../src/ /app/src/
+COPY Marty/src/ /app/src/
 
 # Make directories Python packages
 RUN touch /app/proto/__init__.py
@@ -46,11 +61,6 @@ RUN touch /app/src/__init__.py
 RUN touch /app/src/proto/__init__.py
 
 # Generate Python code from proto files directly into src/proto/
-RUN cd /app && python -m grpc_tools.protoc \
-    -I./proto \
-    --python_out=./src/proto \
-    --grpc_python_out=./src/proto \
-    ./proto/*.proto
 
 # Create non-root user
 RUN groupadd -r marty && useradd -r -g marty marty

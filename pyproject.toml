@@ -1,6 +1,7 @@
+# Updated for hatchling
 [build-system]
-requires = ["maturin>=1.0,<2.0"]
-build-backend = "maturin"
+requires = ["hatchling"]
+build-backend = "hatchling.build"
 
 [project]
 name = "marty-trust-pki-plugin"
@@ -53,6 +54,9 @@ dependencies = [
 # - marty-credentials[ffi] provides _marty_rs (credential operations)
 # - marty-verification-py provides _marty_verification (verification operations)
 # Install marty-common[ffi] to get both automatically
+
+[tool.hatch.build.targets.wheel]
+packages = ["src"]
 
 [project.optional-dependencies]
 biometric = [

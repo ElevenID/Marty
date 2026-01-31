@@ -1,7 +1,12 @@
-name: Marty CD
+name: Marty CD (DISABLED - Use Local Builds)
 
-# TEMPORARILY DISABLED - CI checks turned off while fixing tests
-# To re-enable, uncomment the push trigger below
+# ZERO-COST STRATEGY: All builds happen locally
+# This workflow is disabled to eliminate GitHub Actions costs
+# See docs/LOCAL_BUILD_SETUP.md for local build instructions
+#
+# To re-enable automated CD (not recommended):
+#   1. Uncomment the 'push' trigger below
+#   2. Budget for ~$26-53/month in GitHub Actions costs
 on:
   workflow_dispatch:
   # push:

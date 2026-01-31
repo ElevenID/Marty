@@ -1,4 +1,3 @@
-# syntax=docker/dockerfile:1
 # Regula Clone API Docker Image
 # Optimized with BuildKit cache mounts
 
@@ -17,8 +16,7 @@ RUN apt-get update \
 
 COPY requirements.txt .
 
-RUN --mount=type=cache,target=/root/.cache/pip \
-    pip install --no-cache-dir -r requirements.txt
+RUN uv pip install --system -e .
 
 # =============================================================================
 # Runtime Stage

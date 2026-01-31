@@ -24,7 +24,8 @@
 .PHONY: help dev test test-local pytest build build-wallet push-wallet clean \
         status logs down up restart shell \
         dev-setup dev-infra dev-api dev-ui wallet \
-        test-native test-native-ui test-native-headed test-native-debug
+        test-native test-native-ui test-native-headed test-native-debug \
+        setup build-changed build-all push-only pull-all build-push release
 
 # Colors
 BLUE := \033[0;34m
@@ -436,5 +437,45 @@ test-native-debug: ## Run Playwright tests in debug mode
 		WALLET_URL=http://localhost:9081 \
 		MAILHOG_URL=http://localhost:9025 \
 		npx playwright test --debug
+
+# =============================================================================
+# Local Build & Push (Zero-Cost CI Alternative)
+# =============================================================================
+setup: ## Setup GHCR authentication (one-time)
+	@echo "$(BLUE)🔐 Setting up GitHub Container Registry authentication...$(NC)"
+	@./scripts/ghcr-setup.sh
+
+build-changed: ## Build only changed artifacts (incremental)
+	@echo "$(BLUE)🔨 Building changed artifacts...$(NC)"
+	@./scripts/build-all-local.sh
+
+build-all: ## Force rebuild all artifacts
+	@echo "$(BLUE)🔨 Force rebuilding all artifacts...$(NC)"
+	@./scripts/build-all-local.sh --force
+
+push-only: ## Push existing images without rebuilding
+	@echo "$(BLUE)📤 Pushing existing images to GHCR...$(NC)"
+	@./scripts/build-all-local.sh --skip-wheels --skip-docker
+
+pull-all: ## Pull latest images from GHCR
+	@echo "$(BLUE)📥 Pulling latest images from GHCR...$(NC)"
+	@for svc in csca-service document-signer dtc-engine inspection-system \
+	             mdl-engine mdoc-engine passport-engine pkd-service \
+	             trust-anchor ui-app; do \
+		docker pull ghcr.io/$$(git remote get-url origin | sed -E 's/.*[:/]([^/]+\/[^/]+)(\.git)?$$/\1/')/$$svc:latest || echo "$(YELLOW)⚠️  Could not pull $$svc$(NC)"; \
+	done
+	@echo "$(GREEN)✅ Pull complete$(NC)"
+
+build-push: ## Build changed artifacts and push to GHCR
+	@echo "$(BLUE)🚀 Building and pushing artifacts...$(NC)"
+	@./scripts/build-all-local.sh
+
+update-requirements: ## Update marty-ui requirements.txt with latest GitHub release wheels
+	@echo "$(BLUE)📦 Updating Python package requirements...$(NC)"
+	@./scripts/update-requirements.sh
+
+release: ## Create semantic version release (prompts for version)
+	@echo "$(BLUE)🎉 Creating semantic release...$(NC)"
+	@./scripts/release-helper.sh
 
 .SILENT: help

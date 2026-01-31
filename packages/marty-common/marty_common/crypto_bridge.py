@@ -168,13 +168,59 @@ __all__ = [
     # Crypto operations (marty-verification)
     'verify_signature',
     'hash_data',
+    # High-level Open Badge Operations
+    'verify_open_badge_ob2',
+    'verify_open_badge_ob3',
+    'issue_open_badge_ob2',
+    'issue_open_badge_ob3',
 ]
 
 # =============================================================================
-# Helper functions
+# High-level Open Badge Operations
 # =============================================================================
 
-def is_function_available(func_name: str) -> bool:
+def verify_open_badge_ob2(payload: dict[str, Any]) -> dict[str, Any]:
+    """
+    High-level OB2 verification with JSON handling.
+    """
+    if open_badge_ob2_verify is None:
+        raise RuntimeError("marty-verification-py not loaded")
+    
+    result_json = open_badge_ob2_verify(json.dumps(payload))
+    return json.loads(result_json)
+
+
+def verify_open_badge_ob3(payload: dict[str, Any]) -> dict[str, Any]:
+    """
+    High-level OB3 verification with JSON handling.
+    """
+    if open_badge_ob3_verify is None:
+        raise RuntimeError("marty-verification-py not loaded")
+    
+    result_json = open_badge_ob3_verify(json.dumps(payload))
+    return json.loads(result_json)
+
+
+def issue_open_badge_ob2(request: dict[str, Any]) -> dict[str, Any]:
+    """
+    High-level OB2 issuance with JSON handling.
+    """
+    if open_badge_ob2_issue is None:
+        raise RuntimeError("marty-verification-py not loaded")
+    
+    result_json = open_badge_ob2_issue(json.dumps(request))
+    return json.loads(result_json)
+
+
+def issue_open_badge_ob3(request: dict[str, Any]) -> dict[str, Any]:
+    """
+    High-level OB3 issuance with JSON handling.
+    """
+    if open_badge_ob3_issue is None:
+        raise RuntimeError("marty-verification-py not loaded")
+    
+    result_json = open_badge_ob3_issue(json.dumps(request))
+    return json.loads(result_json)
     """
     Check if a specific function is available from either marty-rs or marty-verification.
     

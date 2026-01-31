@@ -1,9 +1,11 @@
 # Marty Trust PKI Plugin
 
-[![CI](https://github.com/burdettadam/Marty/workflows/Marty%20CI/badge.svg)](https://github.com/burdettadam/Marty/actions)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: Educational Use Only](https://img.shields.io/badge/License-Educational%20Use%20Only-red.svg)](#license)
 [![MMF Plugin](https://img.shields.io/badge/MMF-Plugin-green.svg)](https://github.com/burdettadam/marty-microservices-framework)
+[![Zero-Cost CI](https://img.shields.io/badge/CI-Zero%20Cost-success.svg)](./docs/LOCAL_BUILD_SETUP.md)
+
+> 🏗️ **NEW: Zero-Cost CI Implementation** - All builds now happen locally and push to GHCR, eliminating GitHub Actions costs. See [Local Build Setup](./docs/LOCAL_BUILD_SETUP.md) for details.
 
 ## Overview
 
@@ -59,6 +61,41 @@ config:
   document_signer_url: "https://signer.example.com"
   csca_service_url: "https://csca.example.com"
 ```
+
+## 🏗️ Building and Deployment
+
+### Zero-Cost Local Build System
+
+Marty uses a local build system to eliminate GitHub Actions costs ($26-53/month → $0):
+
+**Quick Start:**
+```bash
+# One-time setup (authenticate to GHCR)
+make setup
+
+# Build and push artifacts
+make build-push
+
+# Pull latest images
+make pull-all
+```
+
+**Available Commands:**
+- `make build-push` - Build changed artifacts and push to GHCR (10-30 min)
+- `make build-all` - Force rebuild everything (30-60 min)
+- `make pull-all` - Pull latest images from GHCR (2 min)
+- `make update-requirements` - Update Python package URLs (1 min)
+- `make release` - Create semantic version release (60+ min)
+
+**Documentation:**
+- 📖 **Full Setup Guide**: [docs/LOCAL_BUILD_SETUP.md](./docs/LOCAL_BUILD_SETUP.md)
+- 📋 **Quick Reference**: [QUICK_REFERENCE.md](./QUICK_REFERENCE.md)
+- 📊 **Implementation Details**: [ZERO_COST_CI_IMPLEMENTATION.md](./ZERO_COST_CI_IMPLEMENTATION.md)
+
+**What Gets Built:**
+- 10 Docker images (services)
+- 3 Python wheels (marty-rs, marty-msf, marty-common)
+- Pushed to free GHCR and GitHub Releases
 
 ### Usage
 
