@@ -183,18 +183,175 @@ class CredentialRankingStrategy(str, Enum):
         return self.value
 
 
+class PredicateType(str, Enum):
+    """
+    Types of zero-knowledge predicate proofs.
+    
+    Defines the comparison or proof operation to be performed.
+    """
+    
+    RANGE_PROOF = "range_proof"      # Value is within a range (e.g., age >= 21)
+    MEMBERSHIP = "membership"        # Value is in a set (e.g., country in [US, CA, MX])
+    EQUALITY = "equality"            # Value equals target without revealing value
+    NON_MEMBERSHIP = "non_membership"  # Value is NOT in a set
+    INEQUALITY = "inequality"        # Value does not equal target
+    
+    def __str__(self) -> str:
+        return self.value
+
+
+class PredicateFallbackPolicy(str, Enum):
+    """
+    Fallback policy when ZK predicate proof is unavailable.
+    
+    Controls behavior when holder cannot produce a ZK proof.
+    """
+    
+    REQUIRE_PREDICATE = "require_predicate"  # Strict: reject if ZK unavailable
+    ACCEPT_RAW = "accept_raw"                # Graceful: accept raw claim as fallback
+    DENY = "deny"                            # Block: deny verification entirely
+    
+    def __str__(self) -> str:
+        return self.value
+
+
+@dataclass(frozen=True)
+class PredicateSpecification:
+    """
+    Specification for a zero-knowledge predicate proof.
+    
+    Defines the type of proof, parameters, and acceptable ZK circuits.
+    This enables structured ZK proof requests in Presentation Policies.
+    
+    Examples:
+        # Age over 21 range proof
+        PredicateSpecification(
+            predicate_type=PredicateType.RANGE_PROOF,
+            params={"threshold": 21, "comparison": "gte"},
+            supported_circuits=["ligero_age_over_21", "bbs_range"],
+        )
+        
+        # Country membership proof
+        PredicateSpecification(
+            predicate_type=PredicateType.MEMBERSHIP,
+            params={"allowed_values": ["US", "CA", "MX"]},
+        )
+    
+    Attributes:
+        predicate_type: Type of predicate (range, membership, equality)
+        params: Type-specific parameters (threshold, comparison, allowed_values, etc.)
+        supported_circuits: List of acceptable ZK circuit identifiers
+        fallback_policy: What to do if ZK proof is unavailable
+    """
+    
+    predicate_type: PredicateType
+    params: dict[str, Any] = field(default_factory=dict)
+    supported_circuits: list[str] = field(default_factory=list)
+    fallback_policy: PredicateFallbackPolicy = PredicateFallbackPolicy.ACCEPT_RAW
+    
+    def __post_init__(self) -> None:
+        """Validate predicate specification."""
+        self._validate_params()
+    
+    def _validate_params(self) -> None:
+        """Validate params based on predicate type."""
+        if self.predicate_type == PredicateType.RANGE_PROOF:
+            if "threshold" not in self.params and "min" not in self.params and "max" not in self.params:
+                raise ValueError("Range proof requires 'threshold', 'min', or 'max' in params")
+            if "comparison" in self.params:
+                valid_comparisons = {"gt", "gte", "lt", "lte", "eq", "between"}
+                if self.params["comparison"] not in valid_comparisons:
+                    raise ValueError(f"Invalid comparison: {self.params['comparison']}")
+        
+        elif self.predicate_type == PredicateType.MEMBERSHIP:
+            if "allowed_values" not in self.params:
+                raise ValueError("Membership proof requires 'allowed_values' in params")
+    
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary for serialization."""
+        return {
+            "predicate_type": self.predicate_type.value,
+            "params": self.params,
+            "supported_circuits": self.supported_circuits,
+            "fallback_policy": self.fallback_policy.value,
+        }
+    
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "PredicateSpecification":
+        """Create from dictionary."""
+        return cls(
+            predicate_type=PredicateType(data["predicate_type"]),
+            params=data.get("params", {}),
+            supported_circuits=data.get("supported_circuits", []),
+            fallback_policy=PredicateFallbackPolicy(
+                data.get("fallback_policy", "accept_raw")
+            ),
+        )
+    
+    @classmethod
+    def age_over(cls, age: int, circuits: list[str] | None = None) -> "PredicateSpecification":
+        """Factory for age-over predicates."""
+        return cls(
+            predicate_type=PredicateType.RANGE_PROOF,
+            params={"threshold": age, "comparison": "gte"},
+            supported_circuits=circuits or [f"ligero_age_over_{age}"],
+        )
+    
+    @classmethod
+    def country_membership(cls, countries: list[str]) -> "PredicateSpecification":
+        """Factory for country membership predicates."""
+        return cls(
+            predicate_type=PredicateType.MEMBERSHIP,
+            params={"allowed_values": countries},
+        )
+
+
 @dataclass(frozen=True)
 class RequiredClaim:
     """
     A claim required in a presentation.
     
-    Defines what must be disclosed to satisfy the policy.
+    Defines what must be disclosed to satisfy the policy, including
+    optional zero-knowledge predicate specifications.
+    
+    Attributes:
+        claim_name: Name of the claim (e.g., "age", "country", "age_over_21")
+        credential_type: Type of credential containing this claim
+        accept_predicate: Whether to accept ZK predicate proofs (legacy boolean)
+        required_value: If set, claim must equal this value
+        predicate_spec: Structured ZK predicate specification (replaces accept_predicate)
     """
     
     claim_name: str
     credential_type: str
     accept_predicate: bool = True  # Accept predicate proof instead of raw value
     required_value: Any | None = None  # If set, claim must equal this value
+    predicate_spec: PredicateSpecification | None = None  # Structured ZK specification
+    
+    def __post_init__(self) -> None:
+        """Sync accept_predicate with predicate_spec if needed."""
+        # If predicate_spec is provided, it takes precedence
+        # accept_predicate is kept for backward compatibility
+        pass
+    
+    def allows_predicate(self) -> bool:
+        """Check if this claim accepts predicate proofs."""
+        if self.predicate_spec is not None:
+            return True
+        return self.accept_predicate
+    
+    def get_fallback_policy(self) -> PredicateFallbackPolicy:
+        """Get the fallback policy for ZK unavailability."""
+        if self.predicate_spec is not None:
+            return self.predicate_spec.fallback_policy
+        # Default fallback for legacy accept_predicate=True
+        return PredicateFallbackPolicy.ACCEPT_RAW if self.accept_predicate else PredicateFallbackPolicy.DENY
+    
+    def get_supported_circuits(self) -> list[str]:
+        """Get list of supported ZK circuits."""
+        if self.predicate_spec is not None:
+            return self.predicate_spec.supported_circuits
+        return []
 
 
 @dataclass(frozen=True)

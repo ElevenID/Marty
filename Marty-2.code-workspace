@@ -36,6 +36,7 @@
 				"matchCommandLine": true
 			}
 		},
-		"makefile.configureOnOpen": false
+		"makefile.configureOnOpen": false,
+		"git.ignoreLimitWarning": true
 	}
 }

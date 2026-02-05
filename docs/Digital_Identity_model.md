@@ -45,9 +45,17 @@ So “identity” becomes a **transaction**:
 
 * Trust sources: official lists/registries, pinned roots, issuer allow/deny lists
 * Validation rules: chain building, allowed algorithms, key usage constraints
-* Revocation policy: OCSP/CRL/status list; hard-fail vs soft-fail; offline grace
+* **Revocation Profile reference:** Links to a RevocationProfile for revocation configuration (see RevocationProfile abstraction)
 * Time policy: clock skew, freshness windows
 * Format support: mdoc/mDL, VC, SD-JWT/Selective disclosure capabilities
+
+**Revocation Handling:**
+
+Trust Profiles reference a **RevocationProfile** (new abstraction) that encapsulates all revocation complexity:
+* Format-agnostic configuration (OCSP, CRL, StatusList2021, BitstringStatusList, TokenStatusList)
+* Issuer-side automation (index allocation, publishing, batch updates)
+* Verifier-side behavior (check mode, caching, offline grace, mechanism priority)
+* See [RevocationProfile Proposal](./RevocationProfile_Proposal.md) for full details
 
 **Stability:** changes rarely; owned by security/admin.
 
@@ -55,17 +63,39 @@ So “identity” becomes a **transaction**:
 
 ### 2) Credential Template (CT)
 
-**Purpose:** Define *what is issued* (schema + semantics + constraints).
+**Purpose:** Define the *complete credential issuance configuration* (schema + profiles + crypto + validity).
 
 **Contains:**
 
-* Credential type (e.g., Pre-Boarding Clearance, Employee Badge, Age Attestation)
-* Claims map (what fields exist, derived attributes like `age_over_21`)
-* Validity rules (TTL, reissue rules)
-* Issuer requirements (which issuer keys can sign this template)
-* Optional: privacy posture (fields intended to be selectively disclosable)
+* Credential type (e.g., Pre-Boarding Clearance, Employee Badge, mDL, Age Attestation)
+* Claims map (what fields exist, types, derived attributes like `age_over_21`)
+* **Application Template reference** (optional - for application-based issuance)
+* **Compliance Profile reference** (required - format and framework selection)
+* **Trust Profile reference** (optional - issuer validation requirements)
+* **Revocation Profile reference** (optional - revocation configuration)
+* Validity rules (TTL, reissue rules, renewable flag)
+* **Cryptographic configuration:**
+  * Issuer key ID and algorithm (RS256, ES256, EdDSA)
+  * Key access mode (key_vault, hsm, local)
+  * Issuer certificate chain (for mDoc/X.509-based credentials)
+  * Issuer DID (for DID-based credentials)
+  * Auto-generate artifacts flag (dev vs production behavior)
+* Privacy posture (fields intended to be selectively disclosable)
+* Supported formats (SD-JWT, mDoc, JWT-VC, JSON-LD)
 
-**Stability:** changes occasionally; owned by program/business + security.
+**Architectural Note:**
+
+Credential Template is the **master issuance configuration** combining:
+1. Schema/claims (what the credential contains)
+2. Compliance Profile (format and framework abstraction)
+3. Application Template (optional - how users apply for it)
+4. Cryptographic materials (keys, certs, DIDs for signing)
+5. Validity and revocation settings
+
+For **direct issuance** (batch/API-driven): `application_template_id` is None
+For **application-based issuance**: `application_template_id` references an Application Template
+
+**Stability:** changes occasionally; owned by program/business + security/compliance.
 
 ---
 
@@ -90,21 +120,27 @@ So “identity” becomes a **transaction**:
 
 ### 2b) Application Template (AT)
 
-**Purpose:** Define *how users apply for credentials* (evidence + verification + artifacts).
+**Purpose:** Define *how users apply for credentials* (evidence + form fields + workflow).
 
 **Contains:**
 
-* Reference to Credential Template (what is issued)
-* Reference to Compliance Profile (format abstraction)
+* Form field definitions (what users fill out: text, date, select, file uploads)
 * Evidence requirements (documents, biometrics, verifications needed)
-* Claim verification rules (how claims are validated before issuance)
-* Issuer cryptographic artifacts (signing keys, certificates, DIDs)
-* Auto-generate artifacts flag (dev vs production behavior)
-* Approval strategy and workflow configuration
+* Claim collection rules (how to gather claim values from applicants: form fields, evidence extraction, third-party APIs)
+* Approval strategy (auto, manual, rules_based) and workflow configuration
+* Notification settings (email/SMS templates for application status updates)
+* UI/UX configuration (theme, welcome message, wizard vs single-page display)
 
-**Implementation:** Extends Credential Template with application-specific requirements. Manages issuer artifacts with environment-aware behavior:
-- Development: auto-generates missing keys/DIDs
-- Production: validates artifacts exist, enforces HSM for sensitive formats
+**Key Characteristics:**
+
+* **Pure user-facing entity** - NO cryptographic concerns
+* **Workflow-focused** - Defines the application process, not the credential structure
+* **Referenced by Credential Templates** - Inverted relationship (CT → AT, not AT → CT)
+* **Optional** - Only needed for application-based issuance (not for direct/batch issuance)
+
+**Architectural Note:**
+
+Application Templates are referenced BY Credential Templates when application-based issuance is needed. For direct/API-driven issuance (batch issuance, pre-authorized flows), Credential Templates have no `application_template_id` reference.
 
 **Stability:** changes frequently; owned by operations/product.
 
@@ -122,6 +158,63 @@ So “identity” becomes a **transaction**:
 * Issuer constraints (trusted issuers by TP, or explicit allowlist)
 * Freshness constraints (issued within X hours, not revoked)
 * Data minimization rules (prefer boolean over DOB; prefer derived attributes)
+* **ZK predicate configuration** (see below)
+
+#### Zero-Knowledge Predicate Configuration
+
+Presentation Policies support structured ZK (zero-knowledge) predicate specifications that enable privacy-preserving verification without revealing raw claim values.
+
+**Predicate Specification (`predicate_spec`):**
+
+Each required claim can include an optional `predicate_spec` that defines:
+
+* **`predicate_type`:** Type of ZK proof
+  * `range_proof` - Value within a range (e.g., age >= 21)
+  * `membership` - Value in a set (e.g., country in [US, CA, MX])
+  * `equality` - Value equals target without revealing
+  * `non_membership` - Value NOT in a set
+  * `inequality` - Value does not equal target
+
+* **`params`:** Type-specific parameters
+  * For `range_proof`: `{"threshold": 21, "comparison": "gte"}` or `{"min": 18, "max": 65}`
+  * For `membership`: `{"allowed_values": ["US", "CA", "MX"]}`
+
+* **`supported_circuits`:** List of acceptable ZK circuit identifiers
+  * Example: `["ligero_age_over_21", "bbs_range"]`
+
+* **`fallback_policy`:** Behavior when ZK proof unavailable
+  * `require_predicate` - Strict: reject if ZK unavailable
+  * `accept_raw` - Graceful: accept raw claim value as fallback
+  * `deny` - Block: deny verification entirely
+
+**Policy-Level ZK Configuration:**
+
+* **`fallback_policy`:** Default fallback for all claims (can be overridden per-claim)
+* **`supported_circuits`:** List of ZK circuits supported by this policy
+* **`prefer_predicates`:** Boolean flag to prefer ZK proofs over raw values
+
+**Example Configuration:**
+
+```json
+{
+  "name": "Age Verification Policy",
+  "required_claims": [
+    {
+      "claim_name": "birth_date",
+      "credential_type": "mDL",
+      "predicate_spec": {
+        "predicate_type": "range_proof",
+        "params": {"threshold": 21, "comparison": "gte"},
+        "supported_circuits": ["ligero_age_over_21"],
+        "fallback_policy": "accept_raw"
+      }
+    }
+  ],
+  "prefer_predicates": true,
+  "fallback_policy": "accept_raw",
+  "supported_circuits": ["ligero_age_over_21", "ligero_age_over_18"]
+}
+```
 
 **Stability:** changes frequently; owned by product/ops/compliance.
 
@@ -228,27 +321,60 @@ This is exactly the order you listed — with one improvement:
 
 Design your API around these resources (CRUD + versioning + publish):
 
-* `TrustProfiles`
-* `CredentialTemplates`
-* `ComplianceProfiles` — NEW: abstract credential format complexity
-* `ApplicationTemplates` — NEW: define application/issuance requirements
-* `PresentationPolicies`
-* `DeploymentProfiles`
-* `Flows`
-* `Applications` (instances created from Flow/ApplicationTemplate)
-* `Issuance` (issue operations + status)
-* `VerificationSessions` (presentation requests + results)
-* `AuditEvents` (immutable log)
+* `Organizations` - multi-tenant organization management
+* `TrustProfiles` - define who is trusted and how validation happens
+* `CredentialTemplates` - **master issuance configuration** (schema + profiles + crypto)
+* `ComplianceProfiles` - abstract credential format complexity (ICAO, AAMVA, EUDI, etc.)
+* `ApplicationTemplates` - define user-facing application workflows (evidence, forms, UI)
+* `RevocationProfiles` - format-agnostic revocation configuration
+* `PresentationPolicies` - define what must be shown to satisfy verification requests
+* `DeploymentProfiles` - package trust + policies + runtime behavior for endpoints
+* `Flows` - orchestrate end-to-end journeys (apply → approve → issue → present → verify)
+* `Applications` - instances created from Application Templates (user submissions)
+* `Issuance` - issue operations + status (references Credential Templates directly)
+* `VerificationSessions` - presentation requests + results
+* `AuditEvents` - immutable log
 
 Key architectural principle:
 
 * **Policies are data.** Endpoints execute them, not re-implement them.
 
-**Implementation Note:** The API exposes compliance profiles and application templates through dedicated endpoints:
-- `POST /v1/compliance-profiles` — Create/manage compliance configurations
-- `POST /v1/application-templates` — Create/manage application requirements
-- `POST /v1/application-templates/validate-artifacts` — Validate issuer artifacts
-- Flow entity references `application_template_id` (mutually exclusive with `credential_template_id`)
+**Relationship Architecture:**
+
+```
+Organization
+    │
+    ├── Compliance Profile (format abstraction)
+    │
+    ├── Application Template (user workflow - OPTIONAL)
+    │       ├── form_fields
+    │       ├── evidence_requirements
+    │       └── claim_collection_rules
+    │
+    └── Credential Template (MASTER CONFIG)
+            ├── application_template_id → (optional reference)
+            ├── compliance_profile_id → (required reference)
+            ├── trust_profile_id → (optional reference)
+            ├── revocation_profile_id → (optional reference)
+            ├── claims (schema)
+            ├── validity_rules
+            └── issuer_key_id, issuer_certificate_chain_pem, issuer_did (crypto)
+                    │
+                    ├── Direct Issuance (API/batch)
+                    │   └── POST /v1/issuance (references credential_template_id)
+                    │
+                    └── Application-Based Issuance
+                        └── POST /v1/applications (uses application_template workflow)
+```
+
+**Implementation Note:**
+
+The API exposes both Credential Templates and Application Templates as first-class resources:
+- `POST /v1/credential-templates` — Create/manage complete issuance configurations
+- `POST /v1/application-templates` — Create/manage user-facing application workflows
+- `POST /v1/credential-templates/{id}/validate-artifacts` — Validate cryptographic configuration
+- Credential Templates reference Application Templates (inverted from previous design)
+- Application Templates are purely user-facing (NO crypto concerns)
 
 ---
 

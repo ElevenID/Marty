@@ -45,6 +45,8 @@ from digital_identity.domain.value_objects import (
     EvidenceRequirement,
     ClaimVerificationRule,
     StatusListEntryRef,
+    PredicateFallbackPolicy,
+    PredicateSpecification,
 )
 
 
@@ -613,14 +615,18 @@ class OrganizationCustomAnchor(Entity):
 @dataclass
 class CredentialTemplate(Entity):
     """
-    Credential Template entity - defines what is issued.
+    Credential Template entity - the complete credential issuance definition.
     
-    A Credential Template encapsulates:
-    - Credential type and schema
-    - Claims (raw and derived, e.g., `age_over_21`)
-    - Validity rules (TTL, reissue requirements)
-    - Issuer constraints (which keys may sign)
-    - Selective-disclosure intent
+    A Credential Template is the master configuration combining:
+    - Schema/claims definition (what claims exist, their types)
+    - Compliance Profile reference (format, framework selection)
+    - Application Template reference (optional - for application-based issuance)
+    - Cryptographic configuration (keys, certificates, DIDs)
+    - Validity and revocation settings
+    
+    This entity represents the COMPLETE issuance configuration, not just the schema.
+    For direct issuance (API/batch), application_template_id is None.
+    For application-based issuance, it references an ApplicationTemplate.
     
     Attributes:
         name: Human-readable name for the template
@@ -628,11 +634,24 @@ class CredentialTemplate(Entity):
         credential_type: Type identifier (e.g., "org.iso.18013.5.1.mDL")
         schema_uri: Optional URI to credential schema
         claims: List of claim definitions
-        validity_rules: TTL and reissue configuration
-        issuer_key_ids: Optional list of allowed signing key IDs
+        
+        application_template_id: Optional reference to Application Template (INVERTED)
+        compliance_profile_id: Reference to Compliance Profile (format abstraction)
         trust_profile_id: Optional reference to required Trust Profile
+        revocation_profile_id: Optional reference to Revocation Profile
+        
+        validity_rules: TTL and reissue configuration
+        
+        issuer_key_id: Reference to signing key (KeyVault, HSM, etc.)
+        issuer_key_algorithm: Signing algorithm (RS256, ES256, EdDSA)
+        key_access_mode: How to access keys (key_vault, hsm, local)
+        issuer_certificate_chain_pem: X.509 certificate chain (for mDoc)
+        issuer_did: DID for issuer (for DID-based credentials)
+        auto_generate_artifacts: Auto-generate missing artifacts in non-production
+        
         format: Default credential format
         namespace: Credential namespace (for mDoc)
+        privacy_posture: Selective disclosure intent
         display: Display metadata for wallet rendering
         metadata: Additional configuration
     """
@@ -645,16 +664,48 @@ class CredentialTemplate(Entity):
     # Claims definition
     claims: list[ClaimDefinition] = field(default_factory=list)
     
+    # INVERTED RELATIONSHIP: Credential Template references Application Template
+    application_template_id: str | None = None  # Optional - for application-based issuance
+    
+    # Profile references
+    compliance_profile_id: str = ""  # Required - defines format and framework
+    trust_profile_id: str | None = None
+    revocation_profile_id: str | None = None
+    
     # Validity configuration
     validity_rules: ValidityRules = field(default_factory=ValidityRules)
     
-    # Issuer constraints
-    issuer_key_ids: list[str] | None = None
-    trust_profile_id: str | None = None
+    # ========== CRYPTOGRAPHIC CONFIGURATION (MOVED FROM Application Template) ==========
+    
+    # Signing key configuration
+    issuer_key_id: str | None = None
+    issuer_key_algorithm: str | None = None  # RS256, ES256, EdDSA, etc.
+    key_access_mode: str = "key_vault"  # key_vault, hsm, local (dev only)
+    
+    # Certificate chain (for mDoc/X.509-based credentials)
+    issuer_certificate_chain_pem: str | None = None
+    
+    # DID configuration (for DID-based credentials)
+    issuer_did: str | None = None
+    
+    # Development mode
+    auto_generate_artifacts: bool = True  # Auto-generate in non-production
+    
+    # ========== END CRYPTOGRAPHIC CONFIGURATION ==========
     
     # Format and structure
     format: CredentialFormat = CredentialFormat.SD_JWT_VC
     namespace: str | None = None  # For mDoc: e.g., "org.iso.18013.5.1"
+    privacy_posture: str = "selective_disclosure"
+    
+    # Display metadata
+    display: dict[str, Any] = field(default_factory=dict)
+    
+    # Extension point
+    metadata: dict[str, Any] = field(default_factory=dict)
+    
+    # Legacy field (for backward compatibility during migration)
+    issuer_key_ids: list[str] | None = None
     
     # Display metadata
     display: dict[str, Any] = field(default_factory=dict)
@@ -761,67 +812,81 @@ class ComplianceProfile(Entity):
 @dataclass
 class ApplicationTemplate(Entity):
     """
-    Application Template entity - extends Credential Template with issuance requirements.
+    Application Template entity - defines what users fill out to apply for credentials.
     
-    An Application Template defines HOW users apply for and receive credentials,
-    including evidence requirements, claim verification rules, and issuer artifacts.
-    It sits between the user-facing application process and the technical credential
-    issuance, hiding format complexity behind compliance profiles.
+    An Application Template is a PURE USER-FACING entity with NO cryptographic concerns.
+    It defines the application workflow and data collection process, not the credential
+    structure or issuance mechanics.
     
     Key responsibilities:
-    - Define what evidence must be collected before issuance
-    - Specify how claims must be verified before inclusion
-    - Manage issuer cryptographic artifacts (keys, certs, DIDs)
-    - Link to a compliance profile (which selects credential format)
-    - Configure approval workflow
+    - Define what evidence must be collected (documents, biometrics, etc.)
+    - Define form fields for user data entry
+    - Specify how to collect claim values from the applicant
+    - Configure approval workflow and notifications
+    - Customize UI/UX for the application process
+    
+    NOTE: Application Templates are referenced by Credential Templates, not the other way around.
+    A Credential Template may optionally reference an Application Template if it supports
+    application-based issuance (as opposed to direct/batch issuance).
     
     Attributes:
         name: Human-readable name for the application template
         description: Optional description
-        credential_template_id: Reference to Credential Template (what is issued)
-        compliance_profile_id: Reference to Compliance Profile (hides format complexity)
         evidence_requirements: List of required evidence before issuance
-        claim_verification_rules: Rules for verifying claim values
-        issuer_key_id: Reference to signing key in KeyVault
-        issuer_certificate_chain_pem: X.509 certificate chain (for mDoc)
-        issuer_did: DID for issuer (for DID-based credentials)
-        auto_generate_artifacts: Auto-generate missing artifacts in dev
-        approval_strategy: How approvals are handled
+        form_fields: Form field definitions for user data entry
+        claim_collection_rules: How to collect claim values from applicant
+        approval_strategy: How approvals are handled (auto, manual, rules_based)
         application_validity_days: How long applications remain valid
+        notifications: Notification configuration (email, SMS)
+        ui_config: UI/UX customization (theme, welcome message, etc.)
         metadata: Additional configuration
     """
     
     name: str = ""
     description: str | None = None
     
-    # Links to templates and compliance
-    credential_template_id: str = ""
-    compliance_profile_id: str = ""
-    
-    # Evidence and verification requirements
+    # Evidence collection requirements
     evidence_requirements: list[EvidenceRequirement] = field(default_factory=list)
-    claim_verification_rules: list[ClaimVerificationRule] = field(default_factory=list)
     
-    # Issuer artifact configuration
-    issuer_key_id: str | None = None
-    issuer_certificate_chain_pem: str | None = None
-    issuer_did: str | None = None
-    auto_generate_artifacts: bool = True  # Dev mode convenience
+    # Form field definitions (NEW)
+    form_fields: list[dict] = field(default_factory=list)  # Will be FormFieldDefinition
+    
+    # Claim collection (how to gather claim values from applicant)
+    claim_collection_rules: list[dict] = field(default_factory=list)  # Will be ClaimCollectionRule
     
     # Workflow configuration
     approval_strategy: ApprovalStrategy = ApprovalStrategy.AUTO
     application_validity_days: int = 30
     
+    # Notification settings (NEW)
+    notifications: dict[str, Any] = field(default_factory=dict)  # NotificationConfig
+    
+    # UI/UX configuration (NEW)
+    ui_config: dict[str, Any] = field(default_factory=dict)  # ApplicationUIConfig
+    
     # Extension point
     metadata: dict[str, Any] = field(default_factory=dict)
+    
+    # Legacy fields (for backward compatibility - will be removed in future versions)
+    claim_verification_rules: list[ClaimVerificationRule] = field(default_factory=list)
     
     def add_evidence_requirement(self, requirement: EvidenceRequirement) -> None:
         """Add an evidence requirement to this template."""
         self.evidence_requirements.append(requirement)
         self.touch()
     
+    def add_form_field(self, field: dict) -> None:
+        """Add a form field definition to this template."""
+        self.form_fields.append(field)
+        self.touch()
+    
+    def add_claim_collection_rule(self, rule: dict) -> None:
+        """Add a claim collection rule to this template."""
+        self.claim_collection_rules.append(rule)
+        self.touch()
+    
     def add_claim_verification_rule(self, rule: ClaimVerificationRule) -> None:
-        """Add a claim verification rule to this template."""
+        """Add a claim verification rule to this template (legacy)."""
         self.claim_verification_rules.append(rule)
         self.touch()
     
@@ -833,8 +898,12 @@ class ApplicationTemplate(Entity):
             if req.required
         ]
     
+    def get_required_form_fields(self) -> list[dict]:
+        """Get all required form fields."""
+        return [f for f in self.form_fields if f.get("required", True)]
+    
     def get_required_claims_to_verify(self) -> list[str]:
-        """Get list of claim names that require verification."""
+        """Get list of claim names that require verification (legacy)."""
         return [
             rule.claim_name
             for rule in self.claim_verification_rules
@@ -908,6 +977,10 @@ class PresentationPolicy(Entity):
     single_presentation: bool = False
     derived_attribute_preferences: dict[str, str] = field(default_factory=dict)  # Map raw claims to preferred derived forms
     
+    # ZK Predicate Configuration
+    fallback_policy: PredicateFallbackPolicy = PredicateFallbackPolicy.ACCEPT_RAW
+    supported_circuits: list[str] = field(default_factory=list)  # Allowed ZK circuits for this policy
+    
     # Credential ranking
     credential_ranking_strategy: CredentialRankingStrategy = CredentialRankingStrategy.FRESHEST_FIRST
     credential_ranking_weights: dict[str, float] = field(default_factory=dict)  # For CUSTOM strategy
@@ -973,6 +1046,59 @@ class PresentationPolicy(Entity):
             self.issuer_constraints["required_accreditations"] = required_accreditations
         
         self.touch()
+    
+    def add_required_claim_with_predicate(
+        self,
+        claim_name: str,
+        credential_type: str,
+        predicate_spec: PredicateSpecification,
+        required_value: Any = None,
+    ) -> None:
+        """
+        Add a required claim with a structured ZK predicate specification.
+        
+        Args:
+            claim_name: Name of the claim (e.g., "age", "birth_date")
+            credential_type: Type of credential containing this claim
+            predicate_spec: Structured ZK predicate specification
+            required_value: Optional exact value requirement
+        """
+        self.required_claims.append(RequiredClaim(
+            claim_name=claim_name,
+            credential_type=credential_type,
+            accept_predicate=True,
+            required_value=required_value,
+            predicate_spec=predicate_spec,
+        ))
+        self.touch()
+    
+    def get_claims_accepting_predicates(self) -> list[RequiredClaim]:
+        """Get all required claims that accept ZK predicate proofs."""
+        return [c for c in self.required_claims if c.allows_predicate()]
+    
+    def get_all_supported_circuits(self) -> set[str]:
+        """Get all ZK circuits supported by this policy (from policy + claims)."""
+        circuits = set(self.supported_circuits)
+        for claim in self.required_claims:
+            circuits.update(claim.get_supported_circuits())
+        return circuits
+    
+    def is_circuit_supported(self, circuit_id: str) -> bool:
+        """Check if a specific ZK circuit is supported by this policy."""
+        return circuit_id in self.get_all_supported_circuits()
+    
+    def get_effective_fallback_policy(self, claim: RequiredClaim) -> PredicateFallbackPolicy:
+        """
+        Get the effective fallback policy for a specific claim.
+        
+        Claim-level fallback takes precedence over policy-level fallback.
+        """
+        claim_fallback = claim.get_fallback_policy()
+        # If claim has explicit predicate_spec, use its fallback
+        if claim.predicate_spec is not None:
+            return claim_fallback
+        # Otherwise use policy-level fallback
+        return self.fallback_policy
 
 
 # =============================================================================
