@@ -4,24 +4,9 @@ Marty MMF Plugin
 Main plugin class that integrates Marty services with the MMF framework.
 """
 
-import sys
-from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-# Add MMF framework to path
-try:
-    from mmf.core.plugins import MMFPlugin, PluginContext, PluginMetadata
-except ImportError:
-    # Development mode - use local MMF
-    mmf_path = Path(__file__).parent.parent.parent / "marty-microservices-framework"
-    if mmf_path.exists():
-        sys.path.insert(0, str(mmf_path))
-        try:
-            from mmf.core.plugins import MMFPlugin, PluginContext, PluginMetadata
-        except ImportError as e:
-             raise ImportError(f"MMF framework found but import failed: {e}. Please check structure.")
-    else:
-        raise ImportError("MMF framework not found. Please install marty-msf package.")
+from mmf.core.plugins import MMFPlugin, PluginContext, PluginMetadata
 
 from .config import MartyTrustPKIConfig
 from .services import (

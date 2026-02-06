@@ -16,6 +16,8 @@ This document provides a detailed implementation plan for migrating Marty's cert
 
 ### Certificate Management Components in Marty
 
+**Note**: This document describes the legacy certificate management architecture. The marty_chassis framework has been fully migrated to MMF (Marty Microservices Framework) as of November 2025.
+
 | Component | Location | Purpose | Dependencies |
 |-----------|----------|---------|--------------|
 | Certificate Expiry Service | `src/trust_anchor/app/services/certificate_expiry_service.py` | Monitor cert expiry, send notifications | OpenXPKI Service |
@@ -37,7 +39,7 @@ This document provides a detailed implementation plan for migrating Marty's cert
 
 #### 1.1 Create Certificate Management Plugin Structure
 
-**Location**: `marty-microservices-framework/marty_chassis/plugins/certificate_management/`
+**Location**: `marty-microservices-framework/mmf/plugins/certificate_management/` (Legacy location was marty_chassis, now migrated to mmf structure)
 
 **Tasks**:
 - [ ] Implement core plugin interfaces
@@ -47,7 +49,7 @@ This document provides a detailed implementation plan for migrating Marty's cert
 
 **Deliverables**:
 ```
-marty_chassis/plugins/certificate_management/
+mmf/plugins/certificate_management/  # Updated from legacy marty_chassis path
 ├── __init__.py
 ├── interfaces.py                 # Core interfaces (ICertificateStore, etc.)
 ├── plugin.py                     # Main plugin implementation  
@@ -111,7 +113,7 @@ class CertificateManagementPlugin(IServicePlugin):
 
 #### 2.1 OpenXPKI Certificate Authority Client
 
-**Location**: `marty_chassis/plugins/certificate_management/ca_clients/openxpki.py`
+**Location**: `mmf/plugins/certificate_management/ca_clients/openxpki.py` (Updated from legacy marty_chassis path)
 
 **Migration Strategy**:
 1. Extract OpenXPKI logic from `src/marty_common/services/base_openxpki_service.py`
@@ -142,7 +144,7 @@ class OpenXPKICertificateAuthorityClient(ICertificateAuthorityClient):
 
 #### 2.2 Vault Certificate Store Implementation
 
-**Location**: `marty_chassis/plugins/certificate_management/stores/vault.py`
+**Location**: `mmf/plugins/certificate_management/stores/vault.py` (Updated from legacy marty_chassis path)
 
 **Migration Strategy**:
 1. Extract Vault integration from `services/trust-svc/vault_client.py`
@@ -159,7 +161,7 @@ class OpenXPKICertificateAuthorityClient(ICertificateAuthorityClient):
 
 #### 2.3 ICAO Certificate Parser Implementation
 
-**Location**: `marty_chassis/plugins/certificate_management/parsers/icao.py`
+**Location**: `mmf/plugins/certificate_management/parsers/icao.py` (Updated from legacy marty_chassis path)
 
 **Migration Strategy**:
 1. Extract parsing logic from `services/trust-svc/certificate_parser.py`
@@ -176,7 +178,7 @@ class OpenXPKICertificateAuthorityClient(ICertificateAuthorityClient):
 
 #### 2.4 Certificate Expiry Monitoring Service
 
-**Location**: `marty_chassis/plugins/certificate_management/services/expiry_monitor.py`
+**Location**: `mmf/plugins/certificate_management/services/expiry_monitor.py` (Updated from legacy marty_chassis path)
 
 **Migration Strategy**:
 1. Extract core logic from `src/trust_anchor/app/services/certificate_expiry_service.py`
