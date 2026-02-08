@@ -98,6 +98,17 @@ test_data/private/
 *_private*
 *secret*
 *password*
+
+# Screenshots and images
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.bmp
+*.tiff
+*.svg
+screenshots/
+images/
 private/
 
 # Test coverage
