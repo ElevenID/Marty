@@ -40,7 +40,7 @@ def get_config() -> dict[str, Any]:
             "base_url": "https://localhost:8443/api/v2",
             "username": "pkiadmin",
             "password": "secret",
-            "realm": "marty",
+            "realm": "11id",
             "connection_timeout": 30,
             "read_timeout": 60,
             "verify_ssl": False,

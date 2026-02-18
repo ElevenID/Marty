@@ -24,6 +24,7 @@
 .PHONY: help dev test test-local pytest build build-wallet push-wallet clean \
         status logs down up restart shell \
         dev-setup dev-infra dev-api dev-ui wallet \
+        dev-tunnel tunnel-logs tunnel-status down-tunnel \
         test-native test-native-ui test-native-headed test-native-debug \
         setup build-changed build-all push-only pull-all build-push release
 
@@ -39,7 +40,7 @@ COMPOSE := docker compose
 WALLET_IMAGE := ghcr.io/anthropic/marty-authenticator:local
 MARTY_AUTH_PATH := ../marty-authenticator
 UI_PORT ?= 3000
-KEYCLOAK_REALM ?= marty
+KEYCLOAK_REALM ?= 11id
 
 .DEFAULT_GOAL := help
 
@@ -53,6 +54,7 @@ help: ## Show this help message
 	@echo ""
 	@echo "$(GREEN)Quick Start (Docker):$(NC)"
 	@echo "  make dev           Start full environment in Docker"
+	@echo "  make dev-tunnel    Start with Cloudflare Tunnel (external access)"
 	@echo "  make dev-sentinel  Start with Redis Sentinel (HA testing)"
 	@echo "  make test          Run E2E tests with full browser matrix"
 	@echo "  make test-local    Run fast Chromium-only E2E tests"
@@ -136,6 +138,79 @@ dev-cluster: ## Start development environment with Redis Cluster (experimental)
 	@exit 1
 
 # =============================================================================
+# Cloudflare Tunnel (External Access)
+# =============================================================================
+dev-tunnel: ## Start dev environment with Cloudflare Tunnel for external access
+	@if [ ! -f .env.tunnel ]; then \
+		echo "$(RED)❌ Error: .env.tunnel file not found$(NC)"; \
+		echo ""; \
+		echo "$(YELLOW)Setup instructions:$(NC)"; \
+		echo "  1. Copy template: cp .env.tunnel.example .env.tunnel"; \
+		echo "  2. Add your CLOUDFLARE_TUNNEL_TOKEN (see CLOUDFLARE_TUNNEL_SETUP.md)"; \
+		echo "  3. Configure public hostnames in Cloudflare dashboard"; \
+		echo ""; \
+		echo "$(BLUE)📖 Full guide: CLOUDFLARE_TUNNEL_SETUP.md$(NC)"; \
+		exit 1; \
+	fi
+	@if ! grep -q '^CLOUDFLARE_TUNNEL_TOKEN=eyJ' .env.tunnel 2>/dev/null; then \
+		echo "$(RED)❌ Error: CLOUDFLARE_TUNNEL_TOKEN not set in .env.tunnel$(NC)"; \
+		echo ""; \
+		echo "$(YELLOW)Get your token:$(NC)"; \
+		echo "  1. Go to Cloudflare Dashboard → Zero Trust → Networks → Tunnels"; \
+		echo "  2. Create a tunnel or select existing"; \
+		echo "  3. Copy the token (long string starting with eyJ...)"; \
+		echo "  4. Add to .env.tunnel: CLOUDFLARE_TUNNEL_TOKEN=<your-token>"; \
+		echo ""; \
+		echo "$(BLUE)📖 Full guide: CLOUDFLARE_TUNNEL_SETUP.md$(NC)"; \
+		exit 1; \
+	fi
+	@echo "$(BLUE)🚀 Starting development environment with Cloudflare Tunnel...$(NC)"
+	$(COMPOSE) -f docker-compose.yml -f docker-compose.tunnel.yml --env-file .env.tunnel --profile dev up -d
+	@echo ""
+	@echo "$(GREEN)✅ Development environment with Cloudflare Tunnel ready!$(NC)"
+	@echo ""
+	@echo "  🌐 Public URL:  $(YELLOW)https://beta.elevenfold.com$(NC)"
+	@echo "  🔗 Local UI:    http://localhost:9080"
+	@echo "  🔗 Local API:   http://localhost:8000"
+	@echo "  🔐 Keycloak:    http://localhost:8180"
+	@echo "  📧 MailHog:     http://localhost:9025"
+	@echo ""
+	@echo "$(YELLOW)Tunnel Status:$(NC)"
+	@echo "  • Check dashboard: https://one.dash.cloudflare.com/"
+	@echo "  • View logs: make tunnel-logs"
+	@echo "  • Check status: make tunnel-status"
+	@echo ""
+	@echo "$(YELLOW)Security Notes:$(NC)"
+	@echo "  ⚠️  Your local instance is now publicly accessible"
+	@echo "  ⚠️  Ensure strong passwords for admin accounts"
+	@echo "  ⚠️  Review Cloudflare Access policies if needed"
+	@echo ""
+
+tunnel-logs: ## View Cloudflare Tunnel logs
+	@echo "$(BLUE)📋 Cloudflare Tunnel logs:$(NC)"
+	@echo ""
+	$(COMPOSE) logs -f cloudflared
+
+tunnel-status: ## Check Cloudflare Tunnel connection status
+	@echo "$(BLUE)🔍 Checking tunnel status...$(NC)"
+	@echo ""
+	@if $(COMPOSE) ps cloudflared | grep -q "Up"; then \
+		echo "$(GREEN)✅ Tunnel container is running$(NC)"; \
+		$(COMPOSE) exec cloudflared cloudflared tunnel info 2>/dev/null || echo "$(YELLOW)⚠️  Unable to get tunnel info (may still be connecting)$(NC)"; \
+	else \
+		echo "$(RED)❌ Tunnel container is not running$(NC)"; \
+		echo "$(YELLOW)Start with: make dev-tunnel$(NC)"; \
+	fi
+	@echo ""
+	@echo "$(BLUE)💡 Check Cloudflare dashboard for detailed status:$(NC)"
+	@echo "   https://one.dash.cloudflare.com/ → Access → Tunnels"
+
+down-tunnel: ## Stop all services including Cloudflare Tunnel
+	@echo "$(BLUE)🛑 Stopping services with Cloudflare Tunnel...$(NC)"
+	$(COMPOSE) -f docker-compose.yml -f docker-compose.tunnel.yml down
+	@echo "$(GREEN)✅ All services stopped$(NC)"
+
+# =============================================================================
 # Testing
 # =============================================================================
 test: _ensure-wallet _check-wallet-build ## Run E2E tests (full browser matrix)
@@ -146,10 +221,6 @@ test: _ensure-wallet _check-wallet-build ## Run E2E tests (full browser matrix)
 	$(COMPOSE) --profile test up -d oid4vc-api-test ui-test wallet-simulator
 	@echo "$(BLUE)⏳ Waiting for services to be healthy...$(NC)"
 	@sleep 10
-	@echo "$(BLUE)🌱 Seeding demo data...$(NC)"
-	@$(COMPOSE) cp marty-ui/scripts/seed_demo_data.py oid4vc-api-test:/tmp/seed_demo_data.py
-	@$(COMPOSE) exec -T oid4vc-api-test python /tmp/seed_demo_data.py
-	@echo "$(GREEN)✅ Demo data seeded!$(NC)"
 	$(COMPOSE) --profile test up playwright --exit-code-from playwright
 	@echo "$(GREEN)✅ E2E tests completed!$(NC)"
 
@@ -161,10 +232,6 @@ test-local: _ensure-wallet _check-wallet-build ## Run fast Chromium-only E2E tes
 	$(COMPOSE) --profile test-local up -d oid4vc-api-test ui-test wallet-simulator
 	@echo "$(BLUE)⏳ Waiting for services to be healthy...$(NC)"
 	@sleep 10
-	@echo "$(BLUE)🌱 Seeding demo data...$(NC)"
-	@$(COMPOSE) cp marty-ui/scripts/seed_demo_data.py oid4vc-api-test:/tmp/seed_demo_data.py
-	@$(COMPOSE) exec -T oid4vc-api-test python /tmp/seed_demo_data.py
-	@echo "$(GREEN)✅ Demo data seeded!$(NC)"
 	$(COMPOSE) --profile test-local up playwright-local --exit-code-from playwright-local
 	@echo "$(GREEN)✅ Chromium tests completed!$(NC)"
 
@@ -332,7 +399,7 @@ dev-infra: ## Start infrastructure only (Keycloak, Postgres, Redis, MailHog)
 	@echo "$(BLUE)🏗️ Starting infrastructure services...$(NC)"
 	UI_BASE_URL=http://localhost:$(UI_PORT) $(COMPOSE) up -d postgres redis mailhog keycloak
 	@echo "$(BLUE)⏳ Waiting for Keycloak to be healthy (this may take ~60s on first run)...$(NC)"
-	@until curl -sf http://localhost:8180/realms/marty >/dev/null 2>&1; do \
+	@until curl -sf http://localhost:8180/realms/11id >/dev/null 2>&1; do \
 		printf "."; \
 		sleep 3; \
 	done

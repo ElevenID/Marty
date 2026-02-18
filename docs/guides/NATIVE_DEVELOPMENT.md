@@ -69,7 +69,7 @@ The `make dev-api` target sets all required environment variables automatically.
 | Variable | Value | Purpose |
 |----------|-------|---------|
 | `KEYCLOAK_URL` | `http://localhost:8180` | Keycloak admin API (not Docker hostname!) |
-| `OIDC_ISSUER_URL` | `http://localhost:8180/realms/marty` | OIDC token validation |
+| `OIDC_ISSUER_URL` | `http://localhost:8180/realms/11id` | OIDC token validation |
 | `REDIS_URL` | `redis://localhost:6379/0` | Session storage |
 | `PYTHONPATH` | Includes `marty-microservices-framework/` | Required for MMF imports |
 

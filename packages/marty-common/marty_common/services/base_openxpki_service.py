@@ -49,7 +49,7 @@ class BaseOpenXPKIService:
                 "OPENXPKI_PASSWORD must be set via environment variable or OPENXPKI_PASSWORD_FILE"
             )
 
-        self.realm = os.environ.get("OPENXPKI_REALM", "marty")
+        self.realm = os.environ.get("OPENXPKI_REALM", "11id")
         self.connection_timeout = int(os.environ.get("OPENXPKI_CONN_TIMEOUT", "30"))
         self.read_timeout = int(os.environ.get("OPENXPKI_READ_TIMEOUT", "60"))
         self.verify_ssl = os.environ.get("OPENXPKI_VERIFY_SSL", "False").lower() == "true"

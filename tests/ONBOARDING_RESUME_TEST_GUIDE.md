@@ -137,7 +137,7 @@ After login, before attempting to resume:
 
 1. Go to Keycloak admin console: http://localhost:8180
 2. Login with admin credentials
-3. Navigate to: Realm → marty → Users
+3. Navigate to: Realm → 11id → Users
 4. Find your test user
 5. Check "Organizations" tab
 6. Verify user is member of the test organization

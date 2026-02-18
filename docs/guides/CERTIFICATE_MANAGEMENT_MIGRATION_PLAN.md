@@ -299,7 +299,7 @@ certificate_management:
       base_url: "${OPENXPKI_BASE_URL}"
       username: "${OPENXPKI_USERNAME}"  
       password: "${OPENXPKI_PASSWORD}"
-      realm: "${OPENXPKI_REALM:-marty}"
+      realm: "${OPENXPKI_REALM:-11id}"
       connection_timeout: 30
       read_timeout: 60
       

@@ -365,7 +365,7 @@ class OpenXPKICertificateAuthorityClient(ICertificateAuthorityClient):
         self.base_url = config.get("base_url")
         self.username = config.get("username")
         self.password = config.get("password")
-        self.realm = config.get("realm", "marty")
+        self.realm = config.get("realm", "11id")
         # ... initialization
     
     async def get_certificates(self, filter_params: Optional[Dict[str, Any]] = None) -> List[CertificateInfo]:
@@ -434,7 +434,7 @@ certificate_management:
       base_url: "${OPENXPKI_BASE_URL:-https://localhost:8443/api/v2}"
       username: "${OPENXPKI_USERNAME}"
       password: "${OPENXPKI_PASSWORD}"
-      realm: "${OPENXPKI_REALM:-marty}"
+      realm: "${OPENXPKI_REALM:-11id}"
       verify_ssl: "${OPENXPKI_VERIFY_SSL:-false}"
       connection_timeout: 30
       read_timeout: 60

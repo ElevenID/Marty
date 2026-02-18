@@ -216,7 +216,7 @@ class ConfigurationManager:
             "password": ConfigurationManager.resolve_secret(
                 "OPENXPKI_PASSWORD", "OPENXPKI_PASSWORD_FILE", required=True
             ),
-            "realm": os.environ.get("OPENXPKI_REALM", "marty"),
+            "realm": os.environ.get("OPENXPKI_REALM", "11id"),
             "connection_timeout": ConfigurationManager.get_env_int("OPENXPKI_CONN_TIMEOUT", 30),
             "read_timeout": ConfigurationManager.get_env_int("OPENXPKI_READ_TIMEOUT", 60),
             "verify_ssl": ConfigurationManager.get_env_bool("OPENXPKI_VERIFY_SSL", False),

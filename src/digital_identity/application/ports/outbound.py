@@ -142,6 +142,36 @@ class CredentialTemplateRepositoryPort(Protocol):
 
 
 @runtime_checkable
+class ComplianceProfileRepositoryPort(Protocol):
+    """
+    Repository port for Compliance Profile persistence.
+    
+    Handles storage and retrieval of Compliance Profile entities.
+    """
+    
+    async def get(self, entity_id: str) -> Any | None:
+        """Get a Compliance Profile by ID."""
+        ...
+    
+    async def get_by_code(self, code: str) -> Any | None:
+        """Get a Compliance Profile by code."""
+        ...
+    
+    async def list(
+        self,
+        skip: int = 0,
+        limit: int = 100,
+        is_system: bool | None = None,
+    ) -> list[Any]:
+        """List Compliance Profiles with optional filters."""
+        ...
+    
+    async def exists(self, entity_id: str) -> bool:
+        """Check if a Compliance Profile exists."""
+        ...
+
+
+@runtime_checkable
 class PresentationPolicyRepositoryPort(Protocol):
     """
     Repository port for Presentation Policy persistence.

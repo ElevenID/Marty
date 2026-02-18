@@ -260,7 +260,7 @@ openxpki:
   base_url: "https://openxpki.local/api/v2"
   username: "pkiadmin"
   password: "secret"
-  realm: "marty"
+  realm: "11id"
   connection_timeout: 30
   read_timeout: 60
   # Certificate sync settings

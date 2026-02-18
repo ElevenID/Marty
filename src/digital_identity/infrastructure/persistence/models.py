@@ -7,6 +7,7 @@ Uses SQLAlchemy 2.0 async patterns.
 
 from __future__ import annotations
 
+import enum
 from datetime import datetime
 from typing import Any
 
@@ -22,6 +23,13 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+
+
+class PublishStatus(str, enum.Enum):
+    """Publish status for credential templates."""
+    DRAFT = "DRAFT"
+    PUBLISHED = "PUBLISHED"
+    ARCHIVED = "ARCHIVED"
 
 
 class Base(DeclarativeBase):
@@ -266,6 +274,34 @@ class CredentialTemplateModel(Base):
     credential_type: Mapped[str] = mapped_column(String(255), unique=True, nullable=False, index=True)
     schema_uri: Mapped[str | None] = mapped_column(String(500), nullable=True)
     
+    # Publish status
+    status: Mapped[PublishStatus] = mapped_column(
+        SQLEnum(PublishStatus),
+        default=PublishStatus.DRAFT,
+        nullable=False,
+        index=True,
+    )
+    
+    # References to required entities
+    compliance_profile_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey("digital_identity_compliance_profiles.id", ondelete="RESTRICT"),
+        nullable=True,
+        index=True,
+    )
+    application_template_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey("digital_identity_application_templates.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    trust_profile_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey("digital_identity_trust_profiles.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    
     # Claims
     claims: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
     
@@ -274,11 +310,8 @@ class CredentialTemplateModel(Base):
     
     # Issuer constraints
     issuer_key_ids: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
-    trust_profile_id: Mapped[str | None] = mapped_column(
-        String(36),
-        ForeignKey("digital_identity_trust_profiles.id", ondelete="SET NULL"),
-        nullable=True,
-    )
+    issuer_certificate_chain_pem: Mapped[str | None] = mapped_column(Text, nullable=True)
+    issuer_did: Mapped[str | None] = mapped_column(String(500), nullable=True)
     
     # Format
     format: Mapped[str] = mapped_column(String(50), default="sd_jwt_vc", nullable=False)

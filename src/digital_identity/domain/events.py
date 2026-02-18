@@ -89,6 +89,14 @@ class CredentialTemplateDeletedEvent(DomainEvent):
     template_id: str = ""
 
 
+@dataclass
+class CredentialTemplatePublishedEvent(DomainEvent):
+    """Emitted when a Credential Template is published."""
+    
+    template_id: str = ""
+    name: str = ""
+
+
 # =============================================================================
 # Presentation Policy Events
 # =============================================================================
