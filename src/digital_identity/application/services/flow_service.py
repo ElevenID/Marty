@@ -238,6 +238,8 @@ class FlowService:
         # Create execution
         execution = FlowExecution(
             flow_id=flow_id,
+            flow_type=flow.flow_type.value if hasattr(flow.flow_type, 'value') else str(flow.flow_type),
+            organization_id=getattr(flow, 'organization_id', ''),
             context_data=context_data or {},
             current_step=steps[0].name if steps else None,
         )

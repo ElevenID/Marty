@@ -264,7 +264,7 @@ class CredentialIssuanceService:
         if template:
             credential_type = template.credential_type or "VerifiableCredential"
             credential_format = template.format.value
-            validity_days = template.validity_rules.ttl.days if template.validity_rules.ttl else 365
+            validity_days = template.validity_rules.ttl_seconds // 86400 if template.validity_rules.ttl_seconds else 365
             logger.info(
                 f"Loaded template {template.name}: type={credential_type}, "
                 f"format={credential_format}, validity={validity_days}d"

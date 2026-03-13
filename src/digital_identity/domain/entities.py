@@ -953,7 +953,7 @@ class PresentationPolicy(Entity):
     required_claims: list[RequiredClaim] = field(default_factory=list)
     
     # Holder binding
-    holder_binding: HolderBindingMethod = HolderBindingMethod.SESSION_NONCE
+    holder_binding: HolderBindingMethod = HolderBindingMethod.NONCE
     
     # Trust constraints
     trust_profile_id: str | None = None
@@ -1263,10 +1263,16 @@ class Flow(Entity):
     description: str | None = None
     flow_type: FlowType = FlowType.APPLICATION_APPROVAL_ISSUANCE
     
+    # Organization scope (required by spec)
+    organization_id: str = ""
+    
+    # Flow lifecycle status (DRAFT, ACTIVE, PAUSED, ARCHIVED)
+    status: str = "DRAFT"
+    
     # Referenced entities
     trust_profile_id: str | None = None
     credential_template_id: str | None = None
-    application_template_id: str | None = None  # NEW: For application-based issuance
+    application_template_id: str | None = None  # For application-based issuance
     presentation_policy_id: str | None = None
     deployment_profile_ids: list[str] = field(default_factory=list)
     
@@ -1379,6 +1385,7 @@ class FlowExecution(Entity):
     """
     
     flow_id: str = ""
+    flow_type: str = ""  # Copied from Flow at instantiation time
     organization_id: str = ""  # Copied from Flow at instantiation time
     status: FlowStatus = FlowStatus.PENDING
     current_step: str | None = None
@@ -1483,6 +1490,7 @@ class IssuedCredential(Entity):
     flow_execution_id: str = ""
     credential_template_id: str = ""
     application_id: str | None = None
+    revocation_profile_id: str | None = None  # Ref to RevocationProfile
     subject_id: str = ""
     subject_claims_hash: str | None = None
     issued_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
@@ -1545,28 +1553,30 @@ class RevocationBatch(Entity):
     
     organization_id: str = ""
     credential_template_id: str = ""
-    credential_count: int = 0
-    credential_ids: list[str] = field(default_factory=list)
-    status: str = "queued"  # queued, processing, completed, failed
-    scheduled_for: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
-    completed_at: datetime | None = None
-    revocation_interval: str = "6h"  # 1h, 6h, 24h
+    credential_format: str = ""  # Required by spec (MDOC, SD_JWT_VC, VC_JWT, JSON_LD)
+    batch_interval: str = "6h"  # 1h, 6h, 24h (spec: batch_interval)
+    pending_credential_ids: list[str] = field(default_factory=list)
+    published_credential_count: int = 0
+    status_list_uri: str | None = None
+    status: str = "PENDING"  # PENDING, PUBLISHING, PUBLISHED, FAILED
+    scheduled_publish_at: datetime | None = None
+    published_at: datetime | None = None
     error_message: str | None = None
     
     def mark_processing(self) -> None:
         """Mark batch as currently processing."""
-        self.status = "processing"
+        self.status = "PUBLISHING"
         self.touch()
     
     def mark_completed(self) -> None:
         """Mark batch as successfully completed."""
-        self.status = "completed"
-        self.completed_at = datetime.now(timezone.utc)
+        self.status = "PUBLISHED"
+        self.published_at = datetime.now(timezone.utc)
         self.touch()
     
     def mark_failed(self, error: str) -> None:
         """Mark batch as failed."""
-        self.status = "failed"
+        self.status = "FAILED"
         self.error_message = error
         self.touch()
 

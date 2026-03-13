@@ -28,8 +28,8 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 class PublishStatus(str, enum.Enum):
     """Publish status for credential templates."""
     DRAFT = "DRAFT"
-    PUBLISHED = "PUBLISHED"
-    ARCHIVED = "ARCHIVED"
+    ACTIVE = "ACTIVE"
+    DEPRECATED = "DEPRECATED"
 
 
 class Base(DeclarativeBase):
@@ -426,7 +426,7 @@ class PresentationPolicyModel(Base):
     required_claims: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
     
     # Holder binding
-    holder_binding: Mapped[str] = mapped_column(String(50), default="session_nonce", nullable=False)
+    holder_binding: Mapped[str] = mapped_column(String(50), default="NONCE", nullable=False)
     
     # Trust constraints
     trust_profile_id: Mapped[str | None] = mapped_column(
@@ -543,10 +543,16 @@ class FlowModel(Base):
     deployment_profile_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
     
     # Approval
-    approval_strategy: Mapped[str] = mapped_column(String(50), default="auto", nullable=False)
+    approval_strategy: Mapped[str] = mapped_column(String(50), default="AUTO", nullable=False)
     
     # State
     enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    
+    # Flow status (DRAFT, ACTIVE, PAUSED, ARCHIVED)
+    status: Mapped[str] = mapped_column(String(20), default="DRAFT", nullable=False, index=True)
+    
+    # Organization scope
+    organization_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True, default="")
     
     # Extensibility
     hooks: Mapped[dict[str, list[dict[str, Any]]]] = mapped_column(JSON, default=dict)
@@ -580,8 +586,12 @@ class FlowExecutionModel(Base):
         index=True,
     )
     
+    # Denormalized from Flow at instantiation
+    flow_type: Mapped[str] = mapped_column(String(50), nullable=False, index=True, default="")
+    organization_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True, default="")
+    
     # State
-    status: Mapped[str] = mapped_column(String(50), default="created", nullable=False, index=True)
+    status: Mapped[str] = mapped_column(String(50), default="PENDING", nullable=False, index=True)
     current_step: Mapped[str | None] = mapped_column(String(100), nullable=True)
     current_step_index: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     
@@ -593,9 +603,10 @@ class FlowExecutionModel(Base):
     # Timing
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     
     # Error
-    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    error_code: Mapped[str | None] = mapped_column(String(100), nullable=True)
     
     # Metadata
     metadata_: Mapped[dict[str, Any]] = mapped_column("metadata", JSON, default=dict)
@@ -630,6 +641,7 @@ class IssuedCredentialModel(Base):
     )
     credential_template_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
     application_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+    revocation_profile_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
     
     # Subject
     subject_id: Mapped[str] = mapped_column(String(500), nullable=False, index=True)
@@ -673,19 +685,21 @@ class RevocationBatchModel(Base):
     credential_template_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
     
     # Batch metadata
-    credential_count: Mapped[int] = mapped_column(Integer, nullable=False)
-    credential_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
+    credential_format: Mapped[str] = mapped_column(String(50), nullable=False, index=True, default="")
+    batch_interval: Mapped[str] = mapped_column(String(10), nullable=False, default="6h")  # 1h, 6h, 24h
+    
+    # Credential tracking
+    pending_credential_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
+    published_credential_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    status_list_uri: Mapped[str | None] = mapped_column(String(1024), nullable=True)
     
     # Status tracking
-    status: Mapped[str] = mapped_column(String(20), default="queued", nullable=False, index=True)
-    # Status values: queued, processing, completed, failed
+    status: Mapped[str] = mapped_column(String(20), default="PENDING", nullable=False, index=True)
+    # Status values: PENDING, PUBLISHING, PUBLISHED, FAILED
     
     # Scheduling
-    scheduled_for: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
-    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    
-    # Privacy settings
-    revocation_interval: Mapped[str] = mapped_column(String(10), nullable=False)  # 1h, 6h, 24h
+    scheduled_publish_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     
     # Error tracking
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)

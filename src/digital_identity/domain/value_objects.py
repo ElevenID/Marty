@@ -145,39 +145,41 @@ class ValidityRules:
     """
     Validity rules for a credential.
     
-    Defines TTL, reissue requirements, and expiration behavior.
+    Uses seconds to match spec shape directly.
     """
-    
-    default_ttl: timedelta = field(default_factory=lambda: timedelta(days=365))
-    max_ttl: timedelta | None = None
-    min_ttl: timedelta = field(default_factory=lambda: timedelta(hours=1))
-    allow_reissue: bool = True
-    reissue_before_expiry: timedelta = field(default_factory=lambda: timedelta(days=30))
 
-
-# =============================================================================
-# Presentation Policy Value Objects
+    ttl_seconds: int = 31536000  # 365 days
+    renewable: bool = True
+    reissue_within_seconds: int | None = None
+    not_before_offset_seconds: int = 0
 # =============================================================================
 
 class HolderBindingMethod(str, Enum):
-    """Methods for binding a presentation to a holder."""
+    """Methods for binding a presentation to a holder.
     
-    DEVICE_KEY = "device_key"      # Key bound to device
-    SESSION_NONCE = "session_nonce"  # Nonce/challenge based
-    BIOMETRIC = "biometric"        # Biometric verification
-    NONE = "none"                  # No holder binding
+    Spec binding_methods: NONCE, DEVICE_KEY, SESSION_BINDING.
+    Gateway extends with BIOMETRIC, NONE.
+    """
+    
+    NONCE = "NONCE"                     # Nonce-based challenge-response
+    DEVICE_KEY = "DEVICE_KEY"           # Key bound to device
+    SESSION_BINDING = "SESSION_BINDING" # Session-level binding
+    BIOMETRIC = "BIOMETRIC"             # Biometric verification (gateway extension)
+    NONE = "NONE"                       # No holder binding (gateway extension)
     
     def __str__(self) -> str:
         return self.value
 
 
 class CredentialRankingStrategy(str, Enum):
-    """Strategy for ranking credentials when multiple match a policy."""
+    """Strategy for ranking credentials when multiple match a policy.
     
-    FRESHEST_FIRST = "freshest_first"        # Prefer most recently issued
-    HIGHEST_TRUST_FIRST = "highest_trust_first"  # Prefer highest trust level issuer
-    MINIMUM_CLAIMS_FIRST = "minimum_claims_first"  # Prefer credentials with fewest claims
-    CUSTOM = "custom"                        # Use custom weighting
+    Spec values: FRESHEST_FIRST, HIGHEST_TRUST_FIRST, CUSTOM.
+    """
+    
+    FRESHEST_FIRST = "FRESHEST_FIRST"            # Prefer most recently issued
+    HIGHEST_TRUST_FIRST = "HIGHEST_TRUST_FIRST"  # Prefer highest trust level issuer
+    CUSTOM = "CUSTOM"                            # Use custom weighting
     
     def __str__(self) -> str:
         return self.value
@@ -190,11 +192,11 @@ class PredicateType(str, Enum):
     Defines the comparison or proof operation to be performed.
     """
     
-    RANGE_PROOF = "range_proof"      # Value is within a range (e.g., age >= 21)
-    MEMBERSHIP = "membership"        # Value is in a set (e.g., country in [US, CA, MX])
-    EQUALITY = "equality"            # Value equals target without revealing value
-    NON_MEMBERSHIP = "non_membership"  # Value is NOT in a set
-    INEQUALITY = "inequality"        # Value does not equal target
+    RANGE_PROOF = "RANGE_PROOF"          # Value is within a range (e.g., age >= 21)
+    MEMBERSHIP = "MEMBERSHIP"              # Value is in a set (e.g., country in [US, CA, MX])
+    EQUALITY = "EQUALITY"                  # Value equals target without revealing value
+    NON_MEMBERSHIP = "NON_MEMBERSHIP"      # Value is NOT in a set
+    INEQUALITY = "INEQUALITY"              # Value does not equal target
     
     def __str__(self) -> str:
         return self.value
@@ -207,9 +209,9 @@ class PredicateFallbackPolicy(str, Enum):
     Controls behavior when holder cannot produce a ZK proof.
     """
     
-    REQUIRE_PREDICATE = "require_predicate"  # Strict: reject if ZK unavailable
-    ACCEPT_RAW = "accept_raw"                # Graceful: accept raw claim as fallback
-    DENY = "deny"                            # Block: deny verification entirely
+    REQUIRE_PREDICATE = "REQUIRE_PREDICATE"  # Strict: reject if ZK unavailable
+    ACCEPT_RAW = "ACCEPT_RAW"                  # Graceful: accept raw claim as fallback
+    DENY = "DENY"                              # Block: deny verification entirely
     
     def __str__(self) -> str:
         return self.value
@@ -252,6 +254,11 @@ class PredicateSpecification:
     def __post_init__(self) -> None:
         """Validate predicate specification."""
         self._validate_params()
+        # Normalize legacy lowercase values
+        if isinstance(self.predicate_type, str):
+            object.__setattr__(self, 'predicate_type', PredicateType(self.predicate_type.upper()))
+        if isinstance(self.fallback_policy, str):
+            object.__setattr__(self, 'fallback_policy', PredicateFallbackPolicy(self.fallback_policy.upper()))
     
     def _validate_params(self) -> None:
         """Validate params based on predicate type."""
@@ -279,12 +286,14 @@ class PredicateSpecification:
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "PredicateSpecification":
         """Create from dictionary."""
+        raw_type = data["predicate_type"]
+        raw_fallback = data.get("fallback_policy", "ACCEPT_RAW")
         return cls(
-            predicate_type=PredicateType(data["predicate_type"]),
+            predicate_type=PredicateType(raw_type.upper() if raw_type.islower() else raw_type),
             params=data.get("params", {}),
             supported_circuits=data.get("supported_circuits", []),
             fallback_policy=PredicateFallbackPolicy(
-                data.get("fallback_policy", "accept_raw")
+                raw_fallback.upper() if raw_fallback.islower() else raw_fallback
             ),
         )
     
@@ -359,37 +368,31 @@ class FreshnessRequirements:
     """
     Freshness requirements for presentations.
     
-    Controls how recent credentials and proofs must be.
+    Uses seconds to match spec shape directly.
     """
-    
-    max_credential_age: timedelta | None = None  # Max age of credential
-    max_proof_age: timedelta = field(default_factory=lambda: timedelta(minutes=5))
-    require_live_revocation_check: bool = True
 
-
-# =============================================================================
-# Deployment Profile Value Objects
+    max_age_seconds: int | None = None
+    require_not_revoked: bool = True
+    revocation_grace_seconds: int | None = None
 # =============================================================================
 
 class NetworkMode(str, Enum):
-    """Network connectivity mode for deployment."""
+    """Network connectivity mode for deployment. Values match spec network-modes.json."""
     
-    ONLINE = "online"              # Always connected
-    OFFLINE = "offline"            # Never connected
-    HYBRID = "hybrid"              # Sometimes connected
+    ONLINE = "ONLINE"              # Always connected
+    OFFLINE = "OFFLINE"            # Never connected
+    HYBRID = "HYBRID"              # Sometimes connected
     
     def __str__(self) -> str:
         return self.value
 
 
 class KeyAccessMode(str, Enum):
-    """How signing keys are accessed."""
+    """How signing keys are accessed. Spec values: KEY_VAULT, HSM, DEVICE_KEYSTORE."""
     
-    HSM = "hsm"                    # Hardware Security Module
-    KEY_VAULT = "key_vault"        # Cloud key vault (Azure, AWS, etc.)
-    SIGNING_AGENT = "signing_agent"  # Remote signing agent
-    DEVICE_KEYSTORE = "device_keystore"  # Local device keystore
-    BYOK = "byok"                  # Bring Your Own Key
+    HSM = "HSM"                          # Hardware Security Module
+    KEY_VAULT = "KEY_VAULT"              # Cloud key vault (Azure, AWS, etc.)
+    DEVICE_KEYSTORE = "DEVICE_KEYSTORE"  # Local device keystore
     
     def __str__(self) -> str:
         return self.value
@@ -403,11 +406,10 @@ class UXConfig:
     Controls display and accessibility settings.
     """
     
-    language: str = "en"
-    theme: str = "default"
-    show_operator_mode: bool = False
-    accessibility_enabled: bool = True
-    custom_branding: dict[str, Any] = field(default_factory=dict)
+    language: str = "en-US"
+    theme: str = "light"  # Spec: light, dark, high_contrast
+    operator_mode: bool = False
+    accessibility_mode: bool = False
     signage_text: dict[str, str] | None = None  # Multilingual signage: {"en": "Please present ID", "es": "..."}
 
 
@@ -420,10 +422,10 @@ class UpdatePolicy:
     """
     
     auto_update: bool = True
-    update_channel: str = "stable"  # stable, beta, canary
+    update_channel: str = "stable"  # stable, beta, pinned (spec values)
     rollout_percentage: int = 100
-    version_pinned: str | None = None  # Pin to specific version
-    rollout_ring: str | None = None  # Named rollout ring (e.g., "canary", "early_adopters", "general")
+    version_pinned: str | None = None  # Pin to specific version (spec: pinned_version)
+    rollout_ring: str | None = None  # Named rollout ring
 
 
 # =============================================================================
@@ -481,12 +483,12 @@ class FlowStatus(str, Enum):
 
 
 class ApprovalStrategy(str, Enum):
-    """Strategy for approval decisions in flows."""
+    """Strategy for approval decisions in flows. Values match spec approval-strategies.json."""
     
-    AUTO = "auto"              # Automatic approval
-    MANUAL = "manual"          # Manual officer review
-    RULES_BASED = "rules_based"  # Policy rules evaluation
-    EXTERNAL = "external"      # External system callback
+    AUTO = "AUTO"                  # Automatic approval
+    MANUAL = "MANUAL"              # Manual officer review
+    RULES_BASED = "RULES_BASED"    # Policy rules evaluation
+    EXTERNAL = "EXTERNAL"          # External system callback
     
     def __str__(self) -> str:
         return self.value

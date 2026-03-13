@@ -60,7 +60,7 @@ from digital_identity.infrastructure.adapters.rest.dependencies import (
     get_flow_service,
     get_issuer_registry_service,
 )
-from digital_identity.domain.value_objects import FLOW_STEPS, FlowType
+from digital_identity.domain.value_objects import FLOW_STEPS, FlowType, HolderBindingMethod
 
 logger = logging.getLogger(__name__)
 
@@ -585,10 +585,13 @@ def _credential_template_to_response(template) -> CredentialTemplateResponse:
     """Convert entity to response schema."""
     return CredentialTemplateResponse(
         id=template.id,
+        organization_id=getattr(template, 'organization_id', ''),
         name=template.name,
         description=template.description,
         credential_type=template.credential_type,
-        schema_uri=template.schema_uri,
+        compliance_profile_id=getattr(template, 'compliance_profile_id', None),
+        vct=getattr(template, 'vct', None),
+        credential_payload_format=getattr(template, 'format', None) and template.format.value or 'SD_JWT_VC',
         claims=[
             {
                 "name": c.name,
@@ -603,13 +606,13 @@ def _credential_template_to_response(template) -> CredentialTemplateResponse:
             for c in template.claims
         ],
         validity_rules={
-            "default_ttl_days": template.validity_rules.default_ttl.days,
-            "allow_reissue": template.validity_rules.allow_reissue,
+            "ttl_seconds": template.validity_rules.ttl_seconds,
+            "renewable": template.validity_rules.renewable,
         },
-        issuer_key_ids=template.issuer_key_ids,
         trust_profile_id=template.trust_profile_id,
-        format=template.format.value,
+        revocation_profile_id=getattr(template, 'revocation_profile_id', None),
         namespace=template.namespace,
+        status=getattr(template, 'status', 'DRAFT'),
         display=template.display,
         metadata=template.metadata,
         created_at=template.created_at,
@@ -764,6 +767,12 @@ async def sync_presentation_policies(
 
 def _presentation_policy_to_response(policy) -> PresentationPolicyResponse:
     """Convert entity to response schema."""
+    # Build holder_binding as dict (spec shape)
+    holder_binding_dict = {
+        "required": policy.holder_binding != HolderBindingMethod.NONE,
+        "binding_methods": [policy.holder_binding.value] if policy.holder_binding != HolderBindingMethod.NONE else [],
+        "nonce_required": policy.holder_binding == HolderBindingMethod.NONCE,
+    }
     return PresentationPolicyResponse(
         id=policy.id,
         name=policy.name,
@@ -779,12 +788,13 @@ def _presentation_policy_to_response(policy) -> PresentationPolicyResponse:
             }
             for c in policy.required_claims
         ],
-        holder_binding=policy.holder_binding.value,
+        holder_binding=holder_binding_dict,
         trust_profile_id=policy.trust_profile_id,
         allowed_issuers=policy.allowed_issuers,
         freshness_requirements={
-            "max_proof_age_seconds": policy.freshness_requirements.max_proof_age.total_seconds(),
-            "require_live_revocation_check": policy.freshness_requirements.require_live_revocation_check,
+            "max_age_seconds": policy.freshness_requirements.max_age_seconds,
+            "require_not_revoked": policy.freshness_requirements.require_not_revoked,
+            "revocation_grace_seconds": policy.freshness_requirements.revocation_grace_seconds,
         },
         prefer_predicates=policy.prefer_predicates,
         single_presentation=policy.single_presentation,
@@ -915,15 +925,14 @@ def _deployment_profile_to_response(profile) -> DeploymentProfileResponse:
         ux_config={
             "language": profile.ux_config.language,
             "theme": profile.ux_config.theme,
-            "show_operator_mode": profile.ux_config.show_operator_mode,
-            "accessibility_enabled": profile.ux_config.accessibility_enabled,
+            "operator_mode": profile.ux_config.operator_mode,
+            "accessibility_mode": profile.ux_config.accessibility_mode,
             "signage_text": profile.ux_config.signage_text,
         },
         update_policy={
+            "channel": profile.update_policy.update_channel,
             "auto_update": profile.update_policy.auto_update,
-            "update_channel": profile.update_policy.update_channel,
-            "rollout_percentage": profile.update_policy.rollout_percentage,
-            "rollout_ring": profile.update_policy.rollout_ring,
+            "pinned_version": profile.update_policy.version_pinned,
         },
         offline_cache_ttl_hours=profile.offline_cache_ttl_hours,
         biometric_required=profile.biometric_required,
@@ -1306,15 +1315,18 @@ def _flow_to_response(flow) -> FlowResponse:
     
     return FlowResponse(
         id=flow.id,
+        organization_id=getattr(flow, 'organization_id', ''),
         name=flow.name,
         description=flow.description,
         flow_type=flow.flow_type.value,
         trust_profile_id=flow.trust_profile_id,
         credential_template_id=flow.credential_template_id,
+        application_template_id=getattr(flow, 'application_template_id', None),
         presentation_policy_id=flow.presentation_policy_id,
         deployment_profile_ids=flow.deployment_profile_ids,
         approval_strategy=flow.approval_strategy.value,
         enabled=flow.enabled,
+        status=getattr(flow, 'status', 'DRAFT'),
         hooks=flow.hooks,
         steps=steps,  # Include fixed protocol steps
         metadata=flow.metadata,

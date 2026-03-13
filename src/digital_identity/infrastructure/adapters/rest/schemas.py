@@ -121,27 +121,28 @@ class ClaimDefinitionSchema(BaseModel):
 
 
 class ValidityRulesSchema(BaseModel):
-    """Validity rules configuration."""
+    """Validity rules configuration (spec shape)."""
     
-    default_ttl_days: int = Field(default=365, description="Default validity period in days")
-    max_ttl_days: int | None = Field(default=None, description="Maximum allowed validity")
-    min_ttl_hours: int = Field(default=1, description="Minimum validity period in hours")
-    allow_reissue: bool = Field(default=True, description="Allow credential reissuance")
-    reissue_before_expiry_days: int = Field(default=30, description="Days before expiry to allow reissue")
+    ttl_seconds: int = Field(default=31536000, ge=1, description="Default validity period in seconds")
+    renewable: bool = Field(default=True, description="Allow credential reissuance")
+    reissue_within_seconds: int | None = Field(default=None, ge=0, description="Seconds before expiry to allow reissue")
+    not_before_offset_seconds: int = Field(default=0, ge=0, description="Not-before offset in seconds")
 
 
 class CredentialTemplateCreate(BaseModel):
     """Schema for creating a Credential Template."""
     
+    organization_id: str = Field(..., description="Organization UUID")
     name: str = Field(..., min_length=1, max_length=255, description="Template name")
     description: str | None = None
     credential_type: str = Field(..., description="Unique credential type identifier")
-    schema_uri: str | None = Field(default=None, description="Schema URI reference")
+    compliance_profile_id: str = Field(..., description="Compliance profile UUID")
+    vct: str | None = Field(default=None, description="SD-JWT VC type string")
+    credential_payload_format: str = Field(default="SD_JWT_VC", description="Credential format: SD_JWT_VC, MDOC, VC_JWT, JSON_LD")
     claims: list[ClaimDefinitionSchema] = Field(default_factory=list, description="Claim definitions")
     validity_rules: ValidityRulesSchema | None = None
-    issuer_key_ids: list[str] | None = Field(default=None, description="Authorized issuer key IDs")
     trust_profile_id: str | None = Field(default=None, description="Reference to trust profile")
-    format: str = Field(default="sd_jwt_vc", description="Credential format")
+    revocation_profile_id: str | None = Field(default=None, description="Reference to revocation profile")
     namespace: str | None = Field(default=None, description="Namespace for mDL/mdocs")
     display: dict[str, Any] = Field(default_factory=dict, description="Display configuration")
     metadata: dict[str, Any] = Field(default_factory=dict, description="Additional metadata")
@@ -167,16 +168,19 @@ class CredentialTemplateResponse(BaseModel):
     """Schema for Credential Template response."""
     
     id: str
+    organization_id: str
     name: str
     description: str | None
     credential_type: str
-    schema_uri: str | None
+    compliance_profile_id: str | None
+    vct: str | None = None
+    credential_payload_format: str
     claims: list[dict[str, Any]]
     validity_rules: dict[str, Any]
-    issuer_key_ids: list[str] | None
     trust_profile_id: str | None
-    format: str
+    revocation_profile_id: str | None = None
     namespace: str | None
+    status: str
     display: dict[str, Any]
     metadata: dict[str, Any]
     created_at: datetime
@@ -201,11 +205,11 @@ class RequiredClaimSchema(BaseModel):
 
 
 class FreshnessRequirementsSchema(BaseModel):
-    """Freshness requirements configuration."""
+    """Freshness requirements (spec shape: max_age_seconds, require_not_revoked, revocation_grace_seconds)."""
     
-    max_credential_age_days: int | None = Field(default=None, description="Max credential age in days")
-    max_proof_age_seconds: int = Field(default=300, description="Max age of proof")
-    require_live_revocation_check: bool = Field(default=True, description="Require live revocation check")
+    max_age_seconds: int | None = Field(default=None, ge=1, description="Max credential age in seconds")
+    require_not_revoked: bool = Field(default=False, description="Require credential not revoked")
+    revocation_grace_seconds: int | None = Field(default=None, ge=0, description="Grace period for revocation checks")
 
 
 class PresentationPolicyCreate(BaseModel):
@@ -216,14 +220,14 @@ class PresentationPolicyCreate(BaseModel):
     purpose: str = Field(..., description="Purpose statement shown to user")
     accepted_credential_types: list[str] = Field(..., description="Accepted credential types")
     required_claims: list[RequiredClaimSchema] = Field(default_factory=list, description="Required claims")
-    holder_binding: str = Field(default="session_nonce", description="Holder binding method")
+    holder_binding: dict[str, Any] = Field(default_factory=lambda: {"required": False}, description="Holder binding config: {required, binding_methods, nonce_required}")
     trust_profile_id: str | None = None
     allowed_issuers: list[str] = Field(default_factory=list, description="Explicit issuer DID/certificate allowlist")
     freshness_requirements: FreshnessRequirementsSchema | None = None
-    prefer_predicates: bool = Field(default=True, description="Prefer predicates over full values")
+    prefer_predicates: bool = Field(default=False, description="Prefer predicates over full values")
     single_presentation: bool = Field(default=False, description="Require single presentation")
     derived_attribute_preferences: dict[str, str] = Field(default_factory=dict, description="Map raw claims to preferred derived forms")
-    credential_ranking_strategy: str = Field(default="freshest_first", description="Credential ranking strategy")
+    credential_ranking_strategy: str = Field(default="FRESHEST_FIRST", description="Credential ranking strategy")
     credential_ranking_weights: dict[str, float] = Field(default_factory=dict, description="Custom ranking weights")
     metadata: dict[str, Any] = Field(default_factory=dict)
 
@@ -236,7 +240,7 @@ class PresentationPolicyUpdate(BaseModel):
     purpose: str | None = None
     accepted_credential_types: list[str] | None = None
     required_claims: list[RequiredClaimSchema] | None = None
-    holder_binding: str | None = None
+    holder_binding: str | dict[str, Any] | None = None
     trust_profile_id: str | None = None
     allowed_issuers: list[str] | None = None
     freshness_requirements: FreshnessRequirementsSchema | None = None
@@ -257,7 +261,7 @@ class PresentationPolicyResponse(BaseModel):
     purpose: str
     accepted_credential_types: list[str]
     required_claims: list[dict[str, Any]]
-    holder_binding: str
+    holder_binding: dict[str, Any]
     trust_profile_id: str | None
     allowed_issuers: list[str]
     freshness_requirements: dict[str, Any]
@@ -280,24 +284,21 @@ class PresentationPolicyResponse(BaseModel):
 # ---------------------------------------------------------
 
 class UXConfigSchema(BaseModel):
-    """UX configuration."""
+    """UX configuration (spec shape)."""
     
-    language: str = Field(default="en", description="Default language")
-    theme: str = Field(default="default", description="UI theme")
-    show_operator_mode: bool = Field(default=False, description="Show operator controls")
-    accessibility_enabled: bool = Field(default=True, description="Enable accessibility features")
-    custom_branding: dict[str, Any] = Field(default_factory=dict, description="Branding customization")
+    language: str = Field(default="en-US", description="Default language")
     signage_text: dict[str, str] | None = Field(default=None, description="Multilingual signage text")
+    operator_mode: bool = Field(default=False, description="Enable operator mode")
+    accessibility_mode: bool = Field(default=False, description="Enable accessibility mode")
+    theme: str = Field(default="light", description="UI theme: light, dark, high_contrast")
 
 
 class UpdatePolicySchema(BaseModel):
-    """Update policy configuration."""
+    """Update policy configuration (spec shape)."""
     
+    channel: str = Field(default="stable", description="Update channel: stable, beta, pinned")
+    pinned_version: str | None = Field(default=None, description="Pinned version")
     auto_update: bool = Field(default=True, description="Enable auto-updates")
-    update_channel: str = Field(default="stable", description="Update channel")
-    rollout_percentage: int = Field(default=100, ge=0, le=100, description="Rollout percentage")
-    version_pinned: str | None = Field(default=None, description="Pinned version")
-    rollout_ring: str | None = Field(default=None, description="Named rollout ring")
 
 
 class LaneCreate(BaseModel):
@@ -348,8 +349,8 @@ class DeploymentProfileCreate(BaseModel):
     site_id: str | None = Field(default=None, description="Unique site identifier")
     enabled_flow_ids: list[str] = Field(default_factory=list, description="Enabled flow IDs")
     default_presentation_policy_id: str | None = None
-    network_mode: str = Field(default="online", description="Network mode: online, offline, or hybrid")
-    key_access_mode: str = Field(default="key_vault", description="Key access mode")
+    network_mode: str = Field(default="ONLINE", description="Network mode: ONLINE, OFFLINE, or HYBRID")
+    key_access_mode: str = Field(default="KEY_VAULT", description="Key access mode: KEY_VAULT, HSM, DEVICE_KEYSTORE")
     ux_config: UXConfigSchema | None = None
     update_policy: UpdatePolicySchema | None = None
     offline_cache_ttl_hours: int = Field(default=24, ge=1, description="Offline cache TTL")
@@ -409,15 +410,18 @@ class DeploymentProfileResponse(BaseModel):
 class FlowCreate(BaseModel):
     """Schema for creating a Flow."""
     
+    organization_id: str = Field(..., description="Organization UUID")
     name: str = Field(..., min_length=1, max_length=255, description="Flow name")
     description: str | None = None
     flow_type: str = Field(..., description="Flow type identifier")
     trust_profile_id: str | None = None
     credential_template_id: str | None = None
+    application_template_id: str | None = None
     presentation_policy_id: str | None = None
     deployment_profile_ids: list[str] = Field(default_factory=list)
-    approval_strategy: str = Field(default="auto", description="Approval strategy: auto, manual, rules_based, external")
+    approval_strategy: str = Field(default="AUTO", description="Approval strategy: AUTO, MANUAL, RULES_BASED, EXTERNAL")
     enabled: bool = Field(default=True)
+    status: str = Field(default="DRAFT", description="Flow status: DRAFT, ACTIVE, PAUSED, ARCHIVED")
     hooks: dict[str, list[dict[str, Any]]] = Field(default_factory=dict)
     metadata: dict[str, Any] = Field(default_factory=dict)
 
@@ -441,17 +445,20 @@ class FlowResponse(BaseModel):
     """Schema for Flow response."""
     
     id: str
+    organization_id: str
     name: str
     description: str | None
     flow_type: str
     trust_profile_id: str | None
     credential_template_id: str | None
+    application_template_id: str | None = None
     presentation_policy_id: str | None
     deployment_profile_ids: list[str]
     approval_strategy: str
     enabled: bool
+    status: str
     hooks: dict[str, list[dict[str, Any]]]
-    steps: list[str]  # Fixed protocol steps
+    steps: list[str]  # Fixed protocol steps (gateway extension)
     metadata: dict[str, Any]
     created_at: datetime
     updated_at: datetime

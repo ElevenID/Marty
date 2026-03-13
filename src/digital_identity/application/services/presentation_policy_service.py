@@ -52,7 +52,7 @@ class PresentationPolicyService:
         description: str | None = None,
         required_claims: list[dict[str, Any]] | None = None,
         accepted_credential_types: list[str] | None = None,
-        holder_binding: str = "session_nonce",
+        holder_binding: str | dict[str, Any] = "NONCE",
         trust_profile_id: str | None = None,
         freshness_requirements: dict[str, Any] | None = None,
         **kwargs: Any,
@@ -69,6 +69,15 @@ class PresentationPolicyService:
             for claim_data in required_claims:
                 claims.append(RequiredClaim(**claim_data))
         
+        # Resolve holder_binding (accept dict from schema or string)
+        if isinstance(holder_binding, dict):
+            binding_methods = holder_binding.get("binding_methods", [])
+            hb_value = binding_methods[0] if binding_methods else "NONE"
+            if not holder_binding.get("required", False):
+                hb_value = "NONE"
+        else:
+            hb_value = holder_binding
+        
         # Create entity
         policy = PresentationPolicy(
             name=name,
@@ -76,7 +85,7 @@ class PresentationPolicyService:
             description=description,
             required_claims=claims,
             accepted_credential_types=accepted_credential_types or [],
-            holder_binding=HolderBindingMethod(holder_binding),
+            holder_binding=HolderBindingMethod(hb_value),
             trust_profile_id=trust_profile_id,
             **kwargs,
         )

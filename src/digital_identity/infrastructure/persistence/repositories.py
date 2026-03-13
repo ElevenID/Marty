@@ -386,22 +386,19 @@ class CredentialTemplateRepository:
     def _serialize_validity_rules(self, rules: ValidityRules) -> dict[str, Any]:
         """Serialize validity rules to dict."""
         return {
-            "default_ttl_seconds": rules.default_ttl.total_seconds(),
-            "max_ttl_seconds": rules.max_ttl.total_seconds() if rules.max_ttl else None,
-            "min_ttl_seconds": rules.min_ttl.total_seconds(),
-            "allow_reissue": rules.allow_reissue,
-            "reissue_before_expiry_seconds": rules.reissue_before_expiry.total_seconds(),
+            "ttl_seconds": rules.ttl_seconds,
+            "renewable": rules.renewable,
+            "reissue_within_seconds": rules.reissue_within_seconds,
+            "not_before_offset_seconds": rules.not_before_offset_seconds,
         }
     
     def _deserialize_validity_rules(self, data: dict[str, Any]) -> ValidityRules:
         """Deserialize validity rules from dict."""
-        max_ttl = data.get("max_ttl_seconds")
         return ValidityRules(
-            default_ttl=timedelta(seconds=data.get("default_ttl_seconds", 31536000)),
-            max_ttl=timedelta(seconds=max_ttl) if max_ttl else None,
-            min_ttl=timedelta(seconds=data.get("min_ttl_seconds", 3600)),
-            allow_reissue=data.get("allow_reissue", True),
-            reissue_before_expiry=timedelta(seconds=data.get("reissue_before_expiry_seconds", 2592000)),
+            ttl_seconds=data.get("ttl_seconds", data.get("default_ttl_seconds", 31536000)),
+            renewable=data.get("renewable", data.get("allow_reissue", True)),
+            reissue_within_seconds=data.get("reissue_within_seconds"),
+            not_before_offset_seconds=data.get("not_before_offset_seconds", 0),
         )
 
 
@@ -544,18 +541,17 @@ class PresentationPolicyRepository:
     def _serialize_freshness(self, req: FreshnessRequirements) -> dict[str, Any]:
         """Serialize freshness requirements to dict."""
         return {
-            "max_credential_age_seconds": req.max_credential_age.total_seconds() if req.max_credential_age else None,
-            "max_proof_age_seconds": req.max_proof_age.total_seconds(),
-            "require_live_revocation_check": req.require_live_revocation_check,
+            "max_age_seconds": req.max_age_seconds,
+            "require_not_revoked": req.require_not_revoked,
+            "revocation_grace_seconds": req.revocation_grace_seconds,
         }
     
     def _deserialize_freshness(self, data: dict[str, Any]) -> FreshnessRequirements:
         """Deserialize freshness requirements from dict."""
-        max_age = data.get("max_credential_age_seconds")
         return FreshnessRequirements(
-            max_credential_age=timedelta(seconds=max_age) if max_age else None,
-            max_proof_age=timedelta(seconds=data.get("max_proof_age_seconds", 300)),
-            require_live_revocation_check=data.get("require_live_revocation_check", True),
+            max_age_seconds=data.get("max_age_seconds", data.get("max_credential_age_seconds")),
+            require_not_revoked=data.get("require_not_revoked", data.get("require_live_revocation_check", True)),
+            revocation_grace_seconds=data.get("revocation_grace_seconds"),
         )
 
 
@@ -688,37 +684,35 @@ class DeploymentProfileRepository:
         return {
             "language": config.language,
             "theme": config.theme,
-            "show_operator_mode": config.show_operator_mode,
-            "accessibility_enabled": config.accessibility_enabled,
-            "custom_branding": config.custom_branding,
+            "operator_mode": config.operator_mode,
+            "accessibility_mode": config.accessibility_mode,
+            "signage_text": config.signage_text,
         }
     
     def _deserialize_ux_config(self, data: dict[str, Any]) -> UXConfig:
         """Deserialize UX config from dict."""
         return UXConfig(
-            language=data.get("language", "en"),
-            theme=data.get("theme", "default"),
-            show_operator_mode=data.get("show_operator_mode", False),
-            accessibility_enabled=data.get("accessibility_enabled", True),
-            custom_branding=data.get("custom_branding", {}),
+            language=data.get("language", "en-US"),
+            theme=data.get("theme", "light"),
+            operator_mode=data.get("operator_mode", data.get("show_operator_mode", False)),
+            accessibility_mode=data.get("accessibility_mode", data.get("accessibility_enabled", False)),
+            signage_text=data.get("signage_text"),
         )
     
     def _serialize_update_policy(self, policy: UpdatePolicy) -> dict[str, Any]:
         """Serialize update policy to dict."""
         return {
             "auto_update": policy.auto_update,
-            "update_channel": policy.update_channel,
-            "rollout_percentage": policy.rollout_percentage,
-            "version_pinned": policy.version_pinned,
+            "channel": policy.update_channel,
+            "pinned_version": policy.version_pinned,
         }
     
     def _deserialize_update_policy(self, data: dict[str, Any]) -> UpdatePolicy:
         """Deserialize update policy from dict."""
         return UpdatePolicy(
             auto_update=data.get("auto_update", True),
-            update_channel=data.get("update_channel", "stable"),
-            rollout_percentage=data.get("rollout_percentage", 100),
-            version_pinned=data.get("version_pinned"),
+            update_channel=data.get("channel", data.get("update_channel", "stable")),
+            version_pinned=data.get("pinned_version", data.get("version_pinned")),
         )
 
 
@@ -746,6 +740,8 @@ class FlowRepository:
             existing.deployment_profile_ids = entity.deployment_profile_ids
             existing.approval_strategy = entity.approval_strategy.value
             existing.enabled = entity.enabled
+            existing.status = entity.status
+            existing.organization_id = entity.organization_id
             existing.hooks = entity.hooks
             existing.metadata_ = entity.metadata
             existing.updated_at = entity.updated_at
@@ -762,6 +758,8 @@ class FlowRepository:
                 deployment_profile_ids=entity.deployment_profile_ids,
                 approval_strategy=entity.approval_strategy.value,
                 enabled=entity.enabled,
+                status=entity.status,
+                organization_id=entity.organization_id,
                 hooks=entity.hooks,
                 metadata_=entity.metadata,
                 created_at=entity.created_at,
@@ -833,6 +831,8 @@ class FlowRepository:
             deployment_profile_ids=model.deployment_profile_ids,
             approval_strategy=ApprovalStrategy(model.approval_strategy),
             enabled=model.enabled,
+            status=getattr(model, 'status', 'DRAFT'),
+            organization_id=getattr(model, 'organization_id', ''),
             hooks=model.hooks,
             metadata=model.metadata_,
             created_at=model.created_at,
@@ -857,6 +857,8 @@ class FlowExecutionRepository:
         
         if existing:
             existing.flow_id = entity.flow_id
+            existing.flow_type = entity.flow_type
+            existing.organization_id = entity.organization_id
             existing.status = entity.status.value
             existing.current_step = entity.current_step
             existing.current_step_index = entity.current_step_index
@@ -865,7 +867,8 @@ class FlowExecutionRepository:
             existing.issued_credential_id = entity.issued_credential_id
             existing.started_at = entity.started_at
             existing.completed_at = entity.completed_at
-            existing.error = entity.error_code
+            existing.expires_at = entity.expires_at
+            existing.error_code = entity.error_code
             existing.metadata_ = entity.metadata
             existing.updated_at = entity.updated_at
             existing.version = entity.version
@@ -873,6 +876,8 @@ class FlowExecutionRepository:
             model = FlowExecutionModel(
                 id=entity.id,
                 flow_id=entity.flow_id,
+                flow_type=entity.flow_type,
+                organization_id=entity.organization_id,
                 status=entity.status.value,
                 current_step=entity.current_step,
                 current_step_index=entity.current_step_index,
@@ -881,7 +886,8 @@ class FlowExecutionRepository:
                 issued_credential_id=entity.issued_credential_id,
                 started_at=entity.started_at,
                 completed_at=entity.completed_at,
-                error=entity.error_code,
+                expires_at=entity.expires_at,
+                error_code=entity.error_code,
                 metadata_=entity.metadata,
                 created_at=entity.created_at,
                 updated_at=entity.updated_at,
@@ -942,6 +948,8 @@ class FlowExecutionRepository:
         return FlowExecution(
             id=model.id,
             flow_id=model.flow_id,
+            flow_type=getattr(model, 'flow_type', ''),
+            organization_id=getattr(model, 'organization_id', ''),
             status=FlowStatus(model.status),
             current_step=model.current_step,
             current_step_index=model.current_step_index,
@@ -950,7 +958,8 @@ class FlowExecutionRepository:
             issued_credential_id=model.issued_credential_id,
             started_at=model.started_at,
             completed_at=model.completed_at,
-            error_code=model.error,
+            expires_at=getattr(model, 'expires_at', None),
+            error_code=getattr(model, 'error_code', None),
             metadata=model.metadata_,
             created_at=model.created_at,
             updated_at=model.updated_at,
@@ -1230,6 +1239,7 @@ class IssuedCredentialRepository:
             existing.flow_execution_id = entity.flow_execution_id
             existing.credential_template_id = entity.credential_template_id
             existing.application_id = entity.application_id
+            existing.revocation_profile_id = entity.revocation_profile_id
             existing.subject_id = entity.subject_id
             existing.subject_claims_hash = entity.subject_claims_hash
             existing.issued_at = entity.issued_at
@@ -1253,6 +1263,7 @@ class IssuedCredentialRepository:
                 flow_execution_id=entity.flow_execution_id,
                 credential_template_id=entity.credential_template_id,
                 application_id=entity.application_id,
+                revocation_profile_id=entity.revocation_profile_id,
                 subject_id=entity.subject_id,
                 subject_claims_hash=entity.subject_claims_hash,
                 issued_at=entity.issued_at,
@@ -1342,6 +1353,7 @@ class IssuedCredentialRepository:
             flow_execution_id=model.flow_execution_id,
             credential_template_id=model.credential_template_id,
             application_id=model.application_id,
+            revocation_profile_id=getattr(model, 'revocation_profile_id', None),
             subject_id=model.subject_id,
             subject_claims_hash=model.subject_claims_hash,
             issued_at=model.issued_at,
@@ -1381,12 +1393,14 @@ class RevocationBatchRepository:
         if existing:
             existing.organization_id = entity.organization_id
             existing.credential_template_id = entity.credential_template_id
-            existing.credential_count = entity.credential_count
-            existing.credential_ids = entity.credential_ids
+            existing.credential_format = entity.credential_format
+            existing.batch_interval = entity.batch_interval
+            existing.pending_credential_ids = entity.pending_credential_ids
+            existing.published_credential_count = entity.published_credential_count
+            existing.status_list_uri = entity.status_list_uri
             existing.status = entity.status
-            existing.scheduled_for = entity.scheduled_for
-            existing.completed_at = entity.completed_at
-            existing.revocation_interval = entity.revocation_interval
+            existing.scheduled_publish_at = entity.scheduled_publish_at
+            existing.published_at = entity.published_at
             existing.error_message = entity.error_message
             existing.updated_at = entity.updated_at
             existing.version = entity.version
@@ -1395,12 +1409,14 @@ class RevocationBatchRepository:
                 id=entity.id,
                 organization_id=entity.organization_id,
                 credential_template_id=entity.credential_template_id,
-                credential_count=entity.credential_count,
-                credential_ids=entity.credential_ids,
+                credential_format=entity.credential_format,
+                batch_interval=entity.batch_interval,
+                pending_credential_ids=entity.pending_credential_ids,
+                published_credential_count=entity.published_credential_count,
+                status_list_uri=entity.status_list_uri,
                 status=entity.status,
-                scheduled_for=entity.scheduled_for,
-                completed_at=entity.completed_at,
-                revocation_interval=entity.revocation_interval,
+                scheduled_publish_at=entity.scheduled_publish_at,
+                published_at=entity.published_at,
                 error_message=entity.error_message,
                 created_at=entity.created_at,
                 updated_at=entity.updated_at,
@@ -1441,10 +1457,10 @@ class RevocationBatchRepository:
         from ..persistence.models import RevocationBatchModel
         
         stmt = select(RevocationBatchModel).where(
-            RevocationBatchModel.status == "queued"
+            RevocationBatchModel.status == "PENDING"
         )
         if scheduled_before:
-            stmt = stmt.where(RevocationBatchModel.scheduled_for <= scheduled_before)
+            stmt = stmt.where(RevocationBatchModel.scheduled_publish_at <= scheduled_before)
         
         result = await self._session.execute(stmt)
         return [self._to_entity(m) for m in result.scalars().all()]
@@ -1490,12 +1506,14 @@ class RevocationBatchRepository:
             id=model.id,
             organization_id=model.organization_id,
             credential_template_id=model.credential_template_id,
-            credential_count=model.credential_count,
-            credential_ids=model.credential_ids,
+            credential_format=getattr(model, 'credential_format', ''),
+            batch_interval=getattr(model, 'batch_interval', '6h'),
+            pending_credential_ids=getattr(model, 'pending_credential_ids', []),
+            published_credential_count=getattr(model, 'published_credential_count', 0),
+            status_list_uri=getattr(model, 'status_list_uri', None),
             status=model.status,
-            scheduled_for=model.scheduled_for,
-            completed_at=model.completed_at,
-            revocation_interval=model.revocation_interval,
+            scheduled_publish_at=getattr(model, 'scheduled_publish_at', None),
+            published_at=getattr(model, 'published_at', None),
             error_message=model.error_message,
             created_at=model.created_at,
             updated_at=model.updated_at,

@@ -61,6 +61,7 @@ class CredentialTemplateService:
         description: str | None = None,
         claims: list[dict[str, Any]] | None = None,
         format: str = "SD_JWT_VC",
+        credential_payload_format: str | None = None,
         namespace: str | None = None,
         validity_rules: dict[str, Any] | None = None,
         **kwargs: Any,
@@ -77,13 +78,16 @@ class CredentialTemplateService:
             for claim_data in claims:
                 claim_defs.append(ClaimDefinition(**claim_data))
         
+        # Use credential_payload_format if provided, otherwise fall back to format
+        effective_format = credential_payload_format or format
+        
         # Create entity
         template = CredentialTemplate(
             name=name,
             credential_type=credential_type,
             description=description,
             claims=claim_defs,
-            format=CredentialFormat(format),
+            format=CredentialFormat(effective_format),
             namespace=namespace,
             **kwargs,
         )
@@ -243,7 +247,7 @@ class CredentialTemplateService:
             raise ValueError(f"Credential Template '{template_id}' not found")
         
         # Check if already published
-        if template.status == "PUBLISHED":
+        if template.status == "ACTIVE":
             logger.info(f"Template {template_id} is already published")
             return template
         
@@ -257,7 +261,7 @@ class CredentialTemplateService:
                 raise ValueError(error_msg)
         
         # Update status
-        template.status = "PUBLISHED"
+        template.status = "ACTIVE"
         template.touch()
         saved = await self._repository.save(template)
         
