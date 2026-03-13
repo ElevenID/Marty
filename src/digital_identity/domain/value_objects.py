@@ -456,8 +456,25 @@ class FlowType(str, Enum):
     CREDENTIAL_RENEWAL = "credential_renewal"
     CREDENTIAL_REVOCATION = "credential_revocation"
     
+    # Combined flows
+    COMBINED = "combined"
+    
     def __str__(self) -> str:
         return self.value
+
+
+# Flow category derivation (spec flow_category is read-only, derived from flow_type)
+FLOW_CATEGORY: Final[dict[str, str]] = {
+    "oid4vci_pre_authorized": "ISSUANCE",
+    "oid4vci_authorization_code": "ISSUANCE",
+    "mdl_issuance": "ISSUANCE",
+    "application_approval_issuance": "ISSUANCE",
+    "oid4vp_presentation": "VERIFICATION",
+    "mdl_presentation": "VERIFICATION",
+    "credential_renewal": "RENEWAL",
+    "credential_revocation": "REVOCATION",
+    "combined": "COMBINED",
+}
 
 
 class FlowStatus(str, Enum):
@@ -563,6 +580,14 @@ FLOW_STEPS: Final[dict[FlowType, list[FlowStep]]] = {
         FlowStep("validate_revocation_request", "Validate Revocation Request"),
         FlowStep("update_status_list", "Update Status List"),
         FlowStep("notify_holder", "Notify Holder"),
+    ],
+    FlowType.COMBINED: [
+        FlowStep("accept_application", "Accept Application"),
+        FlowStep("approval_decision", "Approval Decision", extensible=True),
+        FlowStep("issue_credential", "Issue Credential"),
+        FlowStep("create_request", "Create Presentation Request"),
+        FlowStep("presentation_submission", "Presentation Submission"),
+        FlowStep("verify_presentation", "Verify Presentation"),
     ],
 }
 

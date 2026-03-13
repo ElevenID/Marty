@@ -1328,6 +1328,8 @@ def _flow_to_response(flow) -> FlowResponse:
         enabled=flow.enabled,
         status=getattr(flow, 'status', 'DRAFT'),
         hooks=flow.hooks,
+        trigger=getattr(flow, 'trigger', None),
+        flow_category=flow.flow_category,
         steps=steps,  # Include fixed protocol steps
         metadata=flow.metadata,
         created_at=flow.created_at,

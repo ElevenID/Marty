@@ -736,6 +736,7 @@ class FlowRepository:
             existing.flow_type = entity.flow_type.value
             existing.trust_profile_id = entity.trust_profile_id
             existing.credential_template_id = entity.credential_template_id
+            existing.application_template_id = getattr(entity, 'application_template_id', None)
             existing.presentation_policy_id = entity.presentation_policy_id
             existing.deployment_profile_ids = entity.deployment_profile_ids
             existing.approval_strategy = entity.approval_strategy.value
@@ -743,6 +744,7 @@ class FlowRepository:
             existing.status = entity.status
             existing.organization_id = entity.organization_id
             existing.hooks = entity.hooks
+            existing.trigger = entity.trigger
             existing.metadata_ = entity.metadata
             existing.updated_at = entity.updated_at
             existing.version = entity.version
@@ -754,6 +756,7 @@ class FlowRepository:
                 flow_type=entity.flow_type.value,
                 trust_profile_id=entity.trust_profile_id,
                 credential_template_id=entity.credential_template_id,
+                application_template_id=getattr(entity, 'application_template_id', None),
                 presentation_policy_id=entity.presentation_policy_id,
                 deployment_profile_ids=entity.deployment_profile_ids,
                 approval_strategy=entity.approval_strategy.value,
@@ -761,6 +764,7 @@ class FlowRepository:
                 status=entity.status,
                 organization_id=entity.organization_id,
                 hooks=entity.hooks,
+                trigger=entity.trigger,
                 metadata_=entity.metadata,
                 created_at=entity.created_at,
                 updated_at=entity.updated_at,
@@ -827,6 +831,7 @@ class FlowRepository:
             flow_type=FlowType(model.flow_type),
             trust_profile_id=model.trust_profile_id,
             credential_template_id=model.credential_template_id,
+            application_template_id=getattr(model, 'application_template_id', None),
             presentation_policy_id=model.presentation_policy_id,
             deployment_profile_ids=model.deployment_profile_ids,
             approval_strategy=ApprovalStrategy(model.approval_strategy),
@@ -834,6 +839,7 @@ class FlowRepository:
             status=getattr(model, 'status', 'DRAFT'),
             organization_id=getattr(model, 'organization_id', ''),
             hooks=model.hooks,
+            trigger=getattr(model, 'trigger', None),
             metadata=model.metadata_,
             created_at=model.created_at,
             updated_at=model.updated_at,

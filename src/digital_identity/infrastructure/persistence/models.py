@@ -557,6 +557,9 @@ class FlowModel(Base):
     # Extensibility
     hooks: Mapped[dict[str, list[dict[str, Any]]]] = mapped_column(JSON, default=dict)
     
+    # Trigger configuration
+    trigger: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True, default=None)
+    
     # Metadata
     metadata_: Mapped[dict[str, Any]] = mapped_column("metadata", JSON, default=dict)
     

@@ -1285,8 +1285,18 @@ class Flow(Entity):
     # Extensibility
     hooks: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
     
+    # Trigger configuration (spec: how the flow is initiated)
+    trigger: dict[str, Any] | None = None
+    
     # Extension point
     metadata: dict[str, Any] = field(default_factory=dict)
+    
+    @property
+    def flow_category(self) -> str:
+        """Derived flow category (read-only, per spec)."""
+        from digital_identity.domain.value_objects import FLOW_CATEGORY
+        ft = self.flow_type.value if hasattr(self.flow_type, 'value') else str(self.flow_type)
+        return FLOW_CATEGORY.get(ft, "ISSUANCE")
     
     def validate(self) -> None:
         """
@@ -1321,6 +1331,15 @@ class Flow(Entity):
             FlowType.OID4VP_PRESENTATION,
             FlowType.MDL_PRESENTATION,
         ):
+            if not self.presentation_policy_id:
+                raise ValueError(
+                    f"Flow type {self.flow_type} requires presentation_policy_id"
+                )
+        elif self.flow_type == FlowType.COMBINED:
+            if not self.credential_template_id and not self.application_template_id:
+                raise ValueError(
+                    f"Flow type {self.flow_type} requires credential_template_id or application_template_id"
+                )
             if not self.presentation_policy_id:
                 raise ValueError(
                     f"Flow type {self.flow_type} requires presentation_policy_id"

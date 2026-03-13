@@ -423,6 +423,7 @@ class FlowCreate(BaseModel):
     enabled: bool = Field(default=True)
     status: str = Field(default="DRAFT", description="Flow status: DRAFT, ACTIVE, PAUSED, ARCHIVED")
     hooks: dict[str, list[dict[str, Any]]] = Field(default_factory=dict)
+    trigger: dict[str, Any] | None = Field(default=None, description="Trigger config: {trigger_type, config}")
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -458,6 +459,8 @@ class FlowResponse(BaseModel):
     enabled: bool
     status: str
     hooks: dict[str, list[dict[str, Any]]]
+    trigger: dict[str, Any] | None = None
+    flow_category: str  # Derived from flow_type (read-only)
     steps: list[str]  # Fixed protocol steps (gateway extension)
     metadata: dict[str, Any]
     created_at: datetime
