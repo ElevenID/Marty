@@ -211,7 +211,7 @@ class TrustProfileResolver:
         else:
             # Build from framework defaults
             revocation_policy = RevocationPolicy(
-                mode=RevocationCheckMode(fw_revocation.get("mode", "hard_fail")),
+                mode=RevocationCheckMode(fw_revocation.get("check_mode") or fw_revocation.get("mode", "HARD_FAIL")),
                 check_ocsp=fw_revocation.get("check_ocsp", True),
                 check_crl=fw_revocation.get("check_crl", True),
                 check_status_list=fw_revocation.get("check_status_list", True),
@@ -240,8 +240,11 @@ class TrustProfileResolver:
         # Extract framework type from code or default to CUSTOM
         framework_type_map = {
             "icao": TrustProfileType.ICAO,
+            "ICAO": TrustProfileType.ICAO,
             "aamva": TrustProfileType.AAMVA,
+            "AAMVA": TrustProfileType.AAMVA,
             "eudi": TrustProfileType.EUDI,
+            "EUDI": TrustProfileType.EUDI,
         }
         framework_type = framework_type_map.get(framework.code.lower(), TrustProfileType.CUSTOM)
         

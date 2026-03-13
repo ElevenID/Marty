@@ -599,7 +599,7 @@ class FlowService:
         if flow:
             # Move past the approval step
             execution.current_step_index += 1
-            execution.status = FlowStatus.RUNNING
+            execution.status = FlowStatus.IN_PROGRESS
             await self._execute_steps(flow, execution)
         
         return execution
@@ -645,7 +645,7 @@ class FlowService:
         if not execution:
             return None
         
-        if execution.status in (FlowStatus.COMPLETED, FlowStatus.FAILED, FlowStatus.CANCELLED):
+        if execution.status in (FlowStatus.COMPLETED, FlowStatus.FAILED, FlowStatus.CANCELLED, FlowStatus.EXPIRED):
             raise ValueError(f"Execution {execution_id} cannot be cancelled (status: {execution.status})")
         
         execution.cancel()

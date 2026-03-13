@@ -60,7 +60,7 @@ class CredentialTemplateService:
         credential_type: str,
         description: str | None = None,
         claims: list[dict[str, Any]] | None = None,
-        format: str = "sd_jwt_vc",
+        format: str = "SD_JWT_VC",
         namespace: str | None = None,
         validity_rules: dict[str, Any] | None = None,
         **kwargs: Any,

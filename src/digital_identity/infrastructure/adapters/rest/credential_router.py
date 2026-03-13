@@ -17,7 +17,7 @@ from digital_identity.application.services.credential_issuance_service import (
 )
 from digital_identity.domain.entities import IssuedCredential
 from digital_identity.infrastructure.persistence.repositories import (
-    CredentialRepository,
+    IssuedCredentialRepository,
 )
 
 
@@ -122,12 +122,12 @@ class CredentialMetadata(BaseModel):
 
 # Global service instances (initialized in plugin)
 _credential_issuance_service: CredentialIssuanceService | None = None
-_credential_repository: CredentialRepository | None = None
+_credential_repository: IssuedCredentialRepository | None = None
 
 
 def set_credential_services(
     issuance_service: CredentialIssuanceService,
-    credential_repository: CredentialRepository,
+    credential_repository: IssuedCredentialRepository,
 ) -> None:
     """Set credential service instances (called from plugin initialization)."""
     global _credential_issuance_service, _credential_repository
@@ -142,7 +142,7 @@ async def get_credential_issuance_service() -> CredentialIssuanceService:
     return _credential_issuance_service
 
 
-async def get_credential_repository() -> CredentialRepository:
+async def get_credential_repository() -> IssuedCredentialRepository:
     """Get credential repository instance."""
     if _credential_repository is None:
         raise RuntimeError("Credential repository not initialized. Call set_credential_services() in plugin.")
@@ -270,7 +270,7 @@ async def verify_credential(
 async def get_credential_metadata(
     credential_id: str,
     organization_id: Annotated[str, Depends(get_organization_id)],
-    credential_repo: Annotated[CredentialRepository, Depends(get_credential_repository)],
+    credential_repo: Annotated[IssuedCredentialRepository, Depends(get_credential_repository)],
 ) -> CredentialMetadata:
     """Get credential metadata by ID."""
     try:
@@ -417,7 +417,7 @@ async def batch_revoke_credentials(
 )
 async def list_credentials(
     organization_id: Annotated[str, Depends(get_organization_id)],
-    credential_repo: Annotated[CredentialRepository, Depends(get_credential_repository)],
+    credential_repo: Annotated[IssuedCredentialRepository, Depends(get_credential_repository)],
     flow_id: Annotated[str | None, Query()] = None,
     credential_template_id: Annotated[str | None, Query()] = None,
     status_filter: Annotated[str | None, Query(alias="status")] = None,

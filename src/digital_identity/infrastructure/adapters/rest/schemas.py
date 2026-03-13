@@ -19,37 +19,40 @@ from pydantic import BaseModel, Field
 class RevocationPolicySchema(BaseModel):
     """Revocation policy configuration."""
     
-    mode: str = Field(default="hard_fail", description="Revocation check mode: hard_fail, soft_fail, or disabled")
+    check_mode: str = Field(default="HARD_FAIL", description="Revocation check mode: HARD_FAIL, SOFT_FAIL, or SKIP")
     check_ocsp: bool = Field(default=True, description="Check OCSP responders")
     check_crl: bool = Field(default=True, description="Check CRL distribution points")
     check_status_list: bool = Field(default=True, description="Check status lists")
-    offline_grace_period_hours: int = Field(default=24, description="Grace period when offline")
-    cache_ttl_hours: int = Field(default=1, description="Cache TTL for revocation responses")
+    offline_grace_period_seconds: int = Field(default=86400, description="Grace period when offline (seconds)")
+    cache_ttl_seconds: int = Field(default=3600, description="Cache TTL for revocation responses (seconds)")
 
 
 class TimePolicySchema(BaseModel):
     """Time validation policy configuration."""
     
-    clock_skew_tolerance_seconds: int = Field(default=300, description="Allowed clock skew in seconds")
-    max_credential_age_days: int | None = Field(default=None, description="Maximum age of credential in days")
-    require_not_before: bool = Field(default=True, description="Enforce notBefore validation")
-    require_not_after: bool = Field(default=True, description="Enforce notAfter validation")
+    clock_skew_seconds: int = Field(default=300, description="Allowed clock skew in seconds")
+    max_credential_age_seconds: int | None = Field(default=None, description="Maximum age of credential in seconds")
+    require_freshness: bool = Field(default=False, description="Require freshness_window_seconds to be met")
+    freshness_window_seconds: int | None = Field(default=None, description="Max seconds since credential was last refreshed (if require_freshness)")
 
 
 class TrustProfileCreate(BaseModel):
     """Schema for creating a Trust Profile."""
     
+    organization_id: str = Field(..., description="Organization UUID this profile belongs to")
     name: str = Field(..., min_length=1, max_length=255, description="Unique name for the trust profile")
     description: str | None = Field(default=None, description="Human-readable description")
-    profile_type: str = Field(..., description="Profile type: icao, aamva, eudi, or custom")
+    profile_type: str = Field(..., description="Profile type: ICAO, AAMVA, EUDI, or CUSTOM")
     trust_sources: list[dict[str, Any]] = Field(default_factory=list, description="Trust anchor sources")
     allowed_algorithms: list[str] = Field(default_factory=list, description="Allowed cryptographic algorithms")
-    allowed_formats: list[str] = Field(default_factory=list, description="Allowed credential formats")
+    supported_formats: list[str] = Field(default_factory=list, description="Allowed credential formats")
     revocation_policy: RevocationPolicySchema | None = None
     time_policy: TimePolicySchema | None = None
+    revocation_profile_id: str | None = Field(default=None, description="Optional RevocationProfile UUID")
     allowed_issuers: list[str] | None = Field(default=None, description="Allowlist of issuer identifiers")
     denied_issuers: list[str] | None = Field(default=None, description="Denylist of issuer identifiers")
     enabled: bool = Field(default=True, description="Whether the profile is active")
+    auto_generated: bool = Field(default=False, description="Created by onboarding wizard vs manual")
     metadata: dict[str, Any] = Field(default_factory=dict, description="Additional metadata")
 
 
@@ -60,9 +63,10 @@ class TrustProfileUpdate(BaseModel):
     description: str | None = None
     trust_sources: list[dict[str, Any]] | None = None
     allowed_algorithms: list[str] | None = None
-    allowed_formats: list[str] | None = None
+    supported_formats: list[str] | None = None
     revocation_policy: RevocationPolicySchema | None = None
     time_policy: TimePolicySchema | None = None
+    revocation_profile_id: str | None = None
     allowed_issuers: list[str] | None = None
     denied_issuers: list[str] | None = None
     enabled: bool | None = None
@@ -73,17 +77,21 @@ class TrustProfileResponse(BaseModel):
     """Schema for Trust Profile response."""
     
     id: str
+    organization_id: str
     name: str
     description: str | None
     profile_type: str
     enabled: bool
     trust_sources: list[dict[str, Any]]
     allowed_algorithms: list[str]
-    allowed_formats: list[str]
+    supported_formats: list[str]
     revocation_policy: dict[str, Any]
     time_policy: dict[str, Any]
+    revocation_profile_id: str | None
     allowed_issuers: list[str] | None
     denied_issuers: list[str] | None
+    compliance_status: str
+    auto_generated: bool
     metadata: dict[str, Any]
     created_at: datetime
     updated_at: datetime
@@ -334,6 +342,7 @@ class LaneResponse(BaseModel):
 class DeploymentProfileCreate(BaseModel):
     """Schema for creating a Deployment Profile."""
     
+    organization_id: str = Field(..., description="Organization UUID this profile belongs to")
     name: str = Field(..., min_length=1, max_length=255, description="Profile name")
     description: str | None = None
     site_id: str | None = Field(default=None, description="Unique site identifier")
@@ -371,6 +380,7 @@ class DeploymentProfileResponse(BaseModel):
     """Schema for Deployment Profile response."""
     
     id: str
+    organization_id: str
     name: str
     description: str | None
     site_id: str | None
@@ -473,14 +483,18 @@ class FlowExecutionResponse(BaseModel):
     
     id: str
     flow_id: str
+    flow_type: str
+    organization_id: str
     status: str
     current_step: str | None
     current_step_index: int
     step_results: dict[str, Any]
     context_data: dict[str, Any]
+    issued_credential_id: str | None
     started_at: datetime | None
     completed_at: datetime | None
-    error: str | None
+    expires_at: datetime | None
+    error_code: str | None
     metadata: dict[str, Any]
     created_at: datetime
     updated_at: datetime

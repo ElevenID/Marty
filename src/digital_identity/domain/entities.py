@@ -232,7 +232,7 @@ class TrustProfile(Entity):
     enabled: bool = True
     trust_sources: list[dict[str, Any]] = field(default_factory=list)
     allowed_algorithms: list[CryptoAlgorithm] = field(default_factory=list)
-    allowed_formats: list[CredentialFormat] = field(default_factory=list)
+    supported_formats: list[CredentialFormat] = field(default_factory=list)
     revocation_policy: RevocationPolicy = field(default_factory=RevocationPolicy)
     time_policy: TimePolicy = field(default_factory=TimePolicy)
     
@@ -1379,7 +1379,8 @@ class FlowExecution(Entity):
     """
     
     flow_id: str = ""
-    status: FlowStatus = FlowStatus.CREATED
+    organization_id: str = ""  # Copied from Flow at instantiation time
+    status: FlowStatus = FlowStatus.PENDING
     current_step: str | None = None
     current_step_index: int = 0
     step_results: dict[str, Any] = field(default_factory=dict)
@@ -1387,12 +1388,13 @@ class FlowExecution(Entity):
     issued_credential_id: str | None = None  # ID of credential issued by this execution
     started_at: datetime | None = None
     completed_at: datetime | None = None
-    error: str | None = None
+    expires_at: datetime | None = None        # Hard expiry deadline
+    error_code: str | None = None             # Terminal error code when status is FAILED
     metadata: dict[str, Any] = field(default_factory=dict)
     
     def start(self) -> None:
         """Mark execution as started."""
-        self.status = FlowStatus.RUNNING
+        self.status = FlowStatus.IN_PROGRESS
         self.started_at = datetime.now(timezone.utc)
         self.touch()
     
@@ -1411,15 +1413,15 @@ class FlowExecution(Entity):
         self.touch()
     
     def approve(self) -> None:
-        """Mark as approved."""
-        self.status = FlowStatus.APPROVED
+        """Resume execution after approval (transitions AWAITING_APPROVAL → IN_PROGRESS)."""
+        self.status = FlowStatus.IN_PROGRESS
         self.touch()
     
     def reject(self, reason: str | None = None) -> None:
-        """Mark as rejected."""
-        self.status = FlowStatus.REJECTED
+        """Cancel execution on rejection (transitions AWAITING_APPROVAL → CANCELLED)."""
+        self.status = FlowStatus.CANCELLED
         if reason:
-            self.error = reason
+            self.error_code = reason
         self.touch()
     
     def complete(self) -> None:
@@ -1428,10 +1430,10 @@ class FlowExecution(Entity):
         self.completed_at = datetime.now(timezone.utc)
         self.touch()
     
-    def fail(self, error: str) -> None:
+    def fail(self, error_code: str) -> None:
         """Mark execution as failed."""
         self.status = FlowStatus.FAILED
-        self.error = error
+        self.error_code = error_code
         self.completed_at = datetime.now(timezone.utc)
         self.touch()
     

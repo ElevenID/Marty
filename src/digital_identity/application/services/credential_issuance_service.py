@@ -272,7 +272,7 @@ class CredentialIssuanceService:
         else:
             # Fallback to defaults if template not found
             credential_type = "VerifiableCredential"
-            credential_format = "jwt_vc"
+            credential_format = "VC_JWT"
             validity_days = 365
             logger.warning(
                 f"Template {credential_template_id} not found, using defaults: "

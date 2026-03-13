@@ -21,24 +21,24 @@ class TrustProfileType(str, Enum):
     """
     Type of trust profile, determining the trust source and validation rules.
     
-    Aligns with UI TrustProfileType enum for consistency.
+    Values match the spec enum (SCREAMING_SNAKE_CASE).
     """
     
-    ICAO = "icao"          # ICAO PKD (CSCA/DSC) for ePassports/eMRTD
-    AAMVA = "aamva"        # AAMVA IACA for mDL (ISO 18013-5)
-    EUDI = "eudi"          # EU Digital Identity Wallet ecosystem
-    CUSTOM = "custom"      # Custom X.509/pinned keys
+    ICAO = "ICAO"          # ICAO PKD (CSCA/DSC) for ePassports/eMRTD
+    AAMVA = "AAMVA"        # AAMVA IACA for mDL (ISO 18013-5)
+    EUDI = "EUDI"          # EU Digital Identity Wallet ecosystem
+    CUSTOM = "CUSTOM"      # Custom X.509/pinned keys
     
     def __str__(self) -> str:
         return self.value
 
 
 class RevocationCheckMode(str, Enum):
-    """How revocation checking should be performed."""
+    """How revocation checking should be performed. Values match the spec."""
     
-    HARD_FAIL = "hard_fail"      # Fail if revocation check fails
-    SOFT_FAIL = "soft_fail"      # Allow if revocation check unavailable
-    SKIP = "skip"                # Do not check revocation
+    HARD_FAIL = "HARD_FAIL"      # Fail if revocation check fails
+    SOFT_FAIL = "SOFT_FAIL"      # Allow if revocation check unavailable
+    SKIP = "SKIP"                # Do not check revocation
     
     def __str__(self) -> str:
         return self.value
@@ -63,24 +63,24 @@ class CryptoAlgorithm(str, Enum):
 
 
 class CredentialFormat(str, Enum):
-    """Supported credential formats."""
+    """Supported credential formats. Values match the spec enum."""
     
-    MDOC = "mdoc"              # ISO 18013-5 mDoc
-    SD_JWT_VC = "sd_jwt_vc"    # SD-JWT Verifiable Credential
-    JWT_VC = "jwt_vc"          # JWT Verifiable Credential
-    LDP_VC = "ldp_vc"          # JSON-LD Verifiable Credential
+    MDOC = "MDOC"              # ISO 18013-5 mDoc
+    SD_JWT_VC = "SD_JWT_VC"    # SD-JWT Verifiable Credential
+    JWT_VC = "VC_JWT"          # JWT Verifiable Credential (spec: VC_JWT)
+    LDP_VC = "JSON_LD"         # JSON-LD Verifiable Credential (spec: JSON_LD)
     
     def __str__(self) -> str:
         return self.value
 
 
 class CredentialStatus(str, Enum):
-    """Status of an issued credential."""
+    """Status of an issued credential. Values match the spec enum."""
     
-    ACTIVE = "active"          # Credential is valid and active
-    SUSPENDED = "suspended"    # Temporarily suspended
-    REVOKED = "revoked"        # Permanently revoked
-    EXPIRED = "expired"        # Validity period has passed
+    ACTIVE = "ACTIVE"          # Credential is valid and active
+    SUSPENDED = "SUSPENDED"    # Temporarily suspended
+    REVOKED = "REVOKED"        # Permanently revoked
+    EXPIRED = "EXPIRED"        # Validity period has passed
     
     def __str__(self) -> str:
         return self.value
@@ -435,6 +435,7 @@ class FlowType(str, Enum):
     Type of identity flow (fixed protocol sequences).
     
     Each flow type has a predefined sequence of steps.
+    Values match the spec flow-types.json enum.
     """
     
     # Issuance flows
@@ -449,21 +450,31 @@ class FlowType(str, Enum):
     # Application flows
     APPLICATION_APPROVAL_ISSUANCE = "application_approval_issuance"
     
+    # Lifecycle flows
+    CREDENTIAL_RENEWAL = "credential_renewal"
+    CREDENTIAL_REVOCATION = "credential_revocation"
+    
     def __str__(self) -> str:
         return self.value
 
 
 class FlowStatus(str, Enum):
-    """Status of a flow execution."""
+    """
+    Lifecycle status of a FlowExecution.
     
-    CREATED = "created"
-    RUNNING = "running"
-    AWAITING_APPROVAL = "awaiting_approval"
-    APPROVED = "approved"
-    REJECTED = "rejected"
-    COMPLETED = "completed"
-    FAILED = "failed"
-    CANCELLED = "cancelled"
+    Aligned with spec §9.9.2 state machine and flow-statuses.json.
+    Terminal states: COMPLETED, FAILED, EXPIRED, CANCELLED.
+    """
+    
+    PENDING = "PENDING"                       # Instance created; not yet started
+    IN_PROGRESS = "IN_PROGRESS"               # Active execution; a step is running
+    AWAITING_APPROVAL = "AWAITING_APPROVAL"   # Paused pending manual reviewer decision
+    AWAITING_WALLET = "AWAITING_WALLET"       # Paused pending holder action
+    AWAITING_EVIDENCE = "AWAITING_EVIDENCE"   # Paused pending supplementary evidence
+    COMPLETED = "COMPLETED"                   # All steps finished successfully (terminal)
+    FAILED = "FAILED"                         # A step failed with no retries (terminal)
+    EXPIRED = "EXPIRED"                       # Exceeded TTL before completing (terminal)
+    CANCELLED = "CANCELLED"                   # Explicitly cancelled (terminal)
     
     def __str__(self) -> str:
         return self.value
@@ -537,6 +548,19 @@ FLOW_STEPS: Final[dict[FlowType, list[FlowStep]]] = {
         FlowStep("approval_decision", "Approval Decision", extensible=True),
         FlowStep("issue_credential", "Issue Credential"),
         FlowStep("deliver_credential", "Deliver Credential", extensible=True),
+    ],
+    FlowType.CREDENTIAL_RENEWAL: [
+        FlowStep("validate_existing", "Validate Existing Credential"),
+        FlowStep("create_offer", "Create Credential Offer"),
+        FlowStep("token_exchange", "Token Exchange"),
+        FlowStep("credential_request", "Credential Request"),
+        FlowStep("issue_renewed_credential", "Issue Renewed Credential"),
+        FlowStep("revoke_old_credential", "Revoke Old Credential"),
+    ],
+    FlowType.CREDENTIAL_REVOCATION: [
+        FlowStep("validate_revocation_request", "Validate Revocation Request"),
+        FlowStep("update_status_list", "Update Status List"),
+        FlowStep("notify_holder", "Notify Holder"),
     ],
 }
 

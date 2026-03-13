@@ -79,7 +79,7 @@ class TrustProfileService:
         
         # Parse formats
         formats = [
-            CredentialFormat(f) for f in (allowed_formats or ["mdoc", "sd_jwt_vc"])
+            CredentialFormat(f) for f in (allowed_formats or ["MDOC", "SD_JWT_VC"])
         ]
         
         # Create entity
@@ -89,7 +89,7 @@ class TrustProfileService:
             description=description,
             trust_sources=trust_sources or [],
             allowed_algorithms=algorithms,
-            allowed_formats=formats,
+            supported_formats=formats,
             **kwargs,
         )
         
@@ -100,12 +100,12 @@ class TrustProfileService:
             
             # Convert schema format to value object format
             policy_data = {
-                "mode": RevocationCheckMode(revocation_policy.get("mode", "hard_fail")),
+                "mode": RevocationCheckMode(revocation_policy.get("check_mode") or revocation_policy.get("mode", "HARD_FAIL")),
                 "check_ocsp": revocation_policy.get("check_ocsp", True),
                 "check_crl": revocation_policy.get("check_crl", True),
                 "check_status_list": revocation_policy.get("check_status_list", True),
-                "offline_grace_period": timedelta(hours=revocation_policy.get("offline_grace_period_hours", 24)),
-                "cache_ttl": timedelta(hours=revocation_policy.get("cache_ttl_hours", 1)),
+                "offline_grace_period": timedelta(seconds=revocation_policy.get("offline_grace_period_seconds", 86400)),
+                "cache_ttl": timedelta(seconds=revocation_policy.get("cache_ttl_seconds", 3600)),
             }
             profile.revocation_policy = RevocationPolicy(**policy_data)
         
@@ -114,9 +114,9 @@ class TrustProfileService:
             from datetime import timedelta
             
             # Convert schema format to value object format
-            clock_skew = timedelta(seconds=time_policy.get("clock_skew_tolerance_seconds", 300))
-            max_age_days = time_policy.get("max_credential_age_days")
-            max_age = timedelta(days=max_age_days) if max_age_days else None
+            clock_skew = timedelta(seconds=time_policy.get("clock_skew_seconds", 300))
+            max_age_secs = time_policy.get("max_credential_age_seconds")
+            max_age = timedelta(seconds=max_age_secs) if max_age_secs else None
             
             profile.time_policy = TimePolicy(
                 clock_skew_tolerance=clock_skew,

@@ -211,6 +211,164 @@ SYSTEM_COMPLIANCE_PROFILES = [
             "deprecation_notice": "Open Badge v2 is deprecated. Please migrate to OBv3.",
         },
     },
+    {
+        "id": "icao-mrz-system",
+        "name": "ICAO 9303 MRZ (mDL/mDoc)",
+        "code": "ICAO_MRZ",
+        "description": (
+            "ICAO 9303 Machine Readable Zone compliance profile using ISO/IEC 18013-5 mDoc format. "
+            "Supports travel document verification including passports, ID cards, and visa documents "
+            "with CSCA/DSC certificate chain validation."
+        ),
+        "credential_format": "MDOC",
+        "issuer_artifact_requirements": {
+            "required_artifacts": ["csca_certificate", "dsc_certificate", "dsc_private_key"],
+            "optional_artifacts": ["crl_endpoint", "ocsp_endpoint"],
+            "key_algorithms": ["ES256", "ES384", "EC-P256"],
+            "key_access_modes": ["hsm", "key_vault"],
+        },
+        "default_claim_verification_rules": [
+            {
+                "claim_name": "mrz_data",
+                "required": True,
+                "data_type": "object",
+                "validation": {
+                    "required_fields": ["document_type", "country_code", "document_number", "date_of_birth", "date_of_expiry"],
+                },
+            },
+            {
+                "claim_name": "document_type",
+                "required": True,
+                "data_type": "string",
+                "validation": {
+                    "allowed_values": ["P", "V", "I", "A", "C"],
+                },
+            },
+            {
+                "claim_name": "date_of_expiry",
+                "required": True,
+                "data_type": "date",
+                "validation": {
+                    "format": "YYMMDD",
+                    "must_be_future": True,
+                },
+            },
+        ],
+        "trust_profile_requirements": {
+            "revocation_methods": ["CRL", "OCSP"],
+            "require_csca_chain": True,
+            "require_active_authentication": False,
+            "allowed_signing_algorithms": ["ES256", "ES384"],
+        },
+        "metadata_": {
+            "specification_url": "https://www.icao.int/publications/pages/publication.aspx?docnum=9303",
+            "version": "9303",
+            "format_family": "mdoc",
+            "iso_standard": "ISO/IEC 18013-5",
+        },
+    },
+    {
+        "id": "oid4vc-system",
+        "name": "OID4VC (SD-JWT VC)",
+        "code": "OID4VC",
+        "description": (
+            "OpenID for Verifiable Credentials compliance profile using SD-JWT VC format. "
+            "Supports OID4VCI credential issuance and OID4VP presentation protocols with "
+            "selective disclosure and holder binding."
+        ),
+        "credential_format": "SD_JWT_VC",
+        "issuer_artifact_requirements": {
+            "required_artifacts": ["issuer_did", "issuer_key_id", "jwks_uri"],
+            "optional_artifacts": ["credential_offer_endpoint", "batch_credential_endpoint"],
+            "key_algorithms": ["ES256", "ES384", "EdDSA"],
+            "key_access_modes": ["key_vault", "hsm", "local"],
+        },
+        "default_claim_verification_rules": [
+            {
+                "claim_name": "vct",
+                "required": True,
+                "data_type": "string",
+                "validation": {
+                    "format": "uri",
+                },
+            },
+            {
+                "claim_name": "iss",
+                "required": True,
+                "data_type": "string",
+                "validation": {
+                    "format": "uri",
+                },
+            },
+            {
+                "claim_name": "cnf",
+                "required": False,
+                "data_type": "object",
+                "validation": {
+                    "description": "Key binding confirmation claim for holder binding",
+                },
+            },
+        ],
+        "trust_profile_requirements": {
+            "revocation_methods": ["StatusList2021", "BitstringStatusList"],
+            "require_holder_binding": True,
+            "require_sd_jwt_disclosure": True,
+            "allowed_signing_algorithms": ["ES256", "ES384", "EdDSA"],
+        },
+        "metadata_": {
+            "specification_url": "https://openid.net/specs/openid-4-verifiable-credential-issuance-1_0.html",
+            "version": "1.0",
+            "format_family": "sd_jwt_vc",
+            "presentation_protocol": "OID4VP",
+        },
+    },
+    {
+        "id": "pex-system",
+        "name": "DIF Presentation Exchange v2",
+        "code": "PEX",
+        "description": (
+            "DIF Presentation Exchange v2 compliance profile for interoperable credential presentation. "
+            "Supports presentation definitions and submission requirements across multiple credential "
+            "formats with constraint validation."
+        ),
+        "credential_format": "SD_JWT_VC",
+        "issuer_artifact_requirements": {
+            "required_artifacts": ["issuer_did", "issuer_key_id"],
+            "optional_artifacts": ["presentation_definition_registry"],
+            "key_algorithms": ["ES256", "ES384", "EdDSA"],
+            "key_access_modes": ["key_vault", "hsm", "local"],
+        },
+        "default_claim_verification_rules": [
+            {
+                "claim_name": "presentation_definition",
+                "required": False,
+                "data_type": "object",
+                "validation": {
+                    "required_fields": ["id", "input_descriptors"],
+                },
+            },
+            {
+                "claim_name": "input_descriptors",
+                "required": False,
+                "data_type": "array",
+                "validation": {
+                    "description": "DIF PE v2 input descriptors with constraints",
+                },
+            },
+        ],
+        "trust_profile_requirements": {
+            "revocation_methods": ["StatusList2021", "BitstringStatusList"],
+            "require_holder_binding": True,
+            "require_pex_constraint_validation": True,
+            "allowed_signing_algorithms": ["ES256", "ES384", "EdDSA"],
+        },
+        "metadata_": {
+            "specification_url": "https://identity.foundation/presentation-exchange/spec/v2.0.0/",
+            "version": "2.0",
+            "format_family": "sd_jwt_vc",
+            "dif_standard": "Presentation Exchange v2",
+        },
+    },
 ]
 
 

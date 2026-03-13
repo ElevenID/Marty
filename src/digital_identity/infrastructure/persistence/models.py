@@ -641,7 +641,7 @@ class IssuedCredentialModel(Base):
     valid_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
     
     # Status
-    status: Mapped[str] = mapped_column(String(20), default="active", nullable=False, index=True)
+    status: Mapped[str] = mapped_column(String(20), default="ACTIVE", nullable=False, index=True)
     status_list_entries: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
     
     # Audit (do NOT store actual credential, only hash)

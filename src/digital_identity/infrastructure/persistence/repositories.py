@@ -84,7 +84,7 @@ class TrustProfileRepository:
             existing.enabled = entity.enabled
             existing.trust_sources = entity.trust_sources
             existing.allowed_algorithms = [a.value for a in entity.allowed_algorithms]
-            existing.allowed_formats = [f.value for f in entity.allowed_formats]
+            existing.allowed_formats = [f.value for f in entity.supported_formats]
             existing.revocation_policy = self._serialize_revocation_policy(entity.revocation_policy)
             existing.time_policy = self._serialize_time_policy(entity.time_policy)
             existing.allowed_issuers = entity.allowed_issuers
@@ -103,7 +103,7 @@ class TrustProfileRepository:
                 enabled=entity.enabled,
                 trust_sources=entity.trust_sources,
                 allowed_algorithms=[a.value for a in entity.allowed_algorithms],
-                allowed_formats=[f.value for f in entity.allowed_formats],
+                allowed_formats=[f.value for f in entity.supported_formats],
                 revocation_policy=self._serialize_revocation_policy(entity.revocation_policy),
                 time_policy=self._serialize_time_policy(entity.time_policy),
                 allowed_issuers=entity.allowed_issuers,
@@ -175,7 +175,7 @@ class TrustProfileRepository:
             enabled=model.enabled,
             trust_sources=model.trust_sources,
             allowed_algorithms=[CryptoAlgorithm(a) for a in model.allowed_algorithms],
-            allowed_formats=[CredentialFormat(f) for f in model.allowed_formats],
+            supported_formats=[CredentialFormat(f) for f in model.allowed_formats],
             revocation_policy=self._deserialize_revocation_policy(model.revocation_policy),
             time_policy=self._deserialize_time_policy(model.time_policy),
             allowed_issuers=model.allowed_issuers,
@@ -189,7 +189,7 @@ class TrustProfileRepository:
     def _serialize_revocation_policy(self, policy: RevocationPolicy) -> dict[str, Any]:
         """Serialize revocation policy to dict."""
         return {
-            "mode": policy.mode.value,
+            "check_mode": policy.mode.value,
             "check_ocsp": policy.check_ocsp,
             "check_crl": policy.check_crl,
             "check_status_list": policy.check_status_list,
@@ -200,8 +200,9 @@ class TrustProfileRepository:
     def _deserialize_revocation_policy(self, data: dict[str, Any]) -> RevocationPolicy:
         """Deserialize revocation policy from dict."""
         from digital_identity.domain.value_objects import RevocationCheckMode
+        raw_mode = data.get("check_mode") or data.get("mode", "HARD_FAIL")
         return RevocationPolicy(
-            mode=RevocationCheckMode(data.get("mode", "hard_fail")),
+            mode=RevocationCheckMode(raw_mode),
             check_ocsp=data.get("check_ocsp", True),
             check_crl=data.get("check_crl", True),
             check_status_list=data.get("check_status_list", True),
@@ -864,7 +865,7 @@ class FlowExecutionRepository:
             existing.issued_credential_id = entity.issued_credential_id
             existing.started_at = entity.started_at
             existing.completed_at = entity.completed_at
-            existing.error = entity.error
+            existing.error = entity.error_code
             existing.metadata_ = entity.metadata
             existing.updated_at = entity.updated_at
             existing.version = entity.version
@@ -880,7 +881,7 @@ class FlowExecutionRepository:
                 issued_credential_id=entity.issued_credential_id,
                 started_at=entity.started_at,
                 completed_at=entity.completed_at,
-                error=entity.error,
+                error=entity.error_code,
                 metadata_=entity.metadata,
                 created_at=entity.created_at,
                 updated_at=entity.updated_at,
@@ -949,7 +950,7 @@ class FlowExecutionRepository:
             issued_credential_id=model.issued_credential_id,
             started_at=model.started_at,
             completed_at=model.completed_at,
-            error=model.error,
+            error_code=model.error,
             metadata=model.metadata_,
             created_at=model.created_at,
             updated_at=model.updated_at,
