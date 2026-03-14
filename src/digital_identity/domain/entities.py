@@ -228,13 +228,17 @@ class TrustProfile(Entity):
     
     name: str = ""
     description: str | None = None
+    organization_id: str = ""
     profile_type: TrustProfileType = TrustProfileType.CUSTOM
     enabled: bool = True
+    compliance_status: str = "SETUP_REQUIRED"
+    auto_generated: bool = False
     trust_sources: list[dict[str, Any]] = field(default_factory=list)
     allowed_algorithms: list[CryptoAlgorithm] = field(default_factory=list)
     supported_formats: list[CredentialFormat] = field(default_factory=list)
     revocation_policy: RevocationPolicy = field(default_factory=RevocationPolicy)
     time_policy: TimePolicy = field(default_factory=TimePolicy)
+    revocation_profile_id: str | None = None
     
     # Revocation service configuration
     revocation_services: dict[str, Any] = field(default_factory=dict)
@@ -679,7 +683,7 @@ class CredentialTemplate(Entity):
     
     # Signing key configuration
     issuer_key_id: str | None = None
-    issuer_key_algorithm: str | None = None  # RS256, ES256, EdDSA, etc.
+    issuer_algorithm: str | None = None  # RS256, ES256, EdDSA, etc. (spec: issuer_algorithm)
     key_access_mode: str = "key_vault"  # key_vault, hsm, local (dev only)
     
     # Certificate chain (for mDoc/X.509-based credentials)
@@ -706,12 +710,6 @@ class CredentialTemplate(Entity):
     
     # Legacy field (for backward compatibility during migration)
     issuer_key_ids: list[str] | None = None
-    
-    # Display metadata
-    display: dict[str, Any] = field(default_factory=dict)
-    
-    # Extension point
-    metadata: dict[str, Any] = field(default_factory=dict)
     
     def add_claim(self, claim: ClaimDefinition) -> None:
         """Add a claim definition to this template."""
@@ -761,12 +759,14 @@ class ComplianceProfile(Entity):
     
     name: str = ""
     description: str | None = None
-    code: str = ""
+    compliance_code: str = ""  # spec: compliance_code (was: code)
     credential_format: CredentialFormat = CredentialFormat.SD_JWT_VC
     issuer_artifact_requirements: IssuerArtifactRequirements | None = None
-    default_claim_verification_rules: list[ClaimVerificationRule] = field(default_factory=list)
-    trust_profile_requirements: dict[str, Any] = field(default_factory=dict)
+    default_verification_rules: list[ClaimVerificationRule] = field(default_factory=list)  # spec: default_verification_rules
+    trust_profile_constraints: dict[str, Any] = field(default_factory=dict)  # spec: trust_profile_constraints
     is_system: bool = False
+    organization_id: str | None = None
+    discoverable: bool = True
     metadata: dict[str, Any] = field(default_factory=dict)
     
     def get_artifact_requirements(self) -> IssuerArtifactRequirements:
@@ -945,6 +945,7 @@ class PresentationPolicy(Entity):
     name: str = ""
     description: str | None = None
     purpose: str = ""
+    organization_id: str = ""
     
     # Accepted credentials
     accepted_credential_types: list[str] = field(default_factory=list)
@@ -973,7 +974,7 @@ class PresentationPolicy(Entity):
     )
     
     # Data minimization
-    prefer_predicates: bool = True
+    prefer_predicates: bool = False
     single_presentation: bool = False
     derived_attribute_preferences: dict[str, str] = field(default_factory=dict)  # Map raw claims to preferred derived forms
     
@@ -993,14 +994,14 @@ class PresentationPolicy(Entity):
         claim_name: str,
         credential_type: str,
         accept_predicate: bool = True,
-        required_value: Any = None,
+        value_constraint: Any = None,
     ) -> None:
         """Add a required claim to this policy."""
         self.required_claims.append(RequiredClaim(
             claim_name=claim_name,
             credential_type=credential_type,
             accept_predicate=accept_predicate,
-            required_value=required_value,
+            value_constraint=value_constraint,
         ))
         self.touch()
     
@@ -1052,7 +1053,7 @@ class PresentationPolicy(Entity):
         claim_name: str,
         credential_type: str,
         predicate_spec: PredicateSpecification,
-        required_value: Any = None,
+        value_constraint: Any = None,
     ) -> None:
         """
         Add a required claim with a structured ZK predicate specification.
@@ -1061,13 +1062,13 @@ class PresentationPolicy(Entity):
             claim_name: Name of the claim (e.g., "age", "birth_date")
             credential_type: Type of credential containing this claim
             predicate_spec: Structured ZK predicate specification
-            required_value: Optional exact value requirement
+            value_constraint: Optional exact value requirement
         """
         self.required_claims.append(RequiredClaim(
             claim_name=claim_name,
             credential_type=credential_type,
             accept_predicate=True,
-            required_value=required_value,
+            value_constraint=value_constraint,
             predicate_spec=predicate_spec,
         ))
         self.touch()

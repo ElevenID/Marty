@@ -337,7 +337,7 @@ class ComplianceProfileModel(Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
-    code: Mapped[str] = mapped_column(String(100), nullable=False, unique=True, index=True)
+    compliance_code: Mapped[str] = mapped_column("code", String(100), nullable=False, unique=True, index=True)
     
     # Format configuration
     credential_format: Mapped[str] = mapped_column(String(50), nullable=False)
@@ -346,13 +346,17 @@ class ComplianceProfileModel(Base):
     issuer_artifact_requirements: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     
     # Default verification rules
-    default_claim_verification_rules: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
+    default_verification_rules: Mapped[list[dict[str, Any]]] = mapped_column("default_claim_verification_rules", JSON, default=list)
     
-    # Trust profile requirements
-    trust_profile_requirements: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    # Trust profile constraints
+    trust_profile_constraints: Mapped[dict[str, Any]] = mapped_column("trust_profile_requirements", JSON, default=dict)
     
     # System flag
     is_system: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    
+    # Organization
+    organization_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+    discoverable: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     
     # Metadata
     metadata_: Mapped[dict[str, Any]] = mapped_column("metadata", JSON, default=dict)
@@ -418,6 +422,7 @@ class PresentationPolicyModel(Base):
     name: Mapped[str] = mapped_column(String(255), unique=True, nullable=False, index=True)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     purpose: Mapped[str] = mapped_column(Text, nullable=False)
+    organization_id: Mapped[str] = mapped_column(String(36), default="", nullable=False, index=True)
     
     # Accepted credentials
     accepted_credential_types: Mapped[list[str]] = mapped_column(JSON, default=list)
@@ -437,23 +442,18 @@ class PresentationPolicyModel(Base):
     allowed_issuers: Mapped[list[str]] = mapped_column(JSON, default=list)
     
     # Issuer constraints (enforced at verification time)
-    # Structure: {
-    #   \"min_trust_level\": 80,
-    #   \"required_compliance_statuses\": [\"ACCREDITED\", \"COMPLIANT\"],
-    #   \"required_accreditations\": [\"ISO27001\", \"FIPS140-2\"]
-    # }
     issuer_constraints: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     
     # Freshness
     freshness_requirements: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     
     # Data minimization
-    prefer_predicates: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    prefer_predicates: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     single_presentation: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     derived_attribute_preferences: Mapped[dict[str, str]] = mapped_column(JSON, default=dict)
     
     # Credential ranking
-    credential_ranking_strategy: Mapped[str] = mapped_column(String(50), default="freshest_first", nullable=False)
+    credential_ranking_strategy: Mapped[str] = mapped_column(String(50), default="FRESHEST_FIRST", nullable=False)
     credential_ranking_weights: Mapped[dict[str, float]] = mapped_column(JSON, default=dict)
     
     # Metadata

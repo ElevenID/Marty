@@ -6,7 +6,7 @@ Pydantic models for API request/response serialization.
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -17,13 +17,12 @@ from pydantic import BaseModel, Field
 # ---------------------------------------------------------
 
 class RevocationPolicySchema(BaseModel):
-    """Revocation policy configuration."""
+    """Revocation policy configuration (spec: check_mode + cache_ttl_seconds)."""
     
     check_mode: str = Field(default="HARD_FAIL", description="Revocation check mode: HARD_FAIL, SOFT_FAIL, or SKIP")
     check_ocsp: bool = Field(default=True, description="Check OCSP responders")
     check_crl: bool = Field(default=True, description="Check CRL distribution points")
     check_status_list: bool = Field(default=True, description="Check status lists")
-    offline_grace_period_seconds: int = Field(default=86400, description="Grace period when offline (seconds)")
     cache_ttl_seconds: int = Field(default=3600, description="Cache TTL for revocation responses (seconds)")
 
 
@@ -110,7 +109,7 @@ class ClaimDefinitionSchema(BaseModel):
     
     name: str = Field(..., description="Claim name")
     display_name: str = Field(..., description="Human-readable display name")
-    data_type: str = Field(..., description="Data type: string, integer, boolean, date, datetime")
+    type: str = Field(..., description="Data type: string, integer, boolean, date, datetime", alias="type")
     required: bool = Field(default=True, description="Whether this claim is required")
     selectively_disclosable: bool = Field(default=True, description="Whether this claim can be selectively disclosed")
     derived_from: str | None = Field(default=None, description="Source claim for derived/predicate claims")
@@ -118,6 +117,8 @@ class ClaimDefinitionSchema(BaseModel):
     predicate_value: Any | None = Field(default=None, description="Predicate comparison value")
     validation_regex: str | None = Field(default=None, description="Regex for value validation")
     description: str | None = Field(default=None, description="Claim description")
+
+    model_config = {"populate_by_name": True}
 
 
 class ValidityRulesSchema(BaseModel):
@@ -201,7 +202,7 @@ class RequiredClaimSchema(BaseModel):
     claim_name: str = Field(..., description="Name of the required claim")
     credential_type: str = Field(..., description="Credential type containing this claim")
     accept_predicate: bool = Field(default=True, description="Accept predicate proofs")
-    required_value: Any | None = Field(default=None, description="Required value (for matching)")
+    value_constraint: Any | None = Field(default=None, description="Value constraint (for matching)")
 
 
 class FreshnessRequirementsSchema(BaseModel):

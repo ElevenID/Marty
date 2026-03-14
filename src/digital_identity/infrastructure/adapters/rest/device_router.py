@@ -112,9 +112,9 @@ async def get_device_config(
             },
             "update_policy": {
                 "auto_update": deployment_profile.update_policy.auto_update,
-                "update_channel": deployment_profile.update_policy.update_channel,
+                "channel": deployment_profile.update_policy.channel,
                 "rollout_percentage": deployment_profile.update_policy.rollout_percentage,
-                "version_pinned": deployment_profile.update_policy.version_pinned,
+                "pinned_version": deployment_profile.update_policy.pinned_version,
                 "rollout_ring": deployment_profile.update_policy.rollout_ring,
             },
             "offline_cache_ttl_hours": deployment_profile.offline_cache_ttl_hours,

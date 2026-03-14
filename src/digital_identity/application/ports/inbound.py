@@ -142,7 +142,7 @@ class CredentialTemplateServicePort(Protocol):
         template_id: str,
         name: str,
         display_name: str,
-        data_type: str,
+        claim_type: str,
         **kwargs: Any,
     ) -> CredentialTemplate | None:
         """Add a claim to a template."""

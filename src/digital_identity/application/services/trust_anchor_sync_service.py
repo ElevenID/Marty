@@ -302,19 +302,18 @@ class TrustAnchorSyncService:
                 continue
             
             # Check clock skew for not_before
-            if time_policy.require_not_before:
-                if now < not_before - time_policy.clock_skew_tolerance:
-                    return False
+            clock_skew = timedelta(seconds=time_policy.clock_skew_seconds)
+            if now < not_before - clock_skew:
+                return False
             
             # Check not_after
-            if time_policy.require_not_after:
-                if now > not_after + time_policy.clock_skew_tolerance:
-                    return False
+            if now > not_after + clock_skew:
+                return False
             
             # Check max_credential_age if specified
-            if time_policy.max_credential_age:
+            if time_policy.max_credential_age_seconds:
                 cert_age = now - not_before
-                if cert_age > time_policy.max_credential_age:
+                if cert_age > timedelta(seconds=time_policy.max_credential_age_seconds):
                     return False
         
         return True

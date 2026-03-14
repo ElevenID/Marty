@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import asdict
-from datetime import timedelta
+from datetime import datetime
 from typing import Any
 
 from sqlalchemy import delete, select
@@ -171,13 +171,17 @@ class TrustProfileRepository:
             id=model.id,
             name=model.name,
             description=model.description,
+            organization_id=getattr(model, 'organization_id', '') or '',
             profile_type=TrustProfileType(model.profile_type),
             enabled=model.enabled,
+            compliance_status=getattr(model, 'compliance_status', 'SETUP_REQUIRED'),
+            auto_generated=getattr(model, 'auto_generated', False),
             trust_sources=model.trust_sources,
             allowed_algorithms=[CryptoAlgorithm(a) for a in model.allowed_algorithms],
             supported_formats=[CredentialFormat(f) for f in model.allowed_formats],
             revocation_policy=self._deserialize_revocation_policy(model.revocation_policy),
             time_policy=self._deserialize_time_policy(model.time_policy),
+            revocation_profile_id=getattr(model, 'revocation_profile_id', None),
             allowed_issuers=model.allowed_issuers,
             denied_issuers=model.denied_issuers,
             metadata=model.metadata_,
@@ -189,12 +193,11 @@ class TrustProfileRepository:
     def _serialize_revocation_policy(self, policy: RevocationPolicy) -> dict[str, Any]:
         """Serialize revocation policy to dict."""
         return {
-            "check_mode": policy.mode.value,
+            "check_mode": policy.check_mode.value,
             "check_ocsp": policy.check_ocsp,
             "check_crl": policy.check_crl,
             "check_status_list": policy.check_status_list,
-            "offline_grace_period_seconds": policy.offline_grace_period.total_seconds(),
-            "cache_ttl_seconds": policy.cache_ttl.total_seconds(),
+            "cache_ttl_seconds": policy.cache_ttl_seconds,
         }
     
     def _deserialize_revocation_policy(self, data: dict[str, Any]) -> RevocationPolicy:
@@ -202,31 +205,29 @@ class TrustProfileRepository:
         from digital_identity.domain.value_objects import RevocationCheckMode
         raw_mode = data.get("check_mode") or data.get("mode", "HARD_FAIL")
         return RevocationPolicy(
-            mode=RevocationCheckMode(raw_mode),
+            check_mode=RevocationCheckMode(raw_mode),
             check_ocsp=data.get("check_ocsp", True),
             check_crl=data.get("check_crl", True),
             check_status_list=data.get("check_status_list", True),
-            offline_grace_period=timedelta(seconds=data.get("offline_grace_period_seconds", 86400)),
-            cache_ttl=timedelta(seconds=data.get("cache_ttl_seconds", 3600)),
+            cache_ttl_seconds=int(data.get("cache_ttl_seconds", data.get("offline_grace_period_seconds", 3600))),
         )
     
     def _serialize_time_policy(self, policy: TimePolicy) -> dict[str, Any]:
         """Serialize time policy to dict."""
         return {
-            "clock_skew_tolerance_seconds": policy.clock_skew_tolerance.total_seconds(),
-            "max_credential_age_seconds": policy.max_credential_age.total_seconds() if policy.max_credential_age else None,
-            "require_not_before": policy.require_not_before,
-            "require_not_after": policy.require_not_after,
+            "clock_skew_seconds": policy.clock_skew_seconds,
+            "max_credential_age_seconds": policy.max_credential_age_seconds,
+            "require_freshness": policy.require_freshness,
+            "freshness_window_seconds": policy.freshness_window_seconds,
         }
     
     def _deserialize_time_policy(self, data: dict[str, Any]) -> TimePolicy:
         """Deserialize time policy from dict."""
-        max_age = data.get("max_credential_age_seconds")
         return TimePolicy(
-            clock_skew_tolerance=timedelta(seconds=data.get("clock_skew_tolerance_seconds", 300)),
-            max_credential_age=timedelta(seconds=max_age) if max_age else None,
-            require_not_before=data.get("require_not_before", True),
-            require_not_after=data.get("require_not_after", True),
+            clock_skew_seconds=int(data.get("clock_skew_seconds", data.get("clock_skew_tolerance_seconds", 300))),
+            max_credential_age_seconds=data.get("max_credential_age_seconds"),
+            require_freshness=data.get("require_freshness", False),
+            freshness_window_seconds=data.get("freshness_window_seconds"),
         )
 
 
@@ -358,7 +359,7 @@ class CredentialTemplateRepository:
         return {
             "name": claim.name,
             "display_name": claim.display_name,
-            "data_type": claim.data_type,
+            "type": claim.claim_type,
             "required": claim.required,
             "selectively_disclosable": claim.selectively_disclosable,
             "derived_from": claim.derived_from,
@@ -372,8 +373,8 @@ class CredentialTemplateRepository:
         """Deserialize claim from dict."""
         return ClaimDefinition(
             name=data["name"],
-            display_name=data["display_name"],
-            data_type=data["data_type"],
+            display_name=data.get("display_name", data["name"]),
+            claim_type=data.get("type", data.get("data_type", "string")),
             required=data.get("required", True),
             selectively_disclosable=data.get("selectively_disclosable", True),
             derived_from=data.get("derived_from"),
@@ -526,7 +527,7 @@ class PresentationPolicyRepository:
             "claim_name": claim.claim_name,
             "credential_type": claim.credential_type,
             "accept_predicate": claim.accept_predicate,
-            "required_value": claim.required_value,
+            "value_constraint": claim.value_constraint,
         }
     
     def _deserialize_required_claim(self, data: dict[str, Any]) -> RequiredClaim:
@@ -535,7 +536,7 @@ class PresentationPolicyRepository:
             claim_name=data["claim_name"],
             credential_type=data["credential_type"],
             accept_predicate=data.get("accept_predicate", True),
-            required_value=data.get("required_value"),
+            value_constraint=data.get("value_constraint", data.get("required_value")),
         )
     
     def _serialize_freshness(self, req: FreshnessRequirements) -> dict[str, Any]:
@@ -703,16 +704,16 @@ class DeploymentProfileRepository:
         """Serialize update policy to dict."""
         return {
             "auto_update": policy.auto_update,
-            "channel": policy.update_channel,
-            "pinned_version": policy.version_pinned,
+            "channel": policy.channel,
+            "pinned_version": policy.pinned_version,
         }
     
     def _deserialize_update_policy(self, data: dict[str, Any]) -> UpdatePolicy:
         """Deserialize update policy from dict."""
         return UpdatePolicy(
             auto_update=data.get("auto_update", True),
-            update_channel=data.get("channel", data.get("update_channel", "stable")),
-            version_pinned=data.get("pinned_version", data.get("version_pinned")),
+            channel=data.get("channel", data.get("update_channel", "stable")),
+            pinned_version=data.get("pinned_version", data.get("version_pinned")),
         )
 
 

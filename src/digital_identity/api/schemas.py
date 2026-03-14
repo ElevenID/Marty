@@ -22,11 +22,11 @@ class ComplianceProfileBase(BaseModel):
     
     name: str = Field(..., min_length=1, max_length=255)
     description: str | None = None
-    code: str = Field(..., min_length=1, max_length=100)
+    compliance_code: str = Field(..., min_length=1, max_length=100)
     credential_format: str = Field(..., description="Credential format: mdoc, sd_jwt_vc, jwt_vc, ldp_vc")
     issuer_artifact_requirements: dict[str, Any] | None = None
-    default_claim_verification_rules: list[dict[str, Any]] = Field(default_factory=list)
-    trust_profile_requirements: dict[str, Any] = Field(default_factory=dict)
+    default_verification_rules: list[dict[str, Any]] = Field(default_factory=list)
+    trust_profile_constraints: dict[str, Any] = Field(default_factory=dict)
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -40,11 +40,11 @@ class ComplianceProfileUpdate(BaseModel):
     
     name: str | None = None
     description: str | None = None
-    code: str | None = None
+    compliance_code: str | None = None
     credential_format: str | None = None
     issuer_artifact_requirements: dict[str, Any] | None = None
-    default_claim_verification_rules: list[dict[str, Any]] | None = None
-    trust_profile_requirements: dict[str, Any] | None = None
+    default_verification_rules: list[dict[str, Any]] | None = None
+    trust_profile_constraints: dict[str, Any] | None = None
     metadata: dict[str, Any] | None = None
 
 

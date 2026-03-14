@@ -57,6 +57,8 @@ class CryptoAlgorithm(str, Enum):
     PS384 = "PS384"
     PS512 = "PS512"
     EDDSA = "EdDSA"
+    ED25519 = "Ed25519"
+    ED448 = "Ed448"
     
     def __str__(self) -> str:
         return self.value
@@ -91,15 +93,14 @@ class RevocationPolicy:
     """
     Revocation checking policy configuration.
     
-    Immutable value object defining how revocation should be handled.
+    Uses seconds to match spec shape directly.
     """
     
-    mode: RevocationCheckMode = RevocationCheckMode.HARD_FAIL
+    check_mode: RevocationCheckMode = RevocationCheckMode.HARD_FAIL
     check_ocsp: bool = True
     check_crl: bool = True
     check_status_list: bool = True
-    offline_grace_period: timedelta = field(default_factory=lambda: timedelta(hours=24))
-    cache_ttl: timedelta = field(default_factory=lambda: timedelta(hours=1))
+    cache_ttl_seconds: int = 3600  # 1 hour
 
 
 @dataclass(frozen=True)
@@ -107,13 +108,13 @@ class TimePolicy:
     """
     Time validation policy configuration.
     
-    Controls clock skew tolerance and freshness requirements.
+    Uses seconds to match spec shape directly.
     """
     
-    clock_skew_tolerance: timedelta = field(default_factory=lambda: timedelta(minutes=5))
-    max_credential_age: timedelta | None = None  # None = no limit
-    require_not_before: bool = True
-    require_not_after: bool = True
+    clock_skew_seconds: int = 300  # 5 minutes
+    max_credential_age_seconds: int | None = None  # None = no limit
+    require_freshness: bool = False
+    freshness_window_seconds: int | None = None
 
 
 # =============================================================================
@@ -130,7 +131,7 @@ class ClaimDefinition:
     
     name: str
     display_name: str
-    data_type: str  # string, number, boolean, date, object, array
+    claim_type: str  # string, number, boolean, date, object, array (spec: "type")
     required: bool = True
     selectively_disclosable: bool = True
     derived_from: str | None = None  # e.g., "age_over_21" derived from "birth_date"
@@ -334,7 +335,7 @@ class RequiredClaim:
     claim_name: str
     credential_type: str
     accept_predicate: bool = True  # Accept predicate proof instead of raw value
-    required_value: Any | None = None  # If set, claim must equal this value
+    value_constraint: Any | None = None  # If set, claim must equal this value (spec: value_constraint)
     predicate_spec: PredicateSpecification | None = None  # Structured ZK specification
     
     def __post_init__(self) -> None:
@@ -372,7 +373,7 @@ class FreshnessRequirements:
     """
 
     max_age_seconds: int | None = None
-    require_not_revoked: bool = True
+    require_not_revoked: bool = False
     revocation_grace_seconds: int | None = None
 # =============================================================================
 
@@ -422,9 +423,9 @@ class UpdatePolicy:
     """
     
     auto_update: bool = True
-    update_channel: str = "stable"  # stable, beta, pinned (spec values)
+    channel: str = "stable"  # stable, beta, pinned (spec values)
     rollout_percentage: int = 100
-    version_pinned: str | None = None  # Pin to specific version (spec: pinned_version)
+    pinned_version: str | None = None  # Pin to specific version
     rollout_ring: str | None = None  # Named rollout ring
 
 
@@ -742,6 +743,6 @@ class StatusListEntryRef:
     """
     
     purpose: str  # "revocation" or "suspension"
-    status_list_credential_url: str  # URL to the StatusListCredential
-    status_list_index: int  # Index within the status list (bit position)
-    shard_id: str | None = None  # Optional: shard identifier for distributed status lists
+    status_list_id: str  # Identifier for the status list
+    status_list_uri: str  # URL to the StatusListCredential
+    index: int  # Index within the status list (bit position)

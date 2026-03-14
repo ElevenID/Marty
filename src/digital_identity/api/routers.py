@@ -84,22 +84,22 @@ async def create_compliance_profile(
     """Create a new compliance profile."""
     try:
         # Check for duplicate code
-        existing = await service.get_by_code(request.code)
+        existing = await service.get_by_code(request.compliance_code)
         if existing:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
-                detail=f"Compliance profile with code '{request.code}' already exists"
+                detail=f"Compliance profile with code '{request.compliance_code}' already exists"
             )
         
         # Create profile
         profile = await service.create(
             name=request.name,
-            code=request.code,
+            compliance_code=request.compliance_code,
             credential_format=request.credential_format,
             description=request.description,
             issuer_artifact_requirements=request.issuer_artifact_requirements,
-            default_claim_verification_rules=request.default_claim_verification_rules,
-            trust_profile_requirements=request.trust_profile_requirements,
+            default_verification_rules=request.default_verification_rules,
+            trust_profile_constraints=request.trust_profile_constraints,
             metadata=request.metadata,
         )
         

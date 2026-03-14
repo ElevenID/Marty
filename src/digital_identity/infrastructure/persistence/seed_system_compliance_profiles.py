@@ -388,7 +388,7 @@ async def seed_system_compliance_profiles(session: AsyncSession) -> None:
     for profile_data in SYSTEM_COMPLIANCE_PROFILES:
         # Check if profile already exists
         result = await session.execute(
-            select(ComplianceProfileModel).where(ComplianceProfileModel.code == profile_data["code"])
+            select(ComplianceProfileModel).where(ComplianceProfileModel.compliance_code == profile_data["code"])
         )
         existing_profile = result.scalar_one_or_none()
         
@@ -402,12 +402,12 @@ async def seed_system_compliance_profiles(session: AsyncSession) -> None:
         profile = ComplianceProfileModel(
             id=profile_data["id"],
             name=profile_data["name"],
-            code=profile_data["code"],
+            compliance_code=profile_data["code"],
             description=profile_data["description"],
             credential_format=profile_data["credential_format"],
             issuer_artifact_requirements=profile_data["issuer_artifact_requirements"],
-            default_claim_verification_rules=profile_data["default_claim_verification_rules"],
-            trust_profile_requirements=profile_data["trust_profile_requirements"],
+            default_verification_rules=profile_data["default_claim_verification_rules"],
+            trust_profile_constraints=profile_data["trust_profile_requirements"],
             is_system=True,  # System profiles are read-only
             metadata_=profile_data["metadata_"],
             created_at=now,

@@ -191,7 +191,7 @@ class PresentationPolicyService:
         claim_name: str,
         credential_type: str,
         accept_predicate: bool = True,
-        required_value: Any = None,
+        value_constraint: Any = None,
     ) -> PresentationPolicy | None:
         """Add a required claim to a policy."""
         policy = await self._repository.get(policy_id)
@@ -202,7 +202,7 @@ class PresentationPolicyService:
             claim_name=claim_name,
             credential_type=credential_type,
             accept_predicate=accept_predicate,
-            required_value=required_value,
+            value_constraint=value_constraint,
         )
         saved = await self._repository.save(policy)
         

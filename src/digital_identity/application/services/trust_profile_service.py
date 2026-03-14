@@ -96,33 +96,22 @@ class TrustProfileService:
         # Apply revocation policy if provided
         if revocation_policy:
             from digital_identity.domain.value_objects import RevocationCheckMode
-            from datetime import timedelta
             
-            # Convert schema format to value object format
-            policy_data = {
-                "mode": RevocationCheckMode(revocation_policy.get("check_mode") or revocation_policy.get("mode", "HARD_FAIL")),
-                "check_ocsp": revocation_policy.get("check_ocsp", True),
-                "check_crl": revocation_policy.get("check_crl", True),
-                "check_status_list": revocation_policy.get("check_status_list", True),
-                "offline_grace_period": timedelta(seconds=revocation_policy.get("offline_grace_period_seconds", 86400)),
-                "cache_ttl": timedelta(seconds=revocation_policy.get("cache_ttl_seconds", 3600)),
-            }
-            profile.revocation_policy = RevocationPolicy(**policy_data)
+            profile.revocation_policy = RevocationPolicy(
+                check_mode=RevocationCheckMode(revocation_policy.get("check_mode") or revocation_policy.get("mode", "HARD_FAIL")),
+                check_ocsp=revocation_policy.get("check_ocsp", True),
+                check_crl=revocation_policy.get("check_crl", True),
+                check_status_list=revocation_policy.get("check_status_list", True),
+                cache_ttl_seconds=int(revocation_policy.get("cache_ttl_seconds", 3600)),
+            )
         
         # Apply time policy if provided
         if time_policy:
-            from datetime import timedelta
-            
-            # Convert schema format to value object format
-            clock_skew = timedelta(seconds=time_policy.get("clock_skew_seconds", 300))
-            max_age_secs = time_policy.get("max_credential_age_seconds")
-            max_age = timedelta(seconds=max_age_secs) if max_age_secs else None
-            
             profile.time_policy = TimePolicy(
-                clock_skew_tolerance=clock_skew,
-                max_credential_age=max_age,
-                require_not_before=time_policy.get("require_not_before", True),
-                require_not_after=time_policy.get("require_not_after", True),
+                clock_skew_seconds=int(time_policy.get("clock_skew_seconds", 300)),
+                max_credential_age_seconds=time_policy.get("max_credential_age_seconds"),
+                require_freshness=time_policy.get("require_freshness", False),
+                freshness_window_seconds=time_policy.get("freshness_window_seconds"),
             )
         
         # Save

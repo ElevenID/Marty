@@ -211,12 +211,11 @@ class TrustProfileResolver:
         else:
             # Build from framework defaults
             revocation_policy = RevocationPolicy(
-                mode=RevocationCheckMode(fw_revocation.get("check_mode") or fw_revocation.get("mode", "HARD_FAIL")),
+                check_mode=RevocationCheckMode(fw_revocation.get("check_mode") or fw_revocation.get("mode", "HARD_FAIL")),
                 check_ocsp=fw_revocation.get("check_ocsp", True),
                 check_crl=fw_revocation.get("check_crl", True),
                 check_status_list=fw_revocation.get("check_status_list", True),
-                offline_grace_period=timedelta(seconds=fw_revocation.get("offline_grace_period_seconds", 86400)),
-                cache_ttl=timedelta(seconds=fw_revocation.get("cache_ttl_seconds", 3600)),
+                cache_ttl_seconds=int(fw_revocation.get("cache_ttl_seconds", 3600)),
             )
         
         # Use org time policy if set, otherwise build from framework defaults
@@ -225,10 +224,10 @@ class TrustProfileResolver:
         else:
             # Build from framework defaults
             time_policy = TimePolicy(
-                clock_skew_tolerance=timedelta(seconds=fw_time.get("clock_skew_seconds", 300)),
-                max_credential_age=timedelta(seconds=fw_time.get("max_credential_age_seconds")) if fw_time.get("max_credential_age_seconds") else None,
-                require_not_before=fw_time.get("require_not_before", True),
-                require_not_after=fw_time.get("require_not_after", True),
+                clock_skew_seconds=int(fw_time.get("clock_skew_seconds", 300)),
+                max_credential_age_seconds=fw_time.get("max_credential_age_seconds"),
+                require_freshness=fw_time.get("require_freshness", False),
+                freshness_window_seconds=fw_time.get("freshness_window_seconds"),
             )
         
         # Merge allowed algorithms (org overrides or extends framework)

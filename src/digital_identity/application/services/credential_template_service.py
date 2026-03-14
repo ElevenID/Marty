@@ -76,7 +76,13 @@ class CredentialTemplateService:
         claim_defs = []
         if claims:
             for claim_data in claims:
-                claim_defs.append(ClaimDefinition(**claim_data))
+                # Normalize: accept both "type"/"data_type" → claim_type
+                normalized = dict(claim_data)
+                if "data_type" in normalized and "claim_type" not in normalized:
+                    normalized["claim_type"] = normalized.pop("data_type")
+                elif "type" in normalized and "claim_type" not in normalized:
+                    normalized["claim_type"] = normalized.pop("type")
+                claim_defs.append(ClaimDefinition(**normalized))
         
         # Use credential_payload_format if provided, otherwise fall back to format
         effective_format = credential_payload_format or format
@@ -192,7 +198,7 @@ class CredentialTemplateService:
         template_id: str,
         name: str,
         display_name: str,
-        data_type: str,
+        claim_type: str,
         required: bool = True,
         selectively_disclosable: bool = True,
         **kwargs: Any,
@@ -205,7 +211,7 @@ class CredentialTemplateService:
         claim = ClaimDefinition(
             name=name,
             display_name=display_name,
-            data_type=data_type,
+            claim_type=claim_type,
             required=required,
             selectively_disclosable=selectively_disclosable,
             **kwargs,
@@ -345,7 +351,7 @@ class CredentialTemplateService:
                 }
                 
                 compliance_dict = {
-                    "code": compliance_profile.code if hasattr(compliance_profile, "code") else None,
+                    "code": getattr(compliance_profile, 'compliance_code', getattr(compliance_profile, 'code', None)),
                     "credential_format": compliance_profile.credential_format if hasattr(compliance_profile, "credential_format") else None,
                 }
                 

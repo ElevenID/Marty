@@ -88,7 +88,7 @@ class CertificateRevocationService:
                 is_revoked=online_result["is_revoked"],
                 revocation_timestamp=online_result.get("revocation_timestamp"),
                 reason=online_result.get("reason"),
-                ttl_seconds=int(policy.cache_ttl.total_seconds()),
+                ttl_seconds=policy.cache_ttl_seconds,
             )
             
             return RevocationCheckResult(
@@ -103,7 +103,7 @@ class CertificateRevocationService:
             logger.warning(f"Online revocation check failed: {e}")
             
             # Check if we're in offline mode with skip policy
-            if policy.mode == RevocationCheckMode.SKIP:
+            if policy.check_mode == RevocationCheckMode.SKIP:
                 logger.info("Revocation check skipped per policy")
                 return RevocationCheckResult(
                     is_revoked=False,
@@ -115,7 +115,7 @@ class CertificateRevocationService:
             within_grace, cached_entry = await self.cache.is_within_grace_period(
                 organization_id=organization_id,
                 certificate_der=certificate_der,
-                grace_period=policy.offline_grace_period,
+                grace_period_seconds=policy.cache_ttl_seconds,
             )
             
             if within_grace and cached_entry:
@@ -123,7 +123,7 @@ class CertificateRevocationService:
                 
                 logger.info(
                     f"Using cached revocation result (age: {cache_age.total_seconds()}s, "
-                    f"grace: {policy.offline_grace_period.total_seconds()}s)"
+                    f"grace: {policy.cache_ttl_seconds}s)"
                 )
                 
                 return RevocationCheckResult(
@@ -136,7 +136,7 @@ class CertificateRevocationService:
                 )
             
             # No valid cache - respect mode
-            if policy.mode == RevocationCheckMode.SOFT_FAIL:
+            if policy.check_mode == RevocationCheckMode.SOFT_FAIL:
                 logger.warning(
                     "Revocation check failed and no valid cache - allowing per SOFT_FAIL policy"
                 )
@@ -152,7 +152,7 @@ class CertificateRevocationService:
                 )
                 raise Exception(
                     f"Certificate revocation check failed: {e}. "
-                    f"No cached result within grace period ({policy.offline_grace_period}). "
+                    f"No cached result within grace period ({policy.cache_ttl_seconds}s). "
                     f"HARD_FAIL policy enforced."
                 )
     

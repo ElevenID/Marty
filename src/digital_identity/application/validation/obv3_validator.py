@@ -95,7 +95,7 @@ class OBv3ValidationService:
             # Validate data type if specified
             expected_type = requirements.get("data_type")
             if expected_type:
-                actual_type = claim_def.get("data_type") or claim_def.get("type")
+                actual_type = claim_def.get("type") or claim_def.get("data_type")
                 if actual_type != expected_type:
                     errors.append(
                         f"Claim '{claim_name}' must have data_type '{expected_type}', "
@@ -217,7 +217,7 @@ class OBv3ValidationService:
         for claim_name, requirements in OBV3_REQUIRED_CLAIMS.items():
             claim_def = {
                 "claim_name": claim_name,
-                "data_type": requirements["data_type"],
+                "type": requirements["data_type"],
                 "required": requirements["required"],
                 "description": requirements["description"],
             }
