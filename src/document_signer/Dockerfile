@@ -21,7 +21,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir uv
 
-COPY Marty/pyproject.toml Marty/uv.lock Marty/README.md /app/
+COPY pyproject.toml uv.lock README.md /app/
 
 # Install dependencies with BuildKit cache
 RUN uv pip install --system -e .
@@ -50,10 +50,10 @@ COPY --from=builder /usr/local/bin /usr/local/bin
 RUN mkdir -p /app/src/proto
 
 # Copy the proto files
-COPY Marty/proto/ /app/proto/
+COPY proto/ /app/proto/
 
 # Copy the source code
-COPY Marty/src/ /app/src/
+COPY src/ /app/src/
 
 # Make directories Python packages
 RUN touch /app/proto/__init__.py

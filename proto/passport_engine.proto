@@ -2,8 +2,13 @@ syntax = "proto3";
 
 package marty.passport.v1;
 
+// See proto/v1/passport_engine.proto for the canonical versioned definition.
+// This file is kept for legacy tooling that references proto/ directly.
+
 service PassportEngine {
   rpc ProcessPassport (PassportRequest) returns (PassportResponse);
+  rpc IssuePassport   (IssuePassportRequest)  returns (IssuePassportResponse);
+  rpc VerifyPassport  (VerifyPassportRequest) returns (VerifyPassportResponse);
 }
 
 message PassportRequest {
@@ -12,4 +17,42 @@ message PassportRequest {
 
 message PassportResponse {
   string status = 1;
+}
+
+message DataGroup {
+  uint32 number  = 1;
+  bytes  content = 2;
+}
+
+message IssuePassportRequest {
+  string country_code  = 1;
+  string organization  = 2;
+  repeated DataGroup data_groups = 3;
+  string csca_cert_pem = 4;
+  string csca_key_pem  = 5;
+}
+
+message IssuePassportResponse {
+  string status           = 1;
+  string sod_der_base64   = 2;
+  string csca_cert_pem    = 3;
+  string dsc_cert_pem     = 4;
+  map<string, string> data_groups = 5;
+  string error_message    = 6;
+}
+
+message VerifyPassportRequest {
+  string sod_der_base64            = 1;
+  string csca_cert_pem             = 2;
+  map<string, string> data_groups  = 3;
+  repeated string crl_der_base64_list = 4;
+}
+
+message VerifyPassportResponse {
+  bool   valid             = 1;
+  string status            = 2;
+  string chain_status      = 3;
+  string hash_status       = 4;
+  string revocation_status = 5;
+  string message           = 6;
 }

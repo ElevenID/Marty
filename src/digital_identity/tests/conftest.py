@@ -13,9 +13,8 @@ from datetime import datetime, timedelta, timezone
 from typing import AsyncGenerator
 from uuid import uuid4
 
-from sqlalchemy import String, DateTime, JSON
+from sqlalchemy import JSON
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
-from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.pool import StaticPool
 
 from digital_identity.infrastructure.persistence.models import Base
@@ -27,18 +26,9 @@ from digital_identity.infrastructure.persistence.database import (
 
 
 # ============================================================================
-# Stub Tables for Foreign Key Resolution (Test Only)
+# OrganizationModel is now defined in persistence/models.py — no stub needed
 # ============================================================================
 
-class OrganizationModel(Base):
-    """Stub model for organizations table (required for FK constraints)."""
-    
-    __tablename__ = "organizations"
-    
-    id: Mapped[str] = mapped_column(String(36), primary_key=True)
-    name: Mapped[str] = mapped_column(String(255), nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
 from digital_identity.infrastructure.adapters.events import InMemoryEventPublisher
 from digital_identity.domain.entities import (
     TrustProfile,
@@ -201,11 +191,20 @@ def trust_profile_service(
     trust_profile_repository: TrustProfileRepository,
     event_publisher: InMemoryEventPublisher,
 ) -> TrustProfileService:
-    """Create TrustProfile service."""
+    """Create TrustProfile service with mock trust adapters."""
+    from unittest.mock import AsyncMock
+
+    # Provide stub adapters keyed by profile type so _adapter_for() resolves
+    mock_adapters = {
+        "ICAO": AsyncMock(name="icao_adapter"),
+        "AAMVA": AsyncMock(name="aamva_adapter"),
+        "EUDI": AsyncMock(name="eudi_adapter"),
+        "CUSTOM": AsyncMock(name="custom_adapter"),
+    }
     return TrustProfileService(
         repository=trust_profile_repository,
         event_publisher=event_publisher,
-        trust_validation=None,  # Not needed for basic tests
+        trust_adapters=mock_adapters,
     )
 
 

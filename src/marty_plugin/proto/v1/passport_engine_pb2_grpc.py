@@ -5,7 +5,7 @@ import warnings
 
 from . import passport_engine_pb2 as passport__engine__pb2
 
-GRPC_GENERATED_VERSION = '1.75.0'
+GRPC_GENERATED_VERSION = '1.76.0'
 GRPC_VERSION = grpc.__version__
 _version_not_supported = False
 
@@ -18,7 +18,7 @@ except ImportError:
 if _version_not_supported:
     raise RuntimeError(
         f'The grpc package installed is at version {GRPC_VERSION},'
-        + f' but the generated code in passport_engine_pb2_grpc.py depends on'
+        + ' but the generated code in passport_engine_pb2_grpc.py depends on'
         + f' grpcio>={GRPC_GENERATED_VERSION}.'
         + f' Please upgrade your grpc module to grpcio>={GRPC_GENERATED_VERSION}'
         + f' or downgrade your generated code using grpcio-tools<={GRPC_VERSION}.'
@@ -26,7 +26,16 @@ if _version_not_supported:
 
 
 class PassportEngineStub(object):
-    """Missing associated documentation comment in .proto file."""
+    """---------------------------------------------------------------------------
+    PassportEngine — ICAO 9303-compliant ePassport issuance and verification.
+
+    Role mapping:
+    IssuePassport     → CSCA/DSC generation + EF.SOD signing
+    VerifyPassport    → CSCA→DSC→SOD chain + data-group hash verification
+    ProcessPassport   → Legacy single-field entry (retained for compatibility)
+    ---------------------------------------------------------------------------
+
+    """
 
     def __init__(self, channel):
         """Constructor.
@@ -39,13 +48,51 @@ class PassportEngineStub(object):
                 request_serializer=passport__engine__pb2.PassportRequest.SerializeToString,
                 response_deserializer=passport__engine__pb2.PassportResponse.FromString,
                 _registered_method=True)
+        self.IssuePassport = channel.unary_unary(
+                '/marty.passport.v1.PassportEngine/IssuePassport',
+                request_serializer=passport__engine__pb2.IssuePassportRequest.SerializeToString,
+                response_deserializer=passport__engine__pb2.IssuePassportResponse.FromString,
+                _registered_method=True)
+        self.VerifyPassport = channel.unary_unary(
+                '/marty.passport.v1.PassportEngine/VerifyPassport',
+                request_serializer=passport__engine__pb2.VerifyPassportRequest.SerializeToString,
+                response_deserializer=passport__engine__pb2.VerifyPassportResponse.FromString,
+                _registered_method=True)
 
 
 class PassportEngineServicer(object):
-    """Missing associated documentation comment in .proto file."""
+    """---------------------------------------------------------------------------
+    PassportEngine — ICAO 9303-compliant ePassport issuance and verification.
+
+    Role mapping:
+    IssuePassport     → CSCA/DSC generation + EF.SOD signing
+    VerifyPassport    → CSCA→DSC→SOD chain + data-group hash verification
+    ProcessPassport   → Legacy single-field entry (retained for compatibility)
+    ---------------------------------------------------------------------------
+
+    """
 
     def ProcessPassport(self, request, context):
-        """Missing associated documentation comment in .proto file."""
+        """Legacy entry: process a passport by number only.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def IssuePassport(self, request, context):
+        """ICAO 9303-compliant issuance: produce a signed EF.SOD from data groups.
+
+        The caller supplies DG bytes (DG1 = MRZ, DG2 = facial image, etc.) and
+        an optional existing CSCA.  When csca_cert_pem / csca_key_pem are empty
+        a fresh self-signed CSCA is generated internally (test / bootstrap mode).
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def VerifyPassport(self, request, context):
+        """Verify an EF.SOD against the CSCA trust chain and check data-group hashes.
+        """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
@@ -58,6 +105,16 @@ def add_PassportEngineServicer_to_server(servicer, server):
                     request_deserializer=passport__engine__pb2.PassportRequest.FromString,
                     response_serializer=passport__engine__pb2.PassportResponse.SerializeToString,
             ),
+            'IssuePassport': grpc.unary_unary_rpc_method_handler(
+                    servicer.IssuePassport,
+                    request_deserializer=passport__engine__pb2.IssuePassportRequest.FromString,
+                    response_serializer=passport__engine__pb2.IssuePassportResponse.SerializeToString,
+            ),
+            'VerifyPassport': grpc.unary_unary_rpc_method_handler(
+                    servicer.VerifyPassport,
+                    request_deserializer=passport__engine__pb2.VerifyPassportRequest.FromString,
+                    response_serializer=passport__engine__pb2.VerifyPassportResponse.SerializeToString,
+            ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
             'marty.passport.v1.PassportEngine', rpc_method_handlers)
@@ -67,7 +124,16 @@ def add_PassportEngineServicer_to_server(servicer, server):
 
  # This class is part of an EXPERIMENTAL API.
 class PassportEngine(object):
-    """Missing associated documentation comment in .proto file."""
+    """---------------------------------------------------------------------------
+    PassportEngine — ICAO 9303-compliant ePassport issuance and verification.
+
+    Role mapping:
+    IssuePassport     → CSCA/DSC generation + EF.SOD signing
+    VerifyPassport    → CSCA→DSC→SOD chain + data-group hash verification
+    ProcessPassport   → Legacy single-field entry (retained for compatibility)
+    ---------------------------------------------------------------------------
+
+    """
 
     @staticmethod
     def ProcessPassport(request,
@@ -86,6 +152,60 @@ class PassportEngine(object):
             '/marty.passport.v1.PassportEngine/ProcessPassport',
             passport__engine__pb2.PassportRequest.SerializeToString,
             passport__engine__pb2.PassportResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def IssuePassport(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/marty.passport.v1.PassportEngine/IssuePassport',
+            passport__engine__pb2.IssuePassportRequest.SerializeToString,
+            passport__engine__pb2.IssuePassportResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def VerifyPassport(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/marty.passport.v1.PassportEngine/VerifyPassport',
+            passport__engine__pb2.VerifyPassportRequest.SerializeToString,
+            passport__engine__pb2.VerifyPassportResponse.FromString,
             options,
             channel_credentials,
             insecure,

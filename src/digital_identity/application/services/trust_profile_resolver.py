@@ -212,10 +212,7 @@ class TrustProfileResolver:
             # Build from framework defaults
             revocation_policy = RevocationPolicy(
                 check_mode=RevocationCheckMode(fw_revocation.get("check_mode") or fw_revocation.get("mode", "HARD_FAIL")),
-                check_ocsp=fw_revocation.get("check_ocsp", True),
-                check_crl=fw_revocation.get("check_crl", True),
-                check_status_list=fw_revocation.get("check_status_list", True),
-                cache_ttl_seconds=int(fw_revocation.get("cache_ttl_seconds", 3600)),
+                cache_ttl_seconds=int(fw_revocation.get("cache_ttl_seconds", 300)),
             )
         
         # Use org time policy if set, otherwise build from framework defaults

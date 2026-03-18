@@ -1,0 +1,17 @@
+{
+  "version": "1.0.0",
+  "description": "Open Badge v3 trust store — pinned issuer DIDs for verifiable badge credentials",
+  "framework": "OB3",
+  "trusted_issuers": [
+    {
+      "did": "did:web:marty.example.com",
+      "name": "Marty Platform (System Issuer)",
+      "algorithms": ["ES256", "EdDSA"],
+      "formats": ["VC_JWT", "JSON_LD"],
+      "status": "active",
+      "pinned_at": "2026-03-16T00:00:00Z"
+    }
+  ],
+  "trusted_verifiers": [],
+  "revoked_issuers": []
+}

@@ -93,7 +93,7 @@ class IssuerArtifactService:
         requirements = compliance_profile.get_artifact_requirements()
         
         # Validate production environments
-        if environment == "production" and requirements.hsm_required_for_production:
+        if environment == "production":
             errors = self._validate_artifacts(template, requirements)
             if errors:
                 logger.error(
@@ -129,24 +129,14 @@ class IssuerArtifactService:
         """
         errors = []
         
-        if requirements.requires_signing_key and not template.issuer_key_id:
+        if requirements.requires_x509_cert and not template.issuer_certificate_chain_pem:
             errors.append(
-                f"Signing key required for {requirements.format}"
+                f"X.509 certificate required for {template.credential_type}"
             )
         
-        if requirements.requires_certificate_chain and not template.issuer_certificate_chain_pem:
+        if requirements.requires_did and not template.issuer_did:
             errors.append(
-                f"Certificate chain required for {requirements.format} (mDoc/IACA)"
-            )
-        
-        if requirements.requires_issuer_did and not template.issuer_did:
-            errors.append(
-                f"Issuer DID required for {requirements.format}"
-            )
-        
-        if requirements.requires_iaca_registration and not template.issuer_certificate_chain_pem:
-            errors.append(
-                f"IACA registration required for {requirements.format} (mDoc)"
+                f"Issuer DID required for {template.credential_type}"
             )
         
         return errors
@@ -162,17 +152,17 @@ class IssuerArtifactService:
         Uses KeyVault.ensure_key() pattern to create keys if missing.
         """
         # Generate signing key if required and missing
-        if requirements.requires_signing_key and not template.issuer_key_id:
+        if not template.issuer_key_id:
             key_id = f"app-template-{template.id}-signing"
-            algorithm = requirements.allowed_algorithms[0]  # Use first allowed
+            algorithm = requirements.recommended_algorithms[0]  # Use first recommended
             
             await self._key_vault.ensure_key(key_id, algorithm.value)
             template.issuer_key_id = key_id
             logger.debug(f"Generated signing key: {key_id} ({algorithm})")
         
         # Generate DID if required and missing
-        if requirements.requires_issuer_did and not template.issuer_did and self._key_manager:
-            algorithm = requirements.allowed_algorithms[0]
+        if requirements.requires_did and not template.issuer_did and self._key_manager:
+            algorithm = requirements.recommended_algorithms[0]
             key_pair = self._key_manager.generate_key(algorithm.value)
             template.issuer_did = key_pair.get("did")
             logger.debug(f"Generated issuer DID: {template.issuer_did}")
@@ -183,9 +173,9 @@ class IssuerArtifactService:
         # 2. Getting it signed by an IACA
         # 3. Building the full chain: DSC -> IACA -> CSCA
         # This is intentionally not auto-generated in dev mode.
-        if requirements.requires_certificate_chain and not template.issuer_certificate_chain_pem:
+        if requirements.requires_x509_cert and not template.issuer_certificate_chain_pem:
             logger.warning(
-                f"Certificate chain required for {requirements.format} but cannot be auto-generated. "
+                f"Certificate chain required for {template.credential_type} but cannot be auto-generated. "
                 "Manual certificate provisioning required."
             )
     
@@ -208,13 +198,10 @@ class IssuerArtifactService:
         
         errors = []
         
-        if requirements.requires_signing_key and not issuer_key_id:
-            errors.append(f"Signing key required for {credential_format}")
+        if requirements.requires_x509_cert and not issuer_certificate_chain_pem:
+            errors.append(f"X.509 certificate required for {credential_format}")
         
-        if requirements.requires_certificate_chain and not issuer_certificate_chain_pem:
-            errors.append(f"Certificate chain required for {credential_format}")
-        
-        if requirements.requires_issuer_did and not issuer_did:
+        if requirements.requires_did and not issuer_did:
             errors.append(f"Issuer DID required for {credential_format}")
         
         return errors

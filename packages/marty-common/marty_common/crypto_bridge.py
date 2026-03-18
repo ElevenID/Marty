@@ -45,6 +45,14 @@ try:
         get_ssi_version,
         sum_as_string,
     )
+    # BBS+ operations (from bbs submodule)
+    from _marty_rs.bbs import (
+        generate_bls12381_key,
+        bbs_sign,
+        bbs_verify,
+        bbs_create_proof,
+        bbs_verify_proof,
+    )
     _marty_rs_available = True
     logger.info("marty-rs FFI loaded successfully")
 except ImportError as e:
@@ -71,6 +79,12 @@ except ImportError as e:
     check_isomdl = None
     get_ssi_version = None
     sum_as_string = None
+    # BBS+ stubs
+    generate_bls12381_key = None
+    bbs_sign = None
+    bbs_verify = None
+    bbs_create_proof = None
+    bbs_verify_proof = None
 
 # =============================================================================
 # Import marty-verification-py (verification operations)
@@ -149,6 +163,12 @@ __all__ = [
     # Utility (marty-rs)
     'check_isomdl',
     'get_ssi_version',
+    # BBS+ (marty-rs)
+    'generate_bls12381_key',
+    'bbs_sign',
+    'bbs_verify',
+    'bbs_create_proof',
+    'bbs_verify_proof',
     # Open Badges (marty-verification)
     'open_badge_ob2_issue',
     'open_badge_ob2_verify',

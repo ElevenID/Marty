@@ -103,14 +103,10 @@ async def get_trust_profile_service(
     
     repository = TrustProfileRepository(session)
     
-    # Get configured trust adapter based on default profile type
-    # Individual operations may use different adapters based on profile.type
-    trust_adapter = get_trust_adapter("ICAO")  # Default to ICAO
-    
     return TrustProfileService(
         repository=repository,
         event_publisher=get_event_publisher(),
-        trust_adapter=trust_adapter,
+        trust_adapters=_trust_adapters,
     )
 
 
@@ -208,14 +204,14 @@ async def get_issuer_registry_service(
     from digital_identity.infrastructure.persistence.repositories import (
         IssuerRepository,
         TrustProfileIssuerRepository,
-        CascadeOperationRepository,
+        CascadeRevocationOperationRepository,
         IssuedCredentialRepository,
     )
     from digital_identity.application.services.issuer_registry_service import IssuerRegistryService
     
     issuer_repo = IssuerRepository(session)
     tp_issuer_repo = TrustProfileIssuerRepository(session)
-    cascade_repo = CascadeOperationRepository(session)
+    cascade_repo = CascadeRevocationOperationRepository(session)
     credential_repo = IssuedCredentialRepository(session)
     
     return IssuerRegistryService(
@@ -223,5 +219,258 @@ async def get_issuer_registry_service(
         trust_profile_issuer_repository=tp_issuer_repo,
         cascade_operation_repository=cascade_repo,
         credential_repository=credential_repo,
+        event_publisher=get_event_publisher(),
+    )
+
+
+async def get_revocation_profile_service(
+    session: AsyncSession = Depends(get_db_session),
+):
+    """Get Revocation Profile service instance."""
+    from digital_identity.infrastructure.persistence.repositories import RevocationProfileRepository
+    from digital_identity.application.services.revocation_profile_service import RevocationProfileService
+
+    repository = RevocationProfileRepository(session)
+    return RevocationProfileService(
+        repository=repository,
+        event_publisher=get_event_publisher(),
+    )
+
+
+async def get_application_template_service(
+    session: AsyncSession = Depends(get_db_session),
+):
+    """Get Application Template service instance."""
+    from digital_identity.infrastructure.persistence.repositories import ApplicationTemplateRepository
+    from digital_identity.application.services.application_template_service import ApplicationTemplateService
+
+    repository = ApplicationTemplateRepository(session)
+    return ApplicationTemplateService(
+        repository=repository,
+        event_publisher=get_event_publisher(),
+    )
+
+
+async def get_verification_session_service(
+    session: AsyncSession = Depends(get_db_session),
+):
+    """Get Verification Session service instance."""
+    from digital_identity.infrastructure.persistence.repositories import VerificationSessionRepository
+    from digital_identity.application.services.verification_session_service import VerificationSessionService
+
+    repository = VerificationSessionRepository(session)
+    return VerificationSessionService(
+        repository=repository,
+        event_publisher=get_event_publisher(),
+    )
+
+
+async def get_compliance_profile_service(
+    session: AsyncSession = Depends(get_db_session),
+):
+    """Get Compliance Profile service instance."""
+    from digital_identity.infrastructure.persistence.repositories import ComplianceProfileRepository
+    from digital_identity.application.services.compliance_profile_service import ComplianceProfileService
+
+    repository = ComplianceProfileRepository(session)
+    return ComplianceProfileService(
+        repository=repository,
+        event_publisher=get_event_publisher(),
+    )
+
+
+async def get_trust_framework_service(
+    session: AsyncSession = Depends(get_db_session),
+):
+    """Get Trust Framework service instance."""
+    from digital_identity.infrastructure.persistence.repositories import TrustFrameworkRepository
+    from digital_identity.application.services.trust_framework_service import TrustFrameworkService
+
+    repository = TrustFrameworkRepository(session)
+    return TrustFrameworkService(
+        repository=repository,
+        event_publisher=get_event_publisher(),
+    )
+
+
+async def get_organization_trust_profile_service(
+    session: AsyncSession = Depends(get_db_session),
+):
+    """Get Organization Trust Profile service instance."""
+    from digital_identity.infrastructure.persistence.repositories import (
+        OrganizationTrustProfileRepository,
+        TrustFrameworkRepository,
+    )
+    from digital_identity.application.services.organization_trust_profile_service import OrganizationTrustProfileService
+
+    repository = OrganizationTrustProfileRepository(session)
+    framework_repository = TrustFrameworkRepository(session)
+    return OrganizationTrustProfileService(
+        repository=repository,
+        framework_repository=framework_repository,
+        event_publisher=get_event_publisher(),
+    )
+
+
+async def get_organization_service(
+    session: AsyncSession = Depends(get_db_session),
+):
+    """Get Organization service instance."""
+    from digital_identity.infrastructure.persistence.repositories import OrganizationRepository
+    from digital_identity.application.services.organization_service import OrganizationService
+
+    repository = OrganizationRepository(session)
+    return OrganizationService(
+        repository=repository,
+        event_publisher=get_event_publisher(),
+    )
+
+
+async def get_webhook_service(
+    session: AsyncSession = Depends(get_db_session),
+):
+    """Get Webhook service instance."""
+    from digital_identity.infrastructure.persistence.repositories import WebhookRepository
+    from digital_identity.application.services.webhook_service import WebhookService
+
+    repository = WebhookRepository(session)
+    return WebhookService(
+        repository=repository,
+        event_publisher=get_event_publisher(),
+    )
+
+
+async def get_subscription_service(
+    session: AsyncSession = Depends(get_db_session),
+):
+    """Get Subscription service instance."""
+    from digital_identity.infrastructure.persistence.repositories import SubscriptionRepository
+    from digital_identity.application.services.subscription_service import SubscriptionService
+
+    repository = SubscriptionRepository(session)
+    return SubscriptionService(
+        repository=repository,
+        event_publisher=get_event_publisher(),
+    )
+
+
+async def get_api_key_service(
+    session: AsyncSession = Depends(get_db_session),
+):
+    """Get API Key service instance."""
+    from digital_identity.infrastructure.persistence.repositories import ApiKeyRepository
+    from digital_identity.application.services.api_key_service import ApiKeyService
+
+    repository = ApiKeyRepository(session)
+    return ApiKeyService(
+        repository=repository,
+        event_publisher=get_event_publisher(),
+    )
+
+
+async def get_issuance_record_service(
+    session: AsyncSession = Depends(get_db_session),
+):
+    from digital_identity.infrastructure.persistence.repositories import IssuanceRecordRepository
+    from digital_identity.application.services.issuance_record_service import IssuanceRecordService
+
+    return IssuanceRecordService(
+        repository=IssuanceRecordRepository(session),
+        event_publisher=get_event_publisher(),
+    )
+
+
+async def get_policy_set_service(
+    session: AsyncSession = Depends(get_db_session),
+):
+    from digital_identity.infrastructure.persistence.repositories import PolicySetRepository
+    from digital_identity.application.services.policy_set_service import PolicySetService
+
+    return PolicySetService(
+        repository=PolicySetRepository(session),
+        event_publisher=get_event_publisher(),
+    )
+
+
+async def get_wallet_profile_service(
+    session: AsyncSession = Depends(get_db_session),
+):
+    from digital_identity.infrastructure.persistence.repositories import WalletProfileRepository
+    from digital_identity.application.services.wallet_profile_service import WalletProfileService
+
+    return WalletProfileService(
+        repository=WalletProfileRepository(session),
+        event_publisher=get_event_publisher(),
+    )
+
+
+async def get_device_registration_service(
+    session: AsyncSession = Depends(get_db_session),
+):
+    from digital_identity.infrastructure.persistence.repositories import DeviceRegistrationRepository
+    from digital_identity.application.services.device_registration_service import DeviceRegistrationService
+
+    return DeviceRegistrationService(
+        repository=DeviceRegistrationRepository(session),
+        event_publisher=get_event_publisher(),
+    )
+
+
+async def get_applicant_service(
+    session: AsyncSession = Depends(get_db_session),
+):
+    from digital_identity.infrastructure.persistence.repositories import ApplicantRepository
+    from digital_identity.application.services.applicant_service import ApplicantService
+
+    return ApplicantService(
+        repository=ApplicantRepository(session),
+        event_publisher=get_event_publisher(),
+    )
+
+
+async def get_reviewer_lock_service(
+    session: AsyncSession = Depends(get_db_session),
+):
+    from digital_identity.infrastructure.persistence.repositories import ReviewerLockRepository
+    from digital_identity.application.services.reviewer_lock_service import ReviewerLockService
+
+    return ReviewerLockService(
+        repository=ReviewerLockRepository(session),
+        event_publisher=get_event_publisher(),
+    )
+
+
+async def get_vetting_check_service(
+    session: AsyncSession = Depends(get_db_session),
+):
+    from digital_identity.infrastructure.persistence.repositories import VettingCheckRepository
+    from digital_identity.application.services.vetting_check_service import VettingCheckService
+
+    return VettingCheckService(
+        repository=VettingCheckRepository(session),
+        event_publisher=get_event_publisher(),
+    )
+
+
+async def get_biometric_enrollment_service(
+    session: AsyncSession = Depends(get_db_session),
+):
+    from digital_identity.infrastructure.persistence.repositories import BiometricEnrollmentRepository
+    from digital_identity.application.services.biometric_enrollment_service import BiometricEnrollmentService
+
+    return BiometricEnrollmentService(
+        repository=BiometricEnrollmentRepository(session),
+        event_publisher=get_event_publisher(),
+    )
+
+
+async def get_notification_payload_service(
+    session: AsyncSession = Depends(get_db_session),
+):
+    from digital_identity.infrastructure.persistence.repositories import NotificationPayloadRepository
+    from digital_identity.application.services.notification_payload_service import NotificationPayloadService
+
+    return NotificationPayloadService(
+        repository=NotificationPayloadRepository(session),
         event_publisher=get_event_publisher(),
     )

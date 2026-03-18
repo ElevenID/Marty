@@ -1,0 +1,289 @@
+// ============================================================================
+// MIP Cedar Schema — Marty Backend gRPC Services
+// ============================================================================
+//
+// Extends the base MIP entity model with actions specific to the Marty
+// backend gRPC services (document signing, inspection, PKI, KYC, etc.).
+//
+// Cedar version: >= 4.3
+// ============================================================================
+
+namespace MIP {
+
+  // ========================================================================
+  // Common types
+  // ========================================================================
+
+  type RequestContext = {
+    ip_address: __cedar::ipaddr,
+    timestamp: Long,
+    mfa_authenticated: Bool,
+    session_id?: String,
+    user_agent?: String,
+  };
+
+  // ========================================================================
+  // Principal entity types
+  // ========================================================================
+
+  entity User in [Organization, Role] {
+    email: String,
+    status: String,
+  };
+
+  entity ServiceAccount in [Organization] {
+    service_name: String,
+  };
+
+  // ========================================================================
+  // Grouping / hierarchy entity types
+  // ========================================================================
+
+  entity Organization {};
+
+  entity Role in [Organization] {
+    is_system_role: Bool,
+  };
+
+  // ========================================================================
+  // Resource entity type for gRPC service endpoints
+  // ========================================================================
+
+  entity ServiceResource in [Organization] {};
+
+  // ========================================================================
+  // Actions — backend gRPC service operations
+  // ========================================================================
+
+  // ── Document operations ─────────────────────────────────────────────────
+
+  action "document:sign" appliesTo {
+    principal: [User, ServiceAccount],
+    resource: [ServiceResource],
+    context: RequestContext,
+  };
+
+  action "document:verify" appliesTo {
+    principal: [User, ServiceAccount],
+    resource: [ServiceResource],
+    context: RequestContext,
+  };
+
+  action "document:inspect" appliesTo {
+    principal: [User, ServiceAccount],
+    resource: [ServiceResource],
+    context: RequestContext,
+  };
+
+  action "document:read" appliesTo {
+    principal: [User, ServiceAccount],
+    resource: [ServiceResource],
+    context: RequestContext,
+  };
+
+  action "document:create" appliesTo {
+    principal: [User, ServiceAccount],
+    resource: [ServiceResource],
+    context: RequestContext,
+  };
+
+  action "document:update" appliesTo {
+    principal: [User, ServiceAccount],
+    resource: [ServiceResource],
+    context: RequestContext,
+  };
+
+  action "document:revoke" appliesTo {
+    principal: [User, ServiceAccount],
+    resource: [ServiceResource],
+    context: RequestContext,
+  };
+
+  // ── Certificate / PKI operations ────────────────────────────────────────
+
+  action "certificate:validate" appliesTo {
+    principal: [User, ServiceAccount],
+    resource: [ServiceResource],
+    context: RequestContext,
+  };
+
+  action "certificate:issue" appliesTo {
+    principal: [User, ServiceAccount],
+    resource: [ServiceResource],
+    context: RequestContext,
+  };
+
+  action "certificate:revoke" appliesTo {
+    principal: [User, ServiceAccount],
+    resource: [ServiceResource],
+    context: RequestContext,
+  };
+
+  // ── Trust management ────────────────────────────────────────────────────
+
+  action "trust:manage" appliesTo {
+    principal: [User, ServiceAccount],
+    resource: [ServiceResource],
+    context: RequestContext,
+  };
+
+  action "trust:query" appliesTo {
+    principal: [User, ServiceAccount],
+    resource: [ServiceResource],
+    context: RequestContext,
+  };
+
+  // ── Travel document verification ────────────────────────────────────────
+
+  action "passport:verify" appliesTo {
+    principal: [User, ServiceAccount],
+    resource: [ServiceResource],
+    context: RequestContext,
+  };
+
+  action "mdl:verify" appliesTo {
+    principal: [User, ServiceAccount],
+    resource: [ServiceResource],
+    context: RequestContext,
+  };
+
+  // ── Biometric operations ────────────────────────────────────────────────
+
+  action "biometric:enroll" appliesTo {
+    principal: [User, ServiceAccount],
+    resource: [ServiceResource],
+    context: RequestContext,
+  };
+
+  action "biometric:verify" appliesTo {
+    principal: [User, ServiceAccount],
+    resource: [ServiceResource],
+    context: RequestContext,
+  };
+
+  // ── Applicant management ────────────────────────────────────────────────
+
+  action "applicant:read" appliesTo {
+    principal: [User, ServiceAccount],
+    resource: [ServiceResource],
+    context: RequestContext,
+  };
+
+  action "applicant:update" appliesTo {
+    principal: [User, ServiceAccount],
+    resource: [ServiceResource],
+    context: RequestContext,
+  };
+
+  action "applicant:vet" appliesTo {
+    principal: [User, ServiceAccount],
+    resource: [ServiceResource],
+    context: RequestContext,
+  };
+
+  // ── Application management ──────────────────────────────────────────────
+
+  action "application:read" appliesTo {
+    principal: [User, ServiceAccount],
+    resource: [ServiceResource],
+    context: RequestContext,
+  };
+
+  action "application:create" appliesTo {
+    principal: [User, ServiceAccount],
+    resource: [ServiceResource],
+    context: RequestContext,
+  };
+
+  action "application:update" appliesTo {
+    principal: [User, ServiceAccount],
+    resource: [ServiceResource],
+    context: RequestContext,
+  };
+
+  action "application:approve" appliesTo {
+    principal: [User, ServiceAccount],
+    resource: [ServiceResource],
+    context: RequestContext,
+  };
+
+  action "application:reject" appliesTo {
+    principal: [User, ServiceAccount],
+    resource: [ServiceResource],
+    context: RequestContext,
+  };
+
+  // ── Vetting operations ──────────────────────────────────────────────────
+
+  action "vetting:create" appliesTo {
+    principal: [User, ServiceAccount],
+    resource: [ServiceResource],
+    context: RequestContext,
+  };
+
+  action "vetting:read" appliesTo {
+    principal: [User, ServiceAccount],
+    resource: [ServiceResource],
+    context: RequestContext,
+  };
+
+  action "vetting:update" appliesTo {
+    principal: [User, ServiceAccount],
+    resource: [ServiceResource],
+    context: RequestContext,
+  };
+
+  // ── KYC operations ──────────────────────────────────────────────────────
+
+  action "kyc:review" appliesTo {
+    principal: [User, ServiceAccount],
+    resource: [ServiceResource],
+    context: RequestContext,
+  };
+
+  action "kyc:approve" appliesTo {
+    principal: [User, ServiceAccount],
+    resource: [ServiceResource],
+    context: RequestContext,
+  };
+
+  action "kyc:reject" appliesTo {
+    principal: [User, ServiceAccount],
+    resource: [ServiceResource],
+    context: RequestContext,
+  };
+
+  action "kyc:submit" appliesTo {
+    principal: [User, ServiceAccount],
+    resource: [ServiceResource],
+    context: RequestContext,
+  };
+
+  // ── Profile operations (self-service) ───────────────────────────────────
+
+  action "profile:read" appliesTo {
+    principal: [User],
+    resource: [ServiceResource],
+    context: RequestContext,
+  };
+
+  action "profile:update" appliesTo {
+    principal: [User],
+    resource: [ServiceResource],
+    context: RequestContext,
+  };
+
+  // ── Service health / metrics ────────────────────────────────────────────
+
+  action "service:health" appliesTo {
+    principal: [User, ServiceAccount],
+    resource: [ServiceResource],
+    context: RequestContext,
+  };
+
+  action "service:metrics" appliesTo {
+    principal: [User, ServiceAccount],
+    resource: [ServiceResource],
+    context: RequestContext,
+  };
+}

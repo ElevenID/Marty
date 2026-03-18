@@ -22,6 +22,15 @@ from .exceptions import (
     ServiceCommunicationError,
 )
 
+from .authorization import (
+    AuthorizationContext,
+    AuthorizationError as AuthzError,
+    AuthzDecision,
+    PolicyEngine,
+    PolicyEvaluationError,
+    require,
+)
+
 __all__ = [
     "AuthenticationError",
     "ConfigurationError",
@@ -30,5 +39,11 @@ __all__ = [
     "OperationFailedError",
     "ResourceNotFoundError",
     "ServiceCommunicationError",
-    # ... other exports
+    # Cedar Authorization
+    "AuthorizationContext",
+    "AuthzError",
+    "AuthzDecision",
+    "PolicyEngine",
+    "PolicyEvaluationError",
+    "require",
 ]

@@ -41,6 +41,10 @@ app = FastAPI(
 DOCUMENT_SIGNER_HOST = os.getenv("DOCUMENT_SIGNER_HOST", "localhost")
 DOCUMENT_SIGNER_PORT = os.getenv("DOCUMENT_SIGNER_PORT", "8082")
 GRPC_DOCUMENT_SIGNER_ADDRESS = f"{DOCUMENT_SIGNER_HOST}:{DOCUMENT_SIGNER_PORT}"
+GRPC_TLS_ENABLED = os.getenv("GRPC_TLS_ENABLED", "false").lower() in ("true", "1", "yes")
+GRPC_TLS_CA_CERT = os.getenv("GRPC_TLS_CA_CERT")
+GRPC_TLS_CLIENT_CERT = os.getenv("GRPC_TLS_CLIENT_CERT")
+GRPC_TLS_CLIENT_KEY = os.getenv("GRPC_TLS_CLIENT_KEY")
 channel: grpc.Channel | None = None
 document_signer_stub: document_signer_pb2_grpc.DocumentSignerStub | None = None
 
@@ -80,12 +84,32 @@ async def notify_credential_issued(device_id: str, credential_id: str, credentia
         logger.warning(f"Failed to send SSE notification: {e}")
 
 
+def _read_tls_file(path: str | None) -> bytes | None:
+    if not path:
+        return None
+    try:
+        with open(path, "rb") as f:
+            return f.read()
+    except FileNotFoundError:
+        logger.warning("TLS file not found: %s", path)
+        return None
+
+
 def get_grpc_client() -> document_signer_pb2_grpc.DocumentSignerStub:
     """Get or create the gRPC client."""
     global channel, document_signer_stub
 
     if document_signer_stub is None:
-        channel = grpc.insecure_channel(GRPC_DOCUMENT_SIGNER_ADDRESS)
+        if GRPC_TLS_ENABLED:
+            credentials = grpc.ssl_channel_credentials(
+                root_certificates=_read_tls_file(GRPC_TLS_CA_CERT),
+                private_key=_read_tls_file(GRPC_TLS_CLIENT_KEY),
+                certificate_chain=_read_tls_file(GRPC_TLS_CLIENT_CERT),
+            )
+            channel = grpc.secure_channel(GRPC_DOCUMENT_SIGNER_ADDRESS, credentials)
+            logger.info("gRPC TLS channel to document-signer at %s", GRPC_DOCUMENT_SIGNER_ADDRESS)
+        else:
+            channel = grpc.insecure_channel(GRPC_DOCUMENT_SIGNER_ADDRESS)
         document_signer_stub = document_signer_pb2_grpc.DocumentSignerStub(channel)
 
     return document_signer_stub

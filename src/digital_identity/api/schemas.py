@@ -20,10 +20,11 @@ from pydantic import BaseModel, Field
 class ComplianceProfileBase(BaseModel):
     """Base schema for Compliance Profile."""
     
-    name: str = Field(..., min_length=1, max_length=255)
+    name: str = Field(..., min_length=1, max_length=128)
     description: str | None = None
     compliance_code: str = Field(..., min_length=1, max_length=100)
-    credential_format: str = Field(..., description="Credential format: mdoc, sd_jwt_vc, jwt_vc, ldp_vc")
+    credential_format: str = Field(..., description="Credential format: MDOC, SD_JWT_VC, VC_JWT, JSON_LD, ZK_MDOC")
+    issuance_protocol: str | None = Field(default=None, description="Issuance protocol: OID4VCI_PRE_AUTH, OID4VCI_AUTH_CODE, DIRECT")
     issuer_artifact_requirements: dict[str, Any] | None = None
     default_verification_rules: list[dict[str, Any]] = Field(default_factory=list)
     trust_profile_constraints: dict[str, Any] = Field(default_factory=dict)
@@ -42,6 +43,7 @@ class ComplianceProfileUpdate(BaseModel):
     description: str | None = None
     compliance_code: str | None = None
     credential_format: str | None = None
+    issuance_protocol: str | None = None
     issuer_artifact_requirements: dict[str, Any] | None = None
     default_verification_rules: list[dict[str, Any]] | None = None
     trust_profile_constraints: dict[str, Any] | None = None

@@ -38,6 +38,10 @@ class TrustProfileService:
     
     Orchestrates domain operations for Trust Profiles including
     CRUD, trust source management, and trust data refresh.
+    
+    Accepts a dict of trust adapters keyed by profile_type string
+    (e.g. ``{"ICAO": IcaoTrustProfile(...), "AAMVA": AamvaTrustProfile(...)}``).
+    The correct adapter is resolved per-profile via ``_adapter_for()``.
     """
     
     def __init__(
@@ -45,10 +49,21 @@ class TrustProfileService:
         repository: TrustProfileRepositoryPort,
         trust_validation: TrustValidationPort | None = None,
         event_publisher: EventPublisherPort | None = None,
+        trust_adapters: dict[str, Any] | None = None,
     ):
         self._repository = repository
         self._trust_validation = trust_validation
         self._event_publisher = event_publisher
+        self._trust_adapters: dict[str, Any] = trust_adapters or {}
+
+    def _adapter_for(self, profile: TrustProfile) -> Any | None:
+        """Resolve the trust adapter for a given profile's type.
+        
+        Falls back to CUSTOM adapter if the profile_type-specific
+        adapter is not registered.
+        """
+        key = profile.profile_type.value if isinstance(profile.profile_type, TrustProfileType) else str(profile.profile_type)
+        return self._trust_adapters.get(key) or self._trust_adapters.get("CUSTOM")
     
     async def create(
         self,
@@ -99,10 +114,7 @@ class TrustProfileService:
             
             profile.revocation_policy = RevocationPolicy(
                 check_mode=RevocationCheckMode(revocation_policy.get("check_mode") or revocation_policy.get("mode", "HARD_FAIL")),
-                check_ocsp=revocation_policy.get("check_ocsp", True),
-                check_crl=revocation_policy.get("check_crl", True),
-                check_status_list=revocation_policy.get("check_status_list", True),
-                cache_ttl_seconds=int(revocation_policy.get("cache_ttl_seconds", 3600)),
+                cache_ttl_seconds=int(revocation_policy.get("cache_ttl_seconds", 300)),
             )
         
         # Apply time policy if provided
@@ -238,3 +250,110 @@ class TrustProfileService:
         
         logger.info(f"Refreshed trust data for profile {profile_id}: {result}")
         return result
+
+    async def update_revocation_services(
+        self,
+        profile_id: str,
+        config: dict[str, Any],
+    ) -> TrustProfile | None:
+        """Update revocation services configuration for a trust profile."""
+        profile = await self._repository.get(profile_id)
+        if not profile:
+            return None
+
+        profile.revocation_services = config
+        profile.touch()
+        saved = await self._repository.save(profile)
+        logger.info(f"Updated revocation services for profile {profile_id}")
+        return saved
+
+    async def update_system_issuer_overrides(
+        self,
+        profile_id: str,
+        overrides: dict[str, Any],
+    ) -> TrustProfile | None:
+        """Bulk update system issuer overrides for a trust profile."""
+        profile = await self._repository.get(profile_id)
+        if not profile:
+            return None
+
+        profile.system_issuer_overrides = overrides
+        profile.touch()
+        saved = await self._repository.save(profile)
+        logger.info(f"Updated system issuer overrides for profile {profile_id}")
+        return saved
+
+    # ------------------------------------------------------------------
+    # Trust adapter delegation
+    # ------------------------------------------------------------------
+
+    async def validate_chain(
+        self,
+        profile_id: str,
+        certificate_pem: str | None = None,
+        certificate_der: bytes | None = None,
+    ) -> dict[str, Any]:
+        """Validate a certificate chain using the adapter matching the profile's type."""
+        profile = await self._repository.get(profile_id)
+        if not profile:
+            return {"error": f"Trust Profile {profile_id} not found"}
+
+        adapter = self._adapter_for(profile)
+        if adapter is None:
+            return {"error": f"No trust adapter registered for profile_type={profile.profile_type}"}
+
+        result = await adapter.validate_chain(
+            certificate_pem=certificate_pem,
+            certificate_der=certificate_der,
+        )
+        return {
+            "status": result.status.value if hasattr(result.status, "value") else str(result.status),
+            "trust_anchor_id": result.trust_anchor_id,
+            "chain_length": result.chain_length,
+            "errors": result.errors,
+        }
+
+    async def get_trust_anchors(
+        self,
+        profile_id: str,
+        jurisdiction: str | None = None,
+        country_code: str | None = None,
+    ) -> list[Any]:
+        """Get trust anchors from the adapter matching the profile's type."""
+        profile = await self._repository.get(profile_id)
+        if not profile:
+            return []
+
+        adapter = self._adapter_for(profile)
+        if adapter is None:
+            return []
+
+        return await adapter.get_trust_anchors(
+            jurisdiction=jurisdiction,
+            country_code=country_code,
+        )
+
+    async def check_revocation(
+        self,
+        profile_id: str,
+        certificate_pem: str | None = None,
+        certificate_der: bytes | None = None,
+    ) -> dict[str, Any]:
+        """Check certificate revocation using the adapter matching the profile's type."""
+        profile = await self._repository.get(profile_id)
+        if not profile:
+            return {"error": f"Trust Profile {profile_id} not found"}
+
+        adapter = self._adapter_for(profile)
+        if adapter is None:
+            return {"error": f"No trust adapter registered for profile_type={profile.profile_type}"}
+
+        result = await adapter.check_revocation(
+            certificate_pem=certificate_pem,
+            certificate_der=certificate_der,
+        )
+        return {
+            "status": result.status.value if hasattr(result.status, "value") else str(result.status),
+            "checked_via": result.checked_via,
+            "errors": result.errors,
+        }

@@ -21,6 +21,7 @@ from digital_identity.domain.value_objects import (
     CredentialFormat,
     ClaimDefinition,
     ValidityRules,
+    PrivacyPosture,
 )
 from digital_identity.application.ports.outbound import (
     CredentialTemplateRepositoryPort,
@@ -87,6 +88,12 @@ class CredentialTemplateService:
         # Use credential_payload_format if provided, otherwise fall back to format
         effective_format = credential_payload_format or format
         
+        # Normalize privacy_posture if passed as string
+        if 'privacy_posture' in kwargs and isinstance(kwargs['privacy_posture'], str):
+            kwargs['privacy_posture'] = PrivacyPosture.from_legacy(kwargs['privacy_posture'])
+        elif 'privacy_posture' in kwargs and isinstance(kwargs['privacy_posture'], dict):
+            kwargs['privacy_posture'] = PrivacyPosture.from_dict(kwargs['privacy_posture'])
+        
         # Create entity
         template = CredentialTemplate(
             name=name,
@@ -152,6 +159,12 @@ class CredentialTemplateService:
         # Track changes for event
         changes = {}
         
+        # Normalize privacy_posture if passed as string
+        if 'privacy_posture' in updates and isinstance(updates['privacy_posture'], str):
+            updates['privacy_posture'] = PrivacyPosture.from_legacy(updates['privacy_posture'])
+        elif 'privacy_posture' in updates and isinstance(updates['privacy_posture'], dict):
+            updates['privacy_posture'] = PrivacyPosture.from_dict(updates['privacy_posture'])
+
         # Apply updates
         for key, value in updates.items():
             if hasattr(template, key):
@@ -200,7 +213,7 @@ class CredentialTemplateService:
         display_name: str,
         claim_type: str,
         required: bool = True,
-        selectively_disclosable: bool = True,
+        selectively_disclosable: bool = False,
         **kwargs: Any,
     ) -> CredentialTemplate | None:
         """Add a claim to a template."""
@@ -306,8 +319,8 @@ class CredentialTemplateService:
             raise ValueError(f"Credential Template '{template_id}' not found")
         
         template.status = "ARCHIVED"
-        if reason and hasattr(template, "metadata_"):
-            template.metadata_["archive_reason"] = reason
+        if reason and hasattr(template, "metadata"):
+            template.metadata["archive_reason"] = reason
         
         template.touch()
         saved = await self._repository.save(template)

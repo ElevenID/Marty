@@ -19,6 +19,30 @@ from digital_identity.infrastructure.adapters.rest import (
     deployment_profile_router,
     flow_router,
     credential_router,
+    revocation_profile_router,
+    application_template_router,
+    verification_session_router,
+    compliance_profile_router,
+    lane_router,
+    issuer_router,
+    cascade_router,
+    device_router,
+    trust_anchor_router,
+    trust_framework_router,
+    org_trust_profile_router,
+    organization_router,
+    webhook_router,
+    subscription_router,
+    api_key_router,
+    issuance_record_router,
+    policy_set_router,
+    wallet_profile_router,
+    device_registration_router,
+    applicant_router,
+    reviewer_lock_router,
+    vetting_check_router,
+    biometric_enrollment_router,
+    notification_payload_router,
 )
 from digital_identity.infrastructure.persistence.database import (
     DigitalIdentityDatabaseConfig,
@@ -79,6 +103,30 @@ class DigitalIdentityPlugin:
             ("Deployment Profiles", deployment_profile_router),
             ("Flows", flow_router),
             ("Credentials", credential_router),
+            ("Revocation Profiles", revocation_profile_router),
+            ("Application Templates", application_template_router),
+            ("Verification Sessions", verification_session_router),
+            ("Compliance Profiles", compliance_profile_router),
+            ("Lanes", lane_router),
+            ("Issuers", issuer_router),
+            ("Cascade Operations", cascade_router),
+            ("Devices", device_router),
+            ("Trust Anchors", trust_anchor_router),
+            ("Trust Frameworks", trust_framework_router),
+            ("Organization Trust Profiles", org_trust_profile_router),
+            ("Organizations", organization_router),
+            ("Webhooks", webhook_router),
+            ("Subscriptions", subscription_router),
+            ("API Keys", api_key_router),
+            ("Issuance Records", issuance_record_router),
+            ("Policy Sets", policy_set_router),
+            ("Wallet Profiles", wallet_profile_router),
+            ("Device Registrations", device_registration_router),
+            ("Applicants", applicant_router),
+            ("Reviewer Locks", reviewer_lock_router),
+            ("Vetting Checks", vetting_check_router),
+            ("Biometric Enrollments", biometric_enrollment_router),
+            ("Notification Payloads", notification_payload_router),
         ]
         
         for name, router in routers:
@@ -224,7 +272,10 @@ class DigitalIdentityPlugin:
         
         await init_database(db_config)
         logger.info("Database initialized")
-        
+
+        # Seed system trust frameworks (idempotent)
+        await self._seed_system_trust_frameworks(db_manager)
+
         # Initialize credential services
         from digital_identity.application.services.credential_issuance_service import (
             CredentialIssuanceService,
@@ -275,6 +326,21 @@ class DigitalIdentityPlugin:
         
         logger.info("Digital Identity plugin started successfully")
     
+    async def _seed_system_trust_frameworks(
+        self, db_manager: DigitalIdentityDatabaseManager
+    ) -> None:
+        """Seed system trust frameworks on startup (idempotent)."""
+        from digital_identity.infrastructure.persistence.seed_system_trust_frameworks import (
+            seed_system_trust_frameworks,
+        )
+
+        try:
+            async with db_manager.session_scope() as session:
+                await seed_system_trust_frameworks(session)
+            logger.info("System trust frameworks seeded")
+        except Exception as e:
+            logger.warning(f"Failed to seed system trust frameworks: {e}")
+
     def _get_configured_trust_adapters(self) -> dict[str, Any]:
         """Build trust adapter dictionary from configuration."""
         trust_config = self.config.get("trust_profiles", {})

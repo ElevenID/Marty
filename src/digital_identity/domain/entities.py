@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, ClassVar
 from uuid import uuid4
 
 from digital_identity.domain.value_objects import (
@@ -30,6 +30,7 @@ from digital_identity.domain.value_objects import (
     RequiredClaim,
     FreshnessRequirements,
     HolderBindingMethod,
+    HolderBindingConfig,
     CredentialRankingStrategy,
     NetworkMode,
     KeyAccessMode,
@@ -47,6 +48,9 @@ from digital_identity.domain.value_objects import (
     StatusListEntryRef,
     PredicateFallbackPolicy,
     PredicateSpecification,
+    PrivacyPosture,
+    RevocationTimingMode,
+    RevocationMethod,
 )
 
 
@@ -71,6 +75,37 @@ class Entity:
         """Update the updated_at timestamp."""
         self.updated_at = datetime.now(timezone.utc)
         self.version += 1
+
+
+# =============================================================================
+# Organization
+# =============================================================================
+
+@dataclass
+class Organization(Entity):
+    """
+    Organization entity - primary multi-tenant boundary.
+    
+    All configuration resources (trust profiles, credential templates,
+    deployment profiles, etc.) are scoped to an organization.
+    
+    Attributes:
+        name: Machine-friendly slug (globally unique, lowercase alphanumeric + hyphens)
+        display_name: Human-readable name
+        description: Optional description
+        visibility: PUBLIC (discoverable/joinable) or PRIVATE (invite-only)
+        owner_id: User ID of the current organization owner
+        join_code: Alphanumeric code for joining PUBLIC organizations
+        status: ACTIVE, SUSPENDED, or DELETED
+    """
+    
+    name: str = ""
+    display_name: str = ""
+    description: str | None = None
+    visibility: str = "PRIVATE"
+    owner_id: str = ""
+    join_code: str | None = None
+    status: str = "ACTIVE"
 
 
 # =============================================================================
@@ -233,6 +268,7 @@ class TrustProfile(Entity):
     enabled: bool = True
     compliance_status: str = "SETUP_REQUIRED"
     auto_generated: bool = False
+    manually_configured: bool = False
     trust_sources: list[dict[str, Any]] = field(default_factory=list)
     allowed_algorithms: list[CryptoAlgorithm] = field(default_factory=list)
     supported_formats: list[CredentialFormat] = field(default_factory=list)
@@ -249,6 +285,9 @@ class TrustProfile(Entity):
     
     # System issuer overrides
     system_issuer_overrides: dict[str, Any] = field(default_factory=dict)
+    
+    # Compliance code compatibility
+    compatible_compliance_codes: list[str] | None = None
     
     metadata: dict[str, Any] = field(default_factory=dict)
     
@@ -299,7 +338,7 @@ class TrustProfile(Entity):
     
     def is_format_allowed(self, format: CredentialFormat) -> bool:
         """Check if a credential format is allowed by this profile."""
-        return format in self.allowed_formats
+        return format in self.supported_formats
     
     def get_revocation_methods(self) -> list[str]:
         """Get enabled revocation methods from revocation_services config."""
@@ -340,6 +379,41 @@ class TrustProfile(Entity):
         }
         self.trust_sources.append(source)
         self.touch()
+
+    # Default mapping: compliance_code → compatible profile_types
+    _DEFAULT_COMPLIANCE_MAP: ClassVar[dict[str, list[str]]] = {
+        "ICAO_DTC": ["ICAO", "CUSTOM"],
+        "ICAO_MRZ": ["ICAO", "CUSTOM"],
+        "AAMVA_MDL": ["AAMVA", "CUSTOM"],
+        "EUDI_PID": ["EUDI", "CUSTOM"],
+        "EUDI_MDL": ["EUDI", "CUSTOM"],
+        "OB3_JWT": ["CUSTOM"],
+        "OB3_JSONLD": ["CUSTOM"],
+        "OB2_COMPATIBILITY": ["CUSTOM"],
+        "SD_JWT_VC": ["CUSTOM"],
+        "ENTERPRISE_VC": ["CUSTOM"],
+        "OID4VC": ["CUSTOM"],
+        "PEX": ["CUSTOM"],
+        "CUSTOM": ["ICAO", "AAMVA", "EUDI", "CUSTOM"],
+    }
+
+    def is_compatible_with_compliance_code(self, compliance_code: str) -> bool:
+        """Check if this trust profile is compatible with a compliance code.
+        
+        When ``compatible_compliance_codes`` is set explicitly, the code must
+        appear in that list.  Otherwise the default mapping from compliance
+        code → profile_type is used (see §10.5 of the specification).
+        """
+        if self.compatible_compliance_codes is not None:
+            return compliance_code in self.compatible_compliance_codes
+
+        profile_type_str = (
+            self.profile_type.value
+            if isinstance(self.profile_type, TrustProfileType)
+            else str(self.profile_type)
+        )
+        allowed_types = self._DEFAULT_COMPLIANCE_MAP.get(compliance_code, ["CUSTOM"])
+        return profile_type_str in allowed_types
 
 
 # =============================================================================
@@ -514,6 +588,7 @@ class CascadeRevocationOperation(Entity):
     """
     
     operation_type: str = "ISSUER_REVOCATION"  # ISSUER_REVOCATION, ANCHOR_REVOCATION
+    organization_id: str | None = None
     trigger_entity_type: str = "ISSUER"  # ISSUER, TRUST_ANCHOR
     trigger_entity_id: str = ""
     status: str = "PENDING_CONFIRMATION"  # PENDING_CONFIRMATION, IN_PROGRESS, COMPLETED, ROLLED_BACK, FAILED
@@ -664,6 +739,13 @@ class CredentialTemplate(Entity):
     description: str | None = None
     credential_type: str = ""
     schema_uri: str | None = None
+    vct: str | None = None  # SD-JWT VC type identifier
+    
+    # Organization scoping
+    organization_id: str | None = None
+    
+    # Publish status (DRAFT → ACTIVE → DEPRECATED)
+    status: str = "DRAFT"
     
     # Claims definition
     claims: list[ClaimDefinition] = field(default_factory=list)
@@ -693,14 +775,14 @@ class CredentialTemplate(Entity):
     issuer_did: str | None = None
     
     # Development mode
-    auto_generate_artifacts: bool = True  # Auto-generate in non-production
+    auto_generate_artifacts: bool = False  # Auto-generate in non-production
     
     # ========== END CRYPTOGRAPHIC CONFIGURATION ==========
     
     # Format and structure
     format: CredentialFormat = CredentialFormat.SD_JWT_VC
     namespace: str | None = None  # For mDoc: e.g., "org.iso.18013.5.1"
-    privacy_posture: str = "selective_disclosure"
+    privacy_posture: PrivacyPosture = field(default_factory=PrivacyPosture)
     
     # Display metadata
     display: dict[str, Any] = field(default_factory=dict)
@@ -761,6 +843,7 @@ class ComplianceProfile(Entity):
     description: str | None = None
     compliance_code: str = ""  # spec: compliance_code (was: code)
     credential_format: CredentialFormat = CredentialFormat.SD_JWT_VC
+    issuance_protocol: str | None = None  # spec: OID4VCI_PRE_AUTH | OID4VCI_AUTH_CODE | DIRECT
     issuer_artifact_requirements: IssuerArtifactRequirements | None = None
     default_verification_rules: list[ClaimVerificationRule] = field(default_factory=list)  # spec: default_verification_rules
     trust_profile_constraints: dict[str, Any] = field(default_factory=dict)  # spec: trust_profile_constraints
@@ -793,13 +876,10 @@ class ComplianceProfile(Entity):
         requirements = self.get_artifact_requirements()
         errors = []
         
-        if requirements.requires_signing_key and not issuer_key_id:
-            errors.append(f"Signing key required for {self.credential_format}")
+        if requirements.requires_x509_cert and not issuer_certificate_chain_pem:
+            errors.append(f"X.509 certificate required for {self.credential_format}")
         
-        if requirements.requires_certificate_chain and not issuer_certificate_chain_pem:
-            errors.append(f"Certificate chain required for {self.credential_format}")
-        
-        if requirements.requires_issuer_did and not issuer_did:
+        if requirements.requires_did and not issuer_did:
             errors.append(f"Issuer DID required for {self.credential_format}")
         
         return errors
@@ -844,6 +924,12 @@ class ApplicationTemplate(Entity):
     
     name: str = ""
     description: str | None = None
+    
+    # Organization scoping
+    organization_id: str | None = None
+    
+    # Publish status (DRAFT → ACTIVE → DEPRECATED)
+    status: str = "DRAFT"
     
     # Evidence collection requirements
     evidence_requirements: list[EvidenceRequirement] = field(default_factory=list)
@@ -954,7 +1040,7 @@ class PresentationPolicy(Entity):
     required_claims: list[RequiredClaim] = field(default_factory=list)
     
     # Holder binding
-    holder_binding: HolderBindingMethod = HolderBindingMethod.NONCE
+    holder_binding: HolderBindingConfig = field(default_factory=HolderBindingConfig)
     
     # Trust constraints
     trust_profile_id: str | None = None
@@ -1175,6 +1261,9 @@ class DeploymentProfile(Entity):
     name: str = ""
     description: str | None = None
     site_id: str | None = None
+    
+    # Organization scoping
+    organization_id: str | None = None
     
     # Enabled flows and policies
     enabled_flow_ids: list[str] = field(default_factory=list)
@@ -1511,6 +1600,7 @@ class IssuedCredential(Entity):
     credential_template_id: str = ""
     application_id: str | None = None
     revocation_profile_id: str | None = None  # Ref to RevocationProfile
+    organization_id: str | None = None  # Multi-tenant scoping
     subject_id: str = ""
     subject_claims_hash: str | None = None
     issued_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
@@ -1643,3 +1733,418 @@ class AuditEvent:
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     version: int = 1
+
+
+# =============================================================================
+# Revocation Profile
+# =============================================================================
+
+@dataclass
+class RevocationProfile(Entity):
+    """Format-agnostic revocation configuration for issuers and verifiers.
+    
+    Spec: schemas/revocation-profile.json
+    
+    Attributes:
+        organization_id: Owning organization
+        name: Human-readable name
+        revocation_mechanism: Supported revocation methods (ordered)
+        mechanism_priority: Preferred order for checking
+        check_mode: Timing behavior for revocation checks
+        cache_ttl_seconds: Cache TTL when check_mode is CACHED
+        offline_grace_seconds: Grace period when check_mode is OFFLINE_GRACE
+        issuer_config: Issuer-side revocation configuration
+        status_list_url: Base URI for published status lists
+    """
+    
+    organization_id: str = ""
+    name: str = ""
+    revocation_mechanism: list[str] = field(default_factory=list)
+    mechanism_priority: list[str] = field(default_factory=list)
+    check_mode: RevocationTimingMode = RevocationTimingMode.ALWAYS
+    cache_ttl_seconds: int | None = None
+    offline_grace_seconds: int | None = None
+    issuer_config: dict[str, Any] = field(default_factory=dict)
+    status_list_url: str | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+
+# =============================================================================
+# Verification Session
+# =============================================================================
+
+@dataclass
+class VerificationSession(Entity):
+    """A single presentation-request/response cycle instance.
+    
+    Spec: schemas/verification-session.json
+    
+    Attributes:
+        flow_id: Parent flow
+        flow_instance_id: Specific flow execution instance
+        presentation_policy_id: Policy governing this session
+        deployment_profile_id: Deployment where session runs
+        verifier_nonce: Base64url random nonce (min 128 bits)
+        holder_id: Holder identifier (set after presentation)
+        status: Session lifecycle status
+        result: Verification outcome (set on completion)
+        expires_at: Session expiry
+        completed_at: When verification completed
+        error: Error reason if session terminated abnormally
+    """
+    
+    flow_id: str = ""
+    flow_instance_id: str | None = None
+    presentation_policy_id: str = ""
+    deployment_profile_id: str | None = None
+    verifier_nonce: str | None = None
+    holder_id: str | None = None
+    status: str = "PENDING"
+    result: dict[str, Any] | None = None
+    expires_at: datetime | None = None
+    completed_at: datetime | None = None
+    error: str | None = None
+
+
+# =============================================================================
+# Webhook
+# =============================================================================
+
+@dataclass
+class Webhook(Entity):
+    """Webhook endpoint for event delivery.
+
+    Spec: schemas/webhook.json
+
+    Attributes:
+        organization_id: Owning organization
+        name: Human-readable name
+        endpoint_url: HTTPS endpoint receiving payloads
+        events: Event patterns to subscribe to (e.g. ``credential.issued``, ``*``)
+        signing_secret_hash: Hashed HMAC signing secret
+        signing_secret_masked: Masked display value (readOnly)
+        enabled: Whether webhook delivers events
+        api_version: Date-based API version (YYYY-MM-DD)
+        filter: Optional flow/template scoping
+        delivery_config: Timeout, retry and backoff settings
+        status: ACTIVE / PAUSED / DISABLED_PERMANENTLY
+        failure_count: Consecutive delivery failures
+        last_triggered_at: Last delivery attempt
+        last_success_at: Last successful delivery
+    """
+
+    organization_id: str = ""
+    name: str = ""
+    description: str | None = None
+    endpoint_url: str = ""
+    events: list[str] = field(default_factory=list)
+    signing_secret_hash: str | None = None
+    signing_secret_masked: str | None = None
+    enabled: bool = True
+    api_version: str | None = None
+    filter: dict[str, Any] = field(default_factory=dict)
+    delivery_config: dict[str, Any] = field(default_factory=dict)
+    status: str = "ACTIVE"
+    failure_count: int = 0
+    last_triggered_at: datetime | None = None
+    last_success_at: datetime | None = None
+
+
+# =============================================================================
+# Subscription
+# =============================================================================
+
+@dataclass
+class Subscription(Entity):
+    """Multi-channel event subscription.
+
+    Spec: schemas/subscription.json
+
+    Attributes:
+        organization_id: Owning organization
+        name: Human-readable name
+        description: Optional description
+        event_types: Event patterns to subscribe to
+        delivery: Channel config (WEBHOOK / EMAIL / SSE)
+        filter: Optional scoping (credential_types, flow_ids, deployment_profile_ids)
+        enabled: Whether subscription is active
+        retry_policy: Retry configuration
+    """
+
+    organization_id: str = ""
+    name: str = ""
+    description: str | None = None
+    event_types: list[str] = field(default_factory=list)
+    delivery: dict[str, Any] = field(default_factory=dict)
+    filter: dict[str, Any] = field(default_factory=dict)
+    enabled: bool = True
+    retry_policy: dict[str, Any] = field(default_factory=dict)
+
+
+# =============================================================================
+# API Key
+# =============================================================================
+
+@dataclass
+class ApiKey(Entity):
+    """Scoped API key for programmatic access.
+
+    Spec: schemas/api-key.json
+
+    Attributes:
+        organization_id: Owning organization
+        name: Human-readable name
+        description: Optional description
+        key_prefix: First 8 chars for identification (e.g. ``mk_live_ab``)
+        key_hash: Hashed full key (never returned)
+        scope_type: ORGANIZATION or DEPLOYMENT
+        deployment_profile_id: Required when scope_type is DEPLOYMENT
+        scopes: Granted permission scopes
+        enabled: Whether key is active
+        expires_at: Optional expiry (None = no expiry)
+        last_used_at: Last usage timestamp
+    """
+
+    organization_id: str = ""
+    name: str = ""
+    description: str | None = None
+    key_prefix: str = ""
+    key_hash: str | None = None
+    scope_type: str = "ORGANIZATION"
+    deployment_profile_id: str | None = None
+    scopes: list[str] = field(default_factory=list)
+    enabled: bool = True
+    expires_at: datetime | None = None
+    last_used_at: datetime | None = None
+
+
+# =============================================================================
+# Issuance Record
+# =============================================================================
+
+@dataclass
+class IssuanceRecord(Entity):
+    """OID4VCI credential issuance lifecycle record.
+
+    Spec: schemas/issuance.json
+    """
+
+    flow_id: str = ""
+    flow_execution_id: str | None = None
+    application_id: str | None = None
+    credential_template_id: str = ""
+    holder_id: str = ""
+    credential_id: str | None = None
+    credential_format: str = "SD_JWT_VC"
+    offer_uri: str | None = None
+    offer_expires_at: datetime | None = None
+    status: str = "PENDING"
+    revocation_index: int | None = None
+    valid_from: datetime | None = None
+    valid_until: datetime | None = None
+    claimed_at: datetime | None = None
+
+
+# =============================================================================
+# Policy Set
+# =============================================================================
+
+@dataclass
+class PolicySet(Entity):
+    """Named collection of Cedar policies for authorization.
+
+    Spec: schemas/policy-set.json
+    """
+
+    organization_id: str = ""
+    name: str = ""
+    description: str | None = None
+    policy_type: str = "ACCESS_CONTROL"
+    cedar_policies: list[dict[str, Any]] = field(default_factory=list)
+    cedar_schema_version: str = "MIP/1.0"
+    status: str = "DRAFT"
+
+
+# =============================================================================
+# Wallet Profile
+# =============================================================================
+
+@dataclass
+class WalletProfile(Entity):
+    """Wallet compatibility record for format × protocol × compliance.
+
+    Spec: schemas/wallet-profile.json
+    """
+
+    organization_id: str | None = None
+    is_override: bool = False
+    override_precedence: int = 50
+    name: str = ""
+    description: str | None = None
+    credential_format: str = "SD_JWT_VC"
+    issuance_protocol: str = "OID4VCI_PRE_AUTH"
+    compliance_profile_code: str | None = None
+    wallet_apps: list[str] = field(default_factory=list)
+    merge_strategy: str = "APPEND"
+    specifications: list[str] = field(default_factory=list)
+    supported_platforms: list[str] = field(default_factory=list)
+    deep_link_pattern: str | None = None
+
+
+# =============================================================================
+# Device Registration
+# =============================================================================
+
+@dataclass
+class DeviceRegistration(Entity):
+    """User device record for push notifications and challenge-response auth.
+
+    Spec: schemas/device-registration.json
+    """
+
+    user_id: str = ""
+    organization_id: str | None = None
+    device_id: str = ""
+    platform: str = "ios"
+    fcm_token: str = ""
+    app_version: str | None = None
+    os_version: str | None = None
+    device_model: str | None = None
+    preferences: dict[str, Any] = field(default_factory=dict)
+    public_key_der: str | None = None
+    public_key_kid: str | None = None
+    key_valid_from: datetime | None = None
+    key_valid_until: datetime | None = None
+    is_active: bool = True
+    last_seen_at: datetime | None = None
+
+
+# =============================================================================
+# Applicant
+# =============================================================================
+
+@dataclass
+class Applicant(Entity):
+    """Person/entity applying for a credential through an application-approval flow.
+
+    Spec: schemas/applicant.json
+    """
+
+    organization_id: str = ""
+    flow_id: str = ""
+    credential_template_id: str | None = None
+    user_id: str | None = None
+    external_id: str | None = None
+    given_name: str = ""
+    family_name: str = ""
+    email: str | None = None
+    phone: str | None = None
+    status: str = "DRAFT"
+    reviewer_id: str | None = None
+    reviewer_lock_expires_at: datetime | None = None
+    submitted_at: datetime | None = None
+    reviewed_at: datetime | None = None
+    approved_at: datetime | None = None
+    credentialed_at: datetime | None = None
+    rejection_reason: str | None = None
+    rejection_code: str | None = None
+    application_data: dict[str, Any] = field(default_factory=dict)
+    vetting_checks: list[dict[str, Any]] = field(default_factory=list)
+    issued_credential_id: str | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+
+# =============================================================================
+# Reviewer Lock
+# =============================================================================
+
+@dataclass
+class ReviewerLock(Entity):
+    """Time-bounded exclusive lock on an applicant for a reviewer.
+
+    Spec: schemas/reviewer-lock.json
+    """
+
+    applicant_id: str = ""
+    organization_id: str = ""
+    holder_user_id: str = ""
+    ttl_seconds: int = 1800
+    expires_at: datetime | None = None
+    released_at: datetime | None = None
+    status: str = "ACTIVE"
+
+
+# =============================================================================
+# Vetting Check
+# =============================================================================
+
+@dataclass
+class VettingCheck(Entity):
+    """A discrete identity/document verification check during applicant review.
+
+    Spec: schemas/vetting-check.json
+    """
+
+    applicant_id: str = ""
+    organization_id: str = ""
+    check_type: str = "MANUAL_REVIEW"
+    provider: str | None = None
+    provider_reference_id: str | None = None
+    status: str = "PENDING"
+    score: float | None = None
+    threshold: float | None = None
+    failure_reason: str | None = None
+    evidence_refs: list[dict[str, Any]] = field(default_factory=list)
+    performed_by: str | None = None
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
+    expires_at: datetime | None = None
+    raw_result: dict[str, Any] | None = None
+
+
+# =============================================================================
+# Biometric Enrollment
+# =============================================================================
+
+@dataclass
+class BiometricEnrollment(Entity):
+    """Biometric enrollment record – stores only template hash, never raw data.
+
+    Spec: schemas/biometric-enrollment.json
+    """
+
+    applicant_id: str = ""
+    organization_id: str = ""
+    modality: str = "FACE"
+    template_hash: str = ""
+    hash_algorithm: str = "SHA-256"
+    provider: str | None = None
+    capture_device: str | None = None
+    quality_score: float | None = None
+    liveness_verified: bool = False
+    status: str = "ENROLLED"
+    revoked_at: datetime | None = None
+    revocation_reason: str | None = None
+
+
+# =============================================================================
+# Notification Payload
+# =============================================================================
+
+@dataclass
+class NotificationPayload(Entity):
+    """Multi-channel identity event notification with routing metadata.
+
+    Spec: schemas/notification-payload.json
+    NotificationTarget is embedded as the ``target`` dict.
+    """
+
+    title: str = ""
+    body: str = ""
+    data: dict[str, Any] = field(default_factory=dict)
+    event_type: str = ""
+    priority: str = "NORMAL"
+    target: dict[str, Any] = field(default_factory=dict)
+    ttl_seconds: int = 86400
+    collapse_key: str | None = None
+    correlation_id: str | None = None

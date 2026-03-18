@@ -179,31 +179,28 @@ class CertificateRevocationService:
         
         cert = x509.load_der_x509_certificate(certificate_der)
         
-        # Try OCSP if enabled
-        if policy.check_ocsp:
-            ocsp_url = self.revocation_processor.get_ocsp_url_from_certificate(cert)
-            if ocsp_url:
-                # Get issuer certificate (would need to be passed or looked up)
-                # For now, skip OCSP and try CRL
-                logger.debug(f"OCSP URL found: {ocsp_url} (OCSP check not fully implemented)")
+        # Try OCSP
+        ocsp_url = self.revocation_processor.get_ocsp_url_from_certificate(cert)
+        if ocsp_url:
+            # Get issuer certificate (would need to be passed or looked up)
+            # For now, skip OCSP and try CRL
+            logger.debug(f"OCSP URL found: {ocsp_url} (OCSP check not fully implemented)")
         
-        # Try CRL if enabled
-        if policy.check_crl:
-            # Get CRL distribution points
-            try:
-                crl_urls = self._get_crl_urls_from_certificate(cert)
-                if crl_urls:
-                    # Download and check CRL (simplified - production needs caching)
-                    for crl_url in crl_urls:
-                        try:
-                            # This would fetch CRL and check
-                            # For now, raise to trigger cache fallback
-                            logger.debug(f"CRL check would use: {crl_url}")
-                        except Exception as crl_error:
-                            logger.warning(f"CRL check failed for {crl_url}: {crl_error}")
-                            continue
-            except Exception as e:
-                logger.warning(f"Failed to get CRL URLs: {e}")
+        # Try CRL
+        try:
+            crl_urls = self._get_crl_urls_from_certificate(cert)
+            if crl_urls:
+                # Download and check CRL (simplified - production needs caching)
+                for crl_url in crl_urls:
+                    try:
+                        # This would fetch CRL and check
+                        # For now, raise to trigger cache fallback
+                        logger.debug(f"CRL check would use: {crl_url}")
+                    except Exception as crl_error:
+                        logger.warning(f"CRL check failed for {crl_url}: {crl_error}")
+                        continue
+        except Exception as e:
+            logger.warning(f"Failed to get CRL URLs: {e}")
         
         # If no checks succeeded, raise to trigger cache fallback
         raise Exception("No successful online revocation check")

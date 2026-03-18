@@ -44,6 +44,42 @@ class RevocationCheckMode(str, Enum):
         return self.value
 
 
+class RevocationTimingMode(str, Enum):
+    """Timing mode for revocation checks on RevocationProfile. Spec: revocation-timing-modes.json."""
+    
+    ALWAYS = "ALWAYS"                # Check every time
+    CACHED = "CACHED"                # Use cached result within TTL
+    OFFLINE_GRACE = "OFFLINE_GRACE"  # Allow offline grace period
+    DISABLED = "DISABLED"            # Revocation checking disabled
+    
+    def __str__(self) -> str:
+        return self.value
+
+
+class RevocationMethod(str, Enum):
+    """Revocation publication method. Spec: revocation-methods.json."""
+    
+    OCSP = "OCSP"
+    CRL = "CRL"
+    STATUS_LIST_2021 = "STATUS_LIST_2021"
+    BITSTRING_STATUS_LIST = "BITSTRING_STATUS_LIST"
+    TOKEN_STATUS_LIST = "TOKEN_STATUS_LIST"
+    
+    def __str__(self) -> str:
+        return self.value
+
+
+class IssuanceProtocol(str, Enum):
+    """Issuance protocol. Spec: issuance-protocols.json."""
+    
+    OID4VCI_PRE_AUTH = "OID4VCI_PRE_AUTH"
+    OID4VCI_AUTH_CODE = "OID4VCI_AUTH_CODE"
+    DIRECT = "DIRECT"
+    
+    def __str__(self) -> str:
+        return self.value
+
+
 class CryptoAlgorithm(str, Enum):
     """Supported cryptographic algorithms."""
     
@@ -59,6 +95,8 @@ class CryptoAlgorithm(str, Enum):
     EDDSA = "EdDSA"
     ED25519 = "Ed25519"
     ED448 = "Ed448"
+    BBS_BLS12381_SHA256 = "BBS_BLS12381_SHA256"
+    BBS_BLS12381_SHAKE256 = "BBS_BLS12381_SHAKE256"
     
     def __str__(self) -> str:
         return self.value
@@ -71,6 +109,7 @@ class CredentialFormat(str, Enum):
     SD_JWT_VC = "SD_JWT_VC"    # SD-JWT Verifiable Credential
     JWT_VC = "VC_JWT"          # JWT Verifiable Credential (spec: VC_JWT)
     LDP_VC = "JSON_LD"         # JSON-LD Verifiable Credential (spec: JSON_LD)
+    ZK_MDOC = "ZK_MDOC"       # Zero-knowledge mDoc (experimental)
     
     def __str__(self) -> str:
         return self.value
@@ -88,6 +127,43 @@ class CredentialStatus(str, Enum):
         return self.value
 
 
+class RevocationReason(str, Enum):
+    """RFC 5280 CRL reason codes for credential/trust-anchor revocation."""
+    
+    UNSPECIFIED = "unspecified"
+    KEY_COMPROMISE = "key_compromise"
+    CA_COMPROMISE = "ca_compromise"
+    AFFILIATION_CHANGED = "affiliation_changed"
+    SUPERSEDED = "superseded"
+    CESSATION_OF_OPERATION = "cessation_of_operation"
+    CERTIFICATE_HOLD = "certificate_hold"
+    PRIVILEGE_WITHDRAWN = "privilege_withdrawn"
+    
+    def __str__(self) -> str:
+        return self.value
+
+
+class ComplianceCode(str, Enum):
+    """Recognized compliance frameworks. Spec: compliance-codes.json."""
+    
+    ICAO_DTC = "ICAO_DTC"
+    ICAO_MRZ = "ICAO_MRZ"
+    AAMVA_MDL = "AAMVA_MDL"
+    EUDI_PID = "EUDI_PID"
+    EUDI_MDL = "EUDI_MDL"
+    OB3_JWT = "OB3_JWT"
+    OB3_JSONLD = "OB3_JSONLD"
+    OB2_COMPATIBILITY = "OB2_COMPATIBILITY"
+    SD_JWT_VC = "SD_JWT_VC"
+    ENTERPRISE_VC = "ENTERPRISE_VC"
+    OID4VC = "OID4VC"
+    PEX = "PEX"
+    CUSTOM = "CUSTOM"
+    
+    def __str__(self) -> str:
+        return self.value
+
+
 @dataclass(frozen=True)
 class RevocationPolicy:
     """
@@ -97,10 +173,7 @@ class RevocationPolicy:
     """
     
     check_mode: RevocationCheckMode = RevocationCheckMode.HARD_FAIL
-    check_ocsp: bool = True
-    check_crl: bool = True
-    check_status_list: bool = True
-    cache_ttl_seconds: int = 3600  # 1 hour
+    cache_ttl_seconds: int = 300  # spec default: 300s
 
 
 @dataclass(frozen=True)
@@ -131,9 +204,9 @@ class ClaimDefinition:
     
     name: str
     display_name: str
-    claim_type: str  # string, number, boolean, date, object, array (spec: "type")
+    claim_type: str  # STRING, INTEGER, BOOLEAN, DATE, OBJECT, ARRAY (spec: "type")
     required: bool = True
-    selectively_disclosable: bool = True
+    selectively_disclosable: bool = False  # spec default: false
     derived_from: str | None = None  # e.g., "age_over_21" derived from "birth_date"
     predicate_type: str | None = None  # e.g., "gte", "eq" for derived claims
     predicate_value: Any | None = None  # e.g., 21 for age_over_21
@@ -150,9 +223,44 @@ class ValidityRules:
     """
 
     ttl_seconds: int = 31536000  # 365 days
-    renewable: bool = True
+    renewable: bool = False  # spec default: false
     reissue_within_seconds: int | None = None
     not_before_offset_seconds: int = 0
+
+
+@dataclass(frozen=True)
+class PrivacyPosture:
+    """Structured privacy posture matching spec shape.
+    
+    Spec: {default_disclose_all: bool, prefer_predicates: bool, sd_alg: str}
+    """
+    
+    default_disclose_all: bool = False
+    prefer_predicates: bool = False
+    sd_alg: str = "sha-256"
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "default_disclose_all": self.default_disclose_all,
+            "prefer_predicates": self.prefer_predicates,
+            "sd_alg": self.sd_alg,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> PrivacyPosture:
+        return cls(
+            default_disclose_all=data.get("default_disclose_all", False),
+            prefer_predicates=data.get("prefer_predicates", False),
+            sd_alg=data.get("sd_alg", "sha-256"),
+        )
+
+    @classmethod
+    def from_legacy(cls, value: str) -> PrivacyPosture:
+        """Convert legacy string like 'selective_disclosure' to structured config."""
+        if value == "full_disclosure":
+            return cls(default_disclose_all=True, prefer_predicates=False)
+        return cls(default_disclose_all=False, prefer_predicates=False)
+
 # =============================================================================
 
 class HolderBindingMethod(str, Enum):
@@ -170,6 +278,50 @@ class HolderBindingMethod(str, Enum):
     
     def __str__(self) -> str:
         return self.value
+
+
+@dataclass(frozen=True)
+class HolderBindingConfig:
+    """Structured holder-binding configuration matching spec shape.
+
+    Spec shape: {required: bool, binding_methods: [str], nonce_required: bool}
+    """
+
+    required: bool = False
+    binding_methods: list[HolderBindingMethod] = field(
+        default_factory=lambda: [HolderBindingMethod.NONCE]
+    )
+    nonce_required: bool = False
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "required": self.required,
+            "binding_methods": [m.value for m in self.binding_methods],
+            "nonce_required": self.nonce_required,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> HolderBindingConfig:
+        methods = [
+            HolderBindingMethod(m) for m in data.get("binding_methods", ["NONCE"])
+        ]
+        return cls(
+            required=data.get("required", False),
+            binding_methods=methods,
+            nonce_required=data.get("nonce_required", False),
+        )
+
+    @classmethod
+    def from_legacy(cls, value: str) -> HolderBindingConfig:
+        """Convert a legacy single-enum string (e.g. 'NONCE') to config."""
+        method = HolderBindingMethod(value)
+        if method == HolderBindingMethod.NONE:
+            return cls(required=False, binding_methods=[], nonce_required=False)
+        return cls(
+            required=True,
+            binding_methods=[method],
+            nonce_required=(method == HolderBindingMethod.NONCE),
+        )
 
 
 class CredentialRankingStrategy(str, Enum):
@@ -449,6 +601,7 @@ class FlowType(str, Enum):
     # Presentation/verification flows
     OID4VP_PRESENTATION = "oid4vp_presentation"
     MDL_PRESENTATION = "mdl_presentation"
+    SIOPV2 = "siopv2"
     
     # Application flows
     APPLICATION_APPROVAL_ISSUANCE = "application_approval_issuance"
@@ -472,6 +625,7 @@ FLOW_CATEGORY: Final[dict[str, str]] = {
     "application_approval_issuance": "ISSUANCE",
     "oid4vp_presentation": "VERIFICATION",
     "mdl_presentation": "VERIFICATION",
+    "siopv2": "VERIFICATION",
     "credential_renewal": "RENEWAL",
     "credential_revocation": "REVOCATION",
     "combined": "COMBINED",
@@ -590,6 +744,12 @@ FLOW_STEPS: Final[dict[FlowType, list[FlowStep]]] = {
         FlowStep("presentation_submission", "Presentation Submission"),
         FlowStep("verify_presentation", "Verify Presentation"),
     ],
+    FlowType.SIOPV2: [
+        FlowStep("create_request", "Create Self-Issued OP Request"),
+        FlowStep("id_token_request", "Request ID Token"),
+        FlowStep("id_token_response", "Receive ID Token Response"),
+        FlowStep("verify_id_token", "Verify Self-Issued ID Token"),
+    ],
 }
 
 
@@ -602,63 +762,46 @@ class IssuerArtifactRequirements:
     """
     Issuer artifact requirements per credential format.
     
-    Defines what cryptographic artifacts are required for issuing
-    credentials in a specific format.
+    Spec fields: requires_x509_cert, requires_did, requires_jwk,
+    cert_key_usage, recommended_algorithms.
     """
     
-    format: CredentialFormat
-    requires_certificate_chain: bool
-    requires_signing_key: bool
-    requires_issuer_did: bool
-    requires_iaca_registration: bool
-    allowed_algorithms: list[CryptoAlgorithm]
-    hsm_required_for_production: bool
+    requires_x509_cert: bool = False
+    requires_did: bool = False
+    requires_jwk: bool = False
+    cert_key_usage: list[str] = field(default_factory=list)
+    recommended_algorithms: list[CryptoAlgorithm] = field(default_factory=list)
 
 
 # Preset artifact requirements per format
 ARTIFACT_REQUIREMENTS: Final[dict[CredentialFormat, IssuerArtifactRequirements]] = {
     CredentialFormat.MDOC: IssuerArtifactRequirements(
-        format=CredentialFormat.MDOC,
-        requires_certificate_chain=True,
-        requires_signing_key=True,
-        requires_issuer_did=False,
-        requires_iaca_registration=True,
-        allowed_algorithms=[CryptoAlgorithm.ES256],
-        hsm_required_for_production=True,
+        requires_x509_cert=True,
+        requires_did=False,
+        recommended_algorithms=[CryptoAlgorithm.ES256],
     ),
     CredentialFormat.SD_JWT_VC: IssuerArtifactRequirements(
-        format=CredentialFormat.SD_JWT_VC,
-        requires_certificate_chain=False,  # Optional x5c
-        requires_signing_key=True,
-        requires_issuer_did=False,  # Uses issuer URL
-        requires_iaca_registration=False,
-        allowed_algorithms=[CryptoAlgorithm.ES256, CryptoAlgorithm.ES384],
-        hsm_required_for_production=True,
+        requires_x509_cert=False,
+        requires_did=False,
+        requires_jwk=True,
+        recommended_algorithms=[CryptoAlgorithm.ES256, CryptoAlgorithm.ES384],
     ),
     CredentialFormat.JWT_VC: IssuerArtifactRequirements(
-        format=CredentialFormat.JWT_VC,
-        requires_certificate_chain=False,
-        requires_signing_key=True,
-        requires_issuer_did=True,
-        requires_iaca_registration=False,
-        allowed_algorithms=[
+        requires_x509_cert=False,
+        requires_did=True,
+        recommended_algorithms=[
             CryptoAlgorithm.ES256,
             CryptoAlgorithm.EDDSA,
             CryptoAlgorithm.RS256,
         ],
-        hsm_required_for_production=False,  # DID-based can use software keys
     ),
     CredentialFormat.LDP_VC: IssuerArtifactRequirements(
-        format=CredentialFormat.LDP_VC,
-        requires_certificate_chain=False,
-        requires_signing_key=True,
-        requires_issuer_did=True,
-        requires_iaca_registration=False,
-        allowed_algorithms=[
+        requires_x509_cert=False,
+        requires_did=True,
+        recommended_algorithms=[
             CryptoAlgorithm.ES256,
             CryptoAlgorithm.EDDSA,
         ],
-        hsm_required_for_production=False,
     ),
 }
 

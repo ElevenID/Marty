@@ -18,6 +18,7 @@ from digital_identity.domain.events import (
 )
 from digital_identity.domain.value_objects import (
     HolderBindingMethod,
+    HolderBindingConfig,
     RequiredClaim,
     FreshnessRequirements,
 )
@@ -69,14 +70,15 @@ class PresentationPolicyService:
             for claim_data in required_claims:
                 claims.append(RequiredClaim(**claim_data))
         
-        # Resolve holder_binding (accept dict from schema or string)
-        if isinstance(holder_binding, dict):
-            binding_methods = holder_binding.get("binding_methods", [])
-            hb_value = binding_methods[0] if binding_methods else "NONE"
-            if not holder_binding.get("required", False):
-                hb_value = "NONE"
+        # Resolve holder_binding (accept dict, string, or HolderBindingConfig)
+        if isinstance(holder_binding, HolderBindingConfig):
+            hb_config = holder_binding
+        elif isinstance(holder_binding, dict):
+            hb_config = HolderBindingConfig.from_dict(holder_binding)
+        elif isinstance(holder_binding, HolderBindingMethod):
+            hb_config = HolderBindingConfig.from_legacy(holder_binding.value)
         else:
-            hb_value = holder_binding
+            hb_config = HolderBindingConfig.from_legacy(str(holder_binding))
         
         # Create entity
         policy = PresentationPolicy(
@@ -85,7 +87,7 @@ class PresentationPolicyService:
             description=description,
             required_claims=claims,
             accepted_credential_types=accepted_credential_types or [],
-            holder_binding=HolderBindingMethod(hb_value),
+            holder_binding=hb_config,
             trust_profile_id=trust_profile_id,
             **kwargs,
         )

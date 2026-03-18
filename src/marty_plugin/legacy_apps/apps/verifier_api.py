@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import uuid
 from typing import Any
 from urllib.parse import urlencode
@@ -25,8 +26,14 @@ app = FastAPI(
     redoc_url="/redoc",
 )
 
-# gRPC client setup
-GRPC_INSPECTION_SYSTEM_ADDRESS = "localhost:50052"  # This should come from config
+# gRPC client setup - configured via environment variables
+INSPECTION_SYSTEM_HOST = os.environ.get("INSPECTION_SYSTEM_HOST", "localhost")
+INSPECTION_SYSTEM_PORT = os.environ.get("INSPECTION_SYSTEM_PORT", "8083")
+GRPC_INSPECTION_SYSTEM_ADDRESS = f"{INSPECTION_SYSTEM_HOST}:{INSPECTION_SYSTEM_PORT}"
+GRPC_TLS_ENABLED = os.environ.get("GRPC_TLS_ENABLED", "false").lower() in ("true", "1", "yes")
+GRPC_TLS_CA_CERT = os.environ.get("GRPC_TLS_CA_CERT")
+GRPC_TLS_CLIENT_CERT = os.environ.get("GRPC_TLS_CLIENT_CERT")
+GRPC_TLS_CLIENT_KEY = os.environ.get("GRPC_TLS_CLIENT_KEY")
 channel: grpc.Channel | None = None
 inspection_system_stub: inspection_system_pb2_grpc.InspectionSystemStub | None = None
 
@@ -35,12 +42,32 @@ VERIFIER_BASE_URL = "https://verifier.marty.local"  # Should come from config
 VERIFIER_DID = "did:web:verifier.marty.local"  # Should come from config
 
 
+def _read_tls_file(path: str | None) -> bytes | None:
+    if not path:
+        return None
+    try:
+        with open(path, "rb") as f:
+            return f.read()
+    except FileNotFoundError:
+        logger.warning("TLS file not found: %s", path)
+        return None
+
+
 def get_grpc_client() -> inspection_system_pb2_grpc.InspectionSystemStub:
     """Get or create the gRPC client."""
     global channel, inspection_system_stub
 
     if inspection_system_stub is None:
-        channel = grpc.insecure_channel(GRPC_INSPECTION_SYSTEM_ADDRESS)
+        if GRPC_TLS_ENABLED:
+            credentials = grpc.ssl_channel_credentials(
+                root_certificates=_read_tls_file(GRPC_TLS_CA_CERT),
+                private_key=_read_tls_file(GRPC_TLS_CLIENT_KEY),
+                certificate_chain=_read_tls_file(GRPC_TLS_CLIENT_CERT),
+            )
+            channel = grpc.secure_channel(GRPC_INSPECTION_SYSTEM_ADDRESS, credentials)
+            logger.info("gRPC TLS channel to inspection-system at %s", GRPC_INSPECTION_SYSTEM_ADDRESS)
+        else:
+            channel = grpc.insecure_channel(GRPC_INSPECTION_SYSTEM_ADDRESS)
         inspection_system_stub = inspection_system_pb2_grpc.InspectionSystemStub(channel)
 
     return inspection_system_stub

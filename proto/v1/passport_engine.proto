@@ -2,10 +2,33 @@ syntax = "proto3";
 
 package marty.passport.v1;
 
+// ---------------------------------------------------------------------------
+// PassportEngine — ICAO 9303-compliant ePassport issuance and verification.
+//
+// Role mapping:
+//   IssuePassport     → CSCA/DSC generation + EF.SOD signing
+//   VerifyPassport    → CSCA→DSC→SOD chain + data-group hash verification
+//   ProcessPassport   → Legacy single-field entry (retained for compatibility)
+// ---------------------------------------------------------------------------
 
 service PassportEngine {
+  // Legacy entry: process a passport by number only.
   rpc ProcessPassport (PassportRequest) returns (PassportResponse);
+
+  // ICAO 9303-compliant issuance: produce a signed EF.SOD from data groups.
+  //
+  // The caller supplies DG bytes (DG1 = MRZ, DG2 = facial image, etc.) and
+  // an optional existing CSCA.  When csca_cert_pem / csca_key_pem are empty
+  // a fresh self-signed CSCA is generated internally (test / bootstrap mode).
+  rpc IssuePassport (IssuePassportRequest) returns (IssuePassportResponse);
+
+  // Verify an EF.SOD against the CSCA trust chain and check data-group hashes.
+  rpc VerifyPassport (VerifyPassportRequest) returns (VerifyPassportResponse);
 }
+
+// ---------------------------------------------------------------------------
+// Legacy messages
+// ---------------------------------------------------------------------------
 
 message PassportRequest {
   string passport_number = 1;
@@ -13,4 +36,85 @@ message PassportRequest {
 
 message PassportResponse {
   string status = 1;
+}
+
+// ---------------------------------------------------------------------------
+// IssuePassport
+// ---------------------------------------------------------------------------
+
+/// A single ICAO data group (DG1–DG20).
+message DataGroup {
+  /// ICAO data group number (1 = MRZ, 2 = Portrait, 3 = Fingerprints, …).
+  uint32 number  = 1;
+  /// Raw EF.DG byte content (full TLV structure).
+  bytes  content = 2;
+}
+
+message IssuePassportRequest {
+  /// ISO 3166-1 alpha-3 country code (e.g. "DEU", "USA").
+  string country_code  = 1;
+  /// Issuing organisation name for the Document Signer Certificate subject.
+  string organization  = 2;
+  /// Data groups to include in the Security Object (at least DG1 required).
+  repeated DataGroup data_groups = 3;
+
+  // ---- Optional CSCA material ----
+  // When both fields are non-empty the DSC is signed by the supplied CSCA.
+  // When either field is empty a fresh CSCA is generated (test / bootstrap).
+
+  /// PEM-encoded existing CSCA certificate.  Leave empty for self-signed mode.
+  string csca_cert_pem = 4;
+  /// PEM-encoded PKCS#8 CSCA private key.  Leave empty for self-signed mode.
+  string csca_key_pem  = 5;
+}
+
+message IssuePassportResponse {
+  /// "ISSUED" on success, "ERROR" on failure.
+  string status = 1;
+
+  // ---- Produced artefacts (present when status == "ISSUED") ----
+
+  /// Base64-encoded DER ContentInfo (CMS SignedData) — write to EF.SOD.
+  string sod_der_base64  = 2;
+  /// PEM-encoded Country Signing CA certificate.
+  string csca_cert_pem   = 3;
+  /// PEM-encoded Document Signer Certificate (embedded inside the SOD).
+  string dsc_cert_pem    = 4;
+  /// Base64-encoded data group bytes, keyed by "DG1", "DG2", etc.
+  map<string, string> data_groups = 5;
+
+  /// Human-readable error description (present when status == "ERROR").
+  string error_message = 6;
+}
+
+// ---------------------------------------------------------------------------
+// VerifyPassport
+// ---------------------------------------------------------------------------
+
+message VerifyPassportRequest {
+  /// Base64-encoded DER EF.SOD (CMS SignedData ContentInfo).
+  string sod_der_base64 = 1;
+  /// PEM-encoded CSCA certificate to use as trust anchor.
+  string csca_cert_pem  = 2;
+  /// Base64-encoded raw data group bytes to verify, keyed by "DG1", "DG2", etc.
+  /// When provided each DG's SHA-256 hash is checked against the SOD.
+  map<string, string> data_groups = 3;
+  /// Optional base64-encoded DER CRL for DSC revocation checking.
+  repeated string crl_der_base64_list = 4;
+}
+
+message VerifyPassportResponse {
+  /// True when the full CSCA→DSC→SOD chain is valid AND all supplied DG
+  /// hashes match.
+  bool   valid          = 1;
+  /// "VALID", "CHAIN_INVALID", "HASH_MISMATCH", "REVOKED", or "ERROR".
+  string status         = 2;
+  /// Individual chain result: "VALID" | "INVALID" | "UNKNOWN".
+  string chain_status   = 3;
+  /// Individual hash result: "VALID" | "INVALID" | "UNKNOWN".
+  string hash_status    = 4;
+  /// Revocation result: "NOT_REVOKED" | "REVOKED" | "UNCHECKED".
+  string revocation_status = 5;
+  /// Human-readable error/detail message.
+  string message        = 6;
 }

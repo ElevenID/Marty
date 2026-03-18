@@ -95,40 +95,39 @@ services:
   # ---------------------------------------------------------------------------
   # Document Signer gRPC Service
   # Provides OID4VCI credential issuance (SD-JWT, mDoc)
-  # NOTE: Temporarily disabled - Dockerfile needs path fixes
   # ---------------------------------------------------------------------------
-  # document-signer:
-  #   build:
-  #     context: .
-  #     dockerfile: src/document_signer/Dockerfile
-  #   ports:
-  #     - "8082:8082"
-  #   environment:
-  #     SERVICE_NAME: document-signer
-  #     GRPC_PORT: "8082"
-  #     PYTHONPATH: /app/src
-  #     # Key management
-  #     KEY_VAULT_URL: ${KEY_VAULT_URL:-}
-  #     # Database
-  #     DATABASE_URL: postgresql+asyncpg://marty:marty@postgres:5432/marty_applicants
-  #     # Storage
-  #     S3_ENDPOINT: ${S3_ENDPOINT:-}
-  #     S3_BUCKET: ${S3_BUCKET:-marty-credentials}
-  #   depends_on:
-  #     postgres:
-  #       condition: service_healthy
-  #     redis:
-  #       condition: service_healthy
-  #   healthcheck:
-  #     test: ["CMD-SHELL", "python -c \"import grpc; ch = grpc.insecure_channel('localhost:8082'); grpc.channel_ready_future(ch).result(timeout=5)\""]
-  #     interval: 10s
-  #     timeout: 5s
-  #     retries: 5
-  #     start_period: 30s
-  #   profiles:
-  #     - dev
-  #     - test
-  #     - test-local
+  document-signer:
+    build:
+      context: .
+      dockerfile: src/document_signer/Dockerfile
+    ports:
+      - "8082:8082"
+    environment:
+      SERVICE_NAME: document-signer
+      GRPC_PORT: "8082"
+      PYTHONPATH: /app/src
+      # Key management
+      KEY_VAULT_URL: ${KEY_VAULT_URL:-}
+      # Database
+      DATABASE_URL: postgresql+asyncpg://marty:marty@postgres:5432/marty_applicants
+      # Storage
+      S3_ENDPOINT: ${S3_ENDPOINT:-}
+      S3_BUCKET: ${S3_BUCKET:-marty-credentials}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import grpc; ch = grpc.insecure_channel('localhost:8082'); grpc.channel_ready_future(ch).result(timeout=5)\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    profiles:
+      - dev
+      - test
+      - test-local
 
   # ---------------------------------------------------------------------------
   # Open Badges gRPC Service
@@ -201,8 +200,8 @@ services:
         condition: service_healthy
       postgres:
         condition: service_healthy
-      # document-signer:
-      #   condition: service_healthy
+      document-signer:
+        condition: service_healthy
     # Healthcheck defined in api.Dockerfile
     profiles:
       - dev

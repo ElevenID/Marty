@@ -29,6 +29,9 @@
 		},
 		{
 			"path": "../longfellow-zk"
+		},
+		{
+			"path": "../marty-protocol"
 		}
 	],
 	"settings": {

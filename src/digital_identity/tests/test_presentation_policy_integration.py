@@ -8,6 +8,7 @@ from digital_identity.domain.value_objects import (
     TrustProfileType,
     RequiredClaim,
     HolderBindingMethod,
+    HolderBindingConfig,
     FreshnessRequirements,
 )
 from digital_identity.application.services.trust_profile_service import TrustProfileService
@@ -54,7 +55,11 @@ class TestPresentationPolicyIntegration:
                 },
             ],
             trust_profile_id=tp.id,
-            holder_binding=HolderBindingMethod.BIOMETRIC,
+            holder_binding=HolderBindingConfig(
+                required=True,
+                binding_methods=[HolderBindingMethod.BIOMETRIC],
+                nonce_required=False,
+            ),
             freshness_requirements={
                 "max_age_seconds": 86400,
                 "require_not_revoked": True,

@@ -1,13 +1,14 @@
 """
 System Compliance Profiles Seed Data
 
-Creates read-only system compliance profiles for:
-- Open Badge v3 (VC-JWT format)
-- Open Badge v3 (JSON-LD format)
-- Open Badge v2 (Legacy compatibility)
+Creates read-only system compliance profiles for all 13 protocol-defined
+compliance codes. Profiles are marked is_system=True and cannot be modified
+by users. They can be cloned to create custom organization profiles.
 
-These profiles are marked as is_system=True and cannot be modified by users.
-They can be cloned to create custom compliance profiles.
+Compliance codes (from marty-protocol enums/compliance-codes.json):
+  ICAO_DTC, ICAO_MRZ, AAMVA_MDL, EUDI_PID, EUDI_MDL,
+  OB3_JWT, OB3_JSONLD, OB2_COMPATIBILITY,
+  SD_JWT_VC, ENTERPRISE_VC, OID4VC, PEX, CUSTOM
 """
 
 import asyncio
@@ -23,7 +24,160 @@ from .models import ComplianceProfileModel
 
 
 # System compliance profile definitions
+# issuer_artifact_requirements uses spec shape:
+#   requires_x509_cert, requires_did, requires_jwk,
+#   cert_key_usage, recommended_algorithms
 SYSTEM_COMPLIANCE_PROFILES = [
+    # ── ICAO ──────────────────────────────────────────────
+    {
+        "id": "icao-dtc-system",
+        "name": "ICAO Digital Travel Credential",
+        "code": "ICAO_DTC",
+        "description": (
+            "ICAO Digital Travel Credential compliance profile using ISO/IEC 18013-5 mDoc format. "
+            "Supports digital travel documents with CSCA/DSC certificate chain validation "
+            "per ICAO Doc 9303 and DTC Technical Report."
+        ),
+        "credential_format": "MDOC",
+        "issuance_protocol": "DIRECT",
+        "issuer_artifact_requirements": {
+            "requires_x509_cert": True,
+            "requires_did": False,
+            "requires_jwk": False,
+            "cert_key_usage": ["digital_signature"],
+            "recommended_algorithms": ["ES256", "ES384"],
+        },
+        "default_claim_verification_rules": [],
+        "trust_profile_requirements": {
+            "revocation_methods": ["CRL", "OCSP"],
+            "require_csca_chain": True,
+        },
+        "metadata_": {
+            "standard": "ICAO Doc 9303, ICAO DTC Technical Report",
+            "governed_by": "ICAO",
+            "format_family": "mdoc",
+        },
+    },
+    {
+        "id": "icao-mrz-system",
+        "name": "ICAO 9303 MRZ (mDoc)",
+        "code": "ICAO_MRZ",
+        "description": (
+            "ICAO 9303 Machine Readable Zone compliance profile using ISO/IEC 18013-5 mDoc format. "
+            "Supports travel document verification including passports, ID cards, and visa documents "
+            "with CSCA/DSC certificate chain validation."
+        ),
+        "credential_format": "MDOC",
+        "issuance_protocol": "DIRECT",
+        "issuer_artifact_requirements": {
+            "requires_x509_cert": True,
+            "requires_did": False,
+            "requires_jwk": False,
+            "cert_key_usage": ["digital_signature"],
+            "recommended_algorithms": ["ES256", "ES384"],
+        },
+        "default_claim_verification_rules": [],
+        "trust_profile_requirements": {
+            "revocation_methods": ["CRL", "OCSP"],
+            "require_csca_chain": True,
+        },
+        "metadata_": {
+            "standard": "ICAO Doc 9303 Parts 1-13",
+            "governed_by": "ICAO",
+            "format_family": "mdoc",
+            "doc_types": ["TD1", "TD2", "TD3"],
+        },
+    },
+    # ── AAMVA ─────────────────────────────────────────────
+    {
+        "id": "aamva-mdl-system",
+        "name": "AAMVA Mobile Driver's License",
+        "code": "AAMVA_MDL",
+        "description": (
+            "AAMVA Mobile Driver's License compliance profile using ISO/IEC 18013-5 mDoc format. "
+            "Supports mDL issuance and verification per AAMVA Implementation Guidelines "
+            "with IACA certificate chain validation."
+        ),
+        "credential_format": "MDOC",
+        "issuance_protocol": "DIRECT",
+        "issuer_artifact_requirements": {
+            "requires_x509_cert": True,
+            "requires_did": False,
+            "requires_jwk": False,
+            "cert_key_usage": ["digital_signature"],
+            "recommended_algorithms": ["ES256"],
+        },
+        "default_claim_verification_rules": [],
+        "trust_profile_requirements": {
+            "revocation_methods": ["CRL", "STATUS_LIST_2021"],
+            "require_iaca_chain": True,
+        },
+        "metadata_": {
+            "standard": "ISO/IEC 18013-5:2021, AAMVA mDL Implementation Guidelines",
+            "governed_by": "AAMVA",
+            "format_family": "mdoc",
+        },
+    },
+    # ── EUDI ──────────────────────────────────────────────
+    {
+        "id": "eudi-pid-system",
+        "name": "EUDI Person Identification Data",
+        "code": "EUDI_PID",
+        "description": (
+            "EU Digital Identity Wallet Person Identification Data compliance profile "
+            "using SD-JWT VC format. Implements eIDAS 2.0 PID attestation requirements "
+            "per the EUDI Architecture Reference Framework."
+        ),
+        "credential_format": "SD_JWT_VC",
+        "issuance_protocol": "OID4VCI_AUTH_CODE",
+        "issuer_artifact_requirements": {
+            "requires_x509_cert": True,
+            "requires_did": False,
+            "requires_jwk": True,
+            "cert_key_usage": ["digital_signature"],
+            "recommended_algorithms": ["ES256"],
+        },
+        "default_claim_verification_rules": [],
+        "trust_profile_requirements": {
+            "revocation_methods": ["STATUS_LIST_2021"],
+            "require_qualified_trust_service": True,
+        },
+        "metadata_": {
+            "standard": "EUDI ARF, eIDAS 2.0, ETSI EN-319",
+            "governed_by": "European Commission",
+            "format_family": "sd_jwt_vc",
+        },
+    },
+    {
+        "id": "eudi-mdl-system",
+        "name": "EUDI Mobile Driving Licence",
+        "code": "EUDI_MDL",
+        "description": (
+            "EU Digital Identity Wallet Mobile Driving Licence compliance profile "
+            "using ISO/IEC 18013-5 mDoc format. Implements EUDI ARF Annex requirements "
+            "for driving licence attestation."
+        ),
+        "credential_format": "MDOC",
+        "issuance_protocol": "OID4VCI_AUTH_CODE",
+        "issuer_artifact_requirements": {
+            "requires_x509_cert": True,
+            "requires_did": False,
+            "requires_jwk": False,
+            "cert_key_usage": ["digital_signature"],
+            "recommended_algorithms": ["ES256"],
+        },
+        "default_claim_verification_rules": [],
+        "trust_profile_requirements": {
+            "revocation_methods": ["STATUS_LIST_2021"],
+            "require_qualified_trust_service": True,
+        },
+        "metadata_": {
+            "standard": "ISO/IEC 18013-5:2021, EUDI ARF Annex",
+            "governed_by": "European Commission",
+            "format_family": "mdoc",
+        },
+    },
+    # ── Open Badge ────────────────────────────────────────
     {
         "id": "obv3-jwt-system",
         "name": "Open Badge v3 (VC-JWT)",
@@ -34,55 +188,23 @@ SYSTEM_COMPLIANCE_PROFILES = [
             "with selective disclosure capabilities."
         ),
         "credential_format": "VC_JWT",
+        "issuance_protocol": "OID4VCI_PRE_AUTH",
         "issuer_artifact_requirements": {
-            "required_artifacts": ["issuer_did", "issuer_key_id"],
-            "optional_artifacts": ["issuer_certificate_chain_pem"],
-            "key_algorithms": ["RS256", "ES256", "EdDSA"],
-            "key_access_modes": ["key_vault", "hsm", "local"],
+            "requires_x509_cert": False,
+            "requires_did": True,
+            "requires_jwk": False,
+            "cert_key_usage": [],
+            "recommended_algorithms": ["ES256", "EdDSA", "RS256"],
         },
-        "default_claim_verification_rules": [
-            {
-                "claim_name": "achievement",
-                "required": True,
-                "data_type": "object",
-                "validation": {
-                    "required_fields": ["type", "name", "description", "criteria"],
-                },
-            },
-            {
-                "claim_name": "criteria",
-                "required": True,
-                "data_type": "object",
-                "validation": {
-                    "required_fields": ["narrative"],
-                },
-            },
-            {
-                "claim_name": "issuer",
-                "required": True,
-                "data_type": "object",
-                "validation": {
-                    "required_fields": ["type", "name", "id"],
-                },
-            },
-            {
-                "claim_name": "issuedOn",
-                "required": True,
-                "data_type": "datetime",
-                "validation": {
-                    "format": "iso8601",
-                },
-            },
-        ],
+        "default_claim_verification_rules": [],
         "trust_profile_requirements": {
-            "revocation_methods": ["StatusList2021", "BitstringStatusList"],
+            "revocation_methods": ["STATUS_LIST_2021", "BITSTRING_STATUS_LIST"],
             "require_holder_binding": True,
-            "allowed_signing_algorithms": ["RS256", "ES256", "EdDSA"],
         },
         "metadata_": {
+            "standard": "1EdTech Open Badges 3.0, W3C VC Data Model",
+            "governed_by": "1EdTech",
             "specification_url": "https://www.imsglobal.org/spec/ob/v3p0/",
-            "context": "https://purl.imsglobal.org/spec/ob/v3p0/context.json",
-            "version": "3.0",
             "format_family": "w3c_vc",
         },
     },
@@ -96,58 +218,24 @@ SYSTEM_COMPLIANCE_PROFILES = [
             "semantics with cryptographic verification."
         ),
         "credential_format": "JSON_LD",
+        "issuance_protocol": "OID4VCI_PRE_AUTH",
         "issuer_artifact_requirements": {
-            "required_artifacts": ["issuer_did", "issuer_key_id"],
-            "optional_artifacts": ["verification_method"],
-            "key_algorithms": ["Ed25519", "ES256K", "BLS12381G2"],
-            "key_access_modes": ["key_vault", "hsm", "local"],
-            "proof_suites": ["Ed25519Signature2020", "JsonWebSignature2020"],
+            "requires_x509_cert": False,
+            "requires_did": True,
+            "requires_jwk": False,
+            "cert_key_usage": [],
+            "recommended_algorithms": ["ES256", "EdDSA"],
         },
-        "default_claim_verification_rules": [
-            {
-                "claim_name": "achievement",
-                "required": True,
-                "data_type": "object",
-                "validation": {
-                    "required_fields": ["type", "name", "description", "criteria"],
-                },
-            },
-            {
-                "claim_name": "criteria",
-                "required": True,
-                "data_type": "object",
-                "validation": {
-                    "required_fields": ["narrative"],
-                },
-            },
-            {
-                "claim_name": "issuer",
-                "required": True,
-                "data_type": "object",
-                "validation": {
-                    "required_fields": ["type", "name", "id"],
-                },
-            },
-            {
-                "claim_name": "issuedOn",
-                "required": True,
-                "data_type": "datetime",
-                "validation": {
-                    "format": "iso8601",
-                },
-            },
-        ],
+        "default_claim_verification_rules": [],
         "trust_profile_requirements": {
-            "revocation_methods": ["StatusList2021", "RevocationList2020"],
+            "revocation_methods": ["STATUS_LIST_2021"],
             "require_holder_binding": True,
-            "require_did_resolution": True,
         },
         "metadata_": {
+            "standard": "1EdTech Open Badges 3.0, W3C VC Data Model, JSON-LD 1.1",
+            "governed_by": "1EdTech",
             "specification_url": "https://www.imsglobal.org/spec/ob/v3p0/",
-            "context": "https://purl.imsglobal.org/spec/ob/v3p0/context.json",
-            "version": "3.0",
             "format_family": "w3c_vc_jsonld",
-            "proof_format": "data_integrity",
         },
     },
     {
@@ -159,112 +247,79 @@ SYSTEM_COMPLIANCE_PROFILES = [
             "Supports JSON-based badge assertions with hosted verification. "
             "Recommended for migration scenarios only; new implementations should use OBv3."
         ),
-        "credential_format": "OB2_JSON",
+        "credential_format": "JSON_LD",
+        "issuance_protocol": "DIRECT",
         "issuer_artifact_requirements": {
-            "required_artifacts": ["issuer_profile_url", "issuer_public_key"],
-            "optional_artifacts": ["badge_class_url"],
-            "key_algorithms": ["RSA-SHA256"],
-            "key_access_modes": ["local", "hosted"],
+            "requires_x509_cert": False,
+            "requires_did": False,
+            "requires_jwk": False,
+            "cert_key_usage": [],
+            "recommended_algorithms": ["RS256"],
         },
-        "default_claim_verification_rules": [
-            {
-                "claim_name": "badge",
-                "required": True,
-                "data_type": "object",
-                "validation": {
-                    "required_fields": ["type", "name", "description", "image", "criteria", "issuer"],
-                },
-            },
-            {
-                "claim_name": "recipient",
-                "required": True,
-                "data_type": "object",
-                "validation": {
-                    "required_fields": ["type", "identity", "hashed"],
-                },
-            },
-            {
-                "claim_name": "issuedOn",
-                "required": True,
-                "data_type": "datetime",
-                "validation": {
-                    "format": "iso8601",
-                },
-            },
-            {
-                "claim_name": "verification",
-                "required": True,
-                "data_type": "object",
-                "validation": {
-                    "required_fields": ["type"],
-                },
-            },
-        ],
+        "default_claim_verification_rules": [],
         "trust_profile_requirements": {
-            "revocation_methods": ["hosted_revocation_list"],
-            "require_hosted_verification": True,
+            "revocation_methods": ["STATUS_LIST_2021"],
         },
         "metadata_": {
+            "standard": "1EdTech Open Badges 2.0",
+            "governed_by": "1EdTech",
             "specification_url": "https://www.imsglobal.org/spec/ob/v2p0/",
-            "version": "2.0",
             "format_family": "openbadges",
-            "deprecation_notice": "Open Badge v2 is deprecated. Please migrate to OBv3.",
+            "deprecated": True,
+            "migration_target": "OB3_JWT or OB3_JSONLD",
+        },
+    },
+    # ── Generic VC / Interop ──────────────────────────────
+    {
+        "id": "sd-jwt-vc-system",
+        "name": "SD-JWT Verifiable Credential",
+        "code": "SD_JWT_VC",
+        "description": (
+            "Generic Selective Disclosure JWT Verifiable Credential compliance profile. "
+            "Framework-agnostic SD-JWT VC issuance and verification with holder binding "
+            "per IETF draft-ietf-oauth-sd-jwt-vc."
+        ),
+        "credential_format": "SD_JWT_VC",
+        "issuance_protocol": "OID4VCI_PRE_AUTH",
+        "issuer_artifact_requirements": {
+            "requires_x509_cert": False,
+            "requires_did": False,
+            "requires_jwk": True,
+            "cert_key_usage": [],
+            "recommended_algorithms": ["ES256", "ES384"],
+        },
+        "default_claim_verification_rules": [],
+        "trust_profile_requirements": {
+            "revocation_methods": ["STATUS_LIST_2021", "BITSTRING_STATUS_LIST"],
+        },
+        "metadata_": {
+            "standard": "IETF draft-ietf-oauth-sd-jwt-vc",
+            "format_family": "sd_jwt_vc",
         },
     },
     {
-        "id": "icao-mrz-system",
-        "name": "ICAO 9303 MRZ (mDL/mDoc)",
-        "code": "ICAO_MRZ",
+        "id": "enterprise-vc-system",
+        "name": "Enterprise Verifiable Credential",
+        "code": "ENTERPRISE_VC",
         "description": (
-            "ICAO 9303 Machine Readable Zone compliance profile using ISO/IEC 18013-5 mDoc format. "
-            "Supports travel document verification including passports, ID cards, and visa documents "
-            "with CSCA/DSC certificate chain validation."
+            "Generic enterprise verifiable credential compliance profile. "
+            "Suitable for organization-internal credentials not bound to a public standard. "
+            "Supports both JWT and SD-JWT VC formats."
         ),
-        "credential_format": "MDOC",
+        "credential_format": "SD_JWT_VC",
+        "issuance_protocol": "OID4VCI_PRE_AUTH",
         "issuer_artifact_requirements": {
-            "required_artifacts": ["csca_certificate", "dsc_certificate", "dsc_private_key"],
-            "optional_artifacts": ["crl_endpoint", "ocsp_endpoint"],
-            "key_algorithms": ["ES256", "ES384", "EC-P256"],
-            "key_access_modes": ["hsm", "key_vault"],
+            "requires_x509_cert": False,
+            "requires_did": False,
+            "requires_jwk": True,
+            "cert_key_usage": [],
+            "recommended_algorithms": ["ES256", "ES384", "EdDSA"],
         },
-        "default_claim_verification_rules": [
-            {
-                "claim_name": "mrz_data",
-                "required": True,
-                "data_type": "object",
-                "validation": {
-                    "required_fields": ["document_type", "country_code", "document_number", "date_of_birth", "date_of_expiry"],
-                },
-            },
-            {
-                "claim_name": "document_type",
-                "required": True,
-                "data_type": "string",
-                "validation": {
-                    "allowed_values": ["P", "V", "I", "A", "C"],
-                },
-            },
-            {
-                "claim_name": "date_of_expiry",
-                "required": True,
-                "data_type": "date",
-                "validation": {
-                    "format": "YYMMDD",
-                    "must_be_future": True,
-                },
-            },
-        ],
-        "trust_profile_requirements": {
-            "revocation_methods": ["CRL", "OCSP"],
-            "require_csca_chain": True,
-            "require_active_authentication": False,
-            "allowed_signing_algorithms": ["ES256", "ES384"],
-        },
+        "default_claim_verification_rules": [],
+        "trust_profile_requirements": {},
         "metadata_": {
-            "specification_url": "https://www.icao.int/publications/pages/publication.aspx?docnum=9303",
-            "version": "9303",
-            "format_family": "mdoc",
-            "iso_standard": "ISO/IEC 18013-5",
+            "use_case": "Organization-internal credentials",
+            "format_family": "sd_jwt_vc",
         },
     },
     {
@@ -277,49 +332,24 @@ SYSTEM_COMPLIANCE_PROFILES = [
             "selective disclosure and holder binding."
         ),
         "credential_format": "SD_JWT_VC",
+        "issuance_protocol": "OID4VCI_PRE_AUTH",
         "issuer_artifact_requirements": {
-            "required_artifacts": ["issuer_did", "issuer_key_id", "jwks_uri"],
-            "optional_artifacts": ["credential_offer_endpoint", "batch_credential_endpoint"],
-            "key_algorithms": ["ES256", "ES384", "EdDSA"],
-            "key_access_modes": ["key_vault", "hsm", "local"],
+            "requires_x509_cert": False,
+            "requires_did": False,
+            "requires_jwk": True,
+            "cert_key_usage": [],
+            "recommended_algorithms": ["ES256", "ES384", "EdDSA"],
         },
-        "default_claim_verification_rules": [
-            {
-                "claim_name": "vct",
-                "required": True,
-                "data_type": "string",
-                "validation": {
-                    "format": "uri",
-                },
-            },
-            {
-                "claim_name": "iss",
-                "required": True,
-                "data_type": "string",
-                "validation": {
-                    "format": "uri",
-                },
-            },
-            {
-                "claim_name": "cnf",
-                "required": False,
-                "data_type": "object",
-                "validation": {
-                    "description": "Key binding confirmation claim for holder binding",
-                },
-            },
-        ],
+        "default_claim_verification_rules": [],
         "trust_profile_requirements": {
-            "revocation_methods": ["StatusList2021", "BitstringStatusList"],
+            "revocation_methods": ["STATUS_LIST_2021", "BITSTRING_STATUS_LIST"],
             "require_holder_binding": True,
-            "require_sd_jwt_disclosure": True,
-            "allowed_signing_algorithms": ["ES256", "ES384", "EdDSA"],
         },
         "metadata_": {
+            "standard": "OpenID for Verifiable Credential Issuance 1.0, OpenID for Verifiable Presentations 1.0",
+            "governed_by": "OpenID Foundation",
             "specification_url": "https://openid.net/specs/openid-4-verifiable-credential-issuance-1_0.html",
-            "version": "1.0",
             "format_family": "sd_jwt_vc",
-            "presentation_protocol": "OID4VP",
         },
     },
     {
@@ -332,41 +362,48 @@ SYSTEM_COMPLIANCE_PROFILES = [
             "formats with constraint validation."
         ),
         "credential_format": "SD_JWT_VC",
+        "issuance_protocol": "OID4VCI_PRE_AUTH",
         "issuer_artifact_requirements": {
-            "required_artifacts": ["issuer_did", "issuer_key_id"],
-            "optional_artifacts": ["presentation_definition_registry"],
-            "key_algorithms": ["ES256", "ES384", "EdDSA"],
-            "key_access_modes": ["key_vault", "hsm", "local"],
+            "requires_x509_cert": False,
+            "requires_did": False,
+            "requires_jwk": True,
+            "cert_key_usage": [],
+            "recommended_algorithms": ["ES256", "ES384", "EdDSA"],
         },
-        "default_claim_verification_rules": [
-            {
-                "claim_name": "presentation_definition",
-                "required": False,
-                "data_type": "object",
-                "validation": {
-                    "required_fields": ["id", "input_descriptors"],
-                },
-            },
-            {
-                "claim_name": "input_descriptors",
-                "required": False,
-                "data_type": "array",
-                "validation": {
-                    "description": "DIF PE v2 input descriptors with constraints",
-                },
-            },
-        ],
+        "default_claim_verification_rules": [],
         "trust_profile_requirements": {
-            "revocation_methods": ["StatusList2021", "BitstringStatusList"],
-            "require_holder_binding": True,
-            "require_pex_constraint_validation": True,
-            "allowed_signing_algorithms": ["ES256", "ES384", "EdDSA"],
+            "revocation_methods": ["STATUS_LIST_2021", "BITSTRING_STATUS_LIST"],
         },
         "metadata_": {
+            "standard": "DIF Presentation Exchange 2.0.0",
+            "governed_by": "Decentralized Identity Foundation",
             "specification_url": "https://identity.foundation/presentation-exchange/spec/v2.0.0/",
-            "version": "2.0",
             "format_family": "sd_jwt_vc",
-            "dif_standard": "Presentation Exchange v2",
+        },
+    },
+    # ── Custom ────────────────────────────────────────────
+    {
+        "id": "custom-system",
+        "name": "Custom Compliance Profile",
+        "code": "CUSTOM",
+        "description": (
+            "Placeholder for organization-defined custom compliance profiles. "
+            "Clone this profile and set organization_id to create a proprietary "
+            "credential framework configuration."
+        ),
+        "credential_format": "SD_JWT_VC",
+        "issuance_protocol": "DIRECT",
+        "issuer_artifact_requirements": {
+            "requires_x509_cert": False,
+            "requires_did": False,
+            "requires_jwk": False,
+            "cert_key_usage": [],
+            "recommended_algorithms": ["ES256"],
+        },
+        "default_claim_verification_rules": [],
+        "trust_profile_requirements": {},
+        "metadata_": {
+            "use_case": "Organization-defined compliance profile",
         },
     },
 ]
@@ -377,28 +414,41 @@ async def seed_system_compliance_profiles(session: AsyncSession) -> None:
     Seed system compliance profiles into the database.
     
     This function is idempotent - it will only insert profiles that don't already exist
-    based on the 'code' field.
+    based on the compliance_code field. Existing profiles are updated in place to
+    ensure artifact requirements match the current spec shape.
     
     Args:
         session: Async SQLAlchemy session
     """
-    seeded_count = 0
+    created_count = 0
+    updated_count = 0
     skipped_count = 0
     
     for profile_data in SYSTEM_COMPLIANCE_PROFILES:
         # Check if profile already exists
         result = await session.execute(
-            select(ComplianceProfileModel).where(ComplianceProfileModel.compliance_code == profile_data["code"])
+            select(ComplianceProfileModel).where(
+                ComplianceProfileModel.compliance_code == profile_data["code"]
+            )
         )
-        existing_profile = result.scalar_one_or_none()
+        existing = result.scalar_one_or_none()
+        now = datetime.now(timezone.utc)
         
-        if existing_profile:
-            print(f"⏭️  Skipping existing profile: {profile_data['name']} ({profile_data['code']})")
-            skipped_count += 1
+        if existing:
+            # Update existing profile to current spec shape
+            existing.name = profile_data["name"]
+            existing.description = profile_data["description"]
+            existing.credential_format = profile_data["credential_format"]
+            existing.issuer_artifact_requirements = profile_data["issuer_artifact_requirements"]
+            existing.default_verification_rules = profile_data["default_claim_verification_rules"]
+            existing.trust_profile_constraints = profile_data["trust_profile_requirements"]
+            existing.metadata_ = profile_data["metadata_"]
+            existing.updated_at = now
+            print(f"🔄 Updated existing profile: {profile_data['name']} ({profile_data['code']})")
+            updated_count += 1
             continue
         
         # Create new system profile
-        now = datetime.now(timezone.utc)
         profile = ComplianceProfileModel(
             id=profile_data["id"],
             name=profile_data["name"],
@@ -408,7 +458,7 @@ async def seed_system_compliance_profiles(session: AsyncSession) -> None:
             issuer_artifact_requirements=profile_data["issuer_artifact_requirements"],
             default_verification_rules=profile_data["default_claim_verification_rules"],
             trust_profile_constraints=profile_data["trust_profile_requirements"],
-            is_system=True,  # System profiles are read-only
+            is_system=True,
             metadata_=profile_data["metadata_"],
             created_at=now,
             updated_at=now,
@@ -417,16 +467,16 @@ async def seed_system_compliance_profiles(session: AsyncSession) -> None:
         
         session.add(profile)
         print(f"✅ Created system profile: {profile_data['name']} ({profile_data['code']})")
-        seeded_count += 1
+        created_count += 1
     
     await session.commit()
     
-    print(f"\n📊 Seeding complete: {seeded_count} created, {skipped_count} skipped")
+    print(f"\n📊 Seeding complete: {created_count} created, {updated_count} updated, {skipped_count} skipped")
 
 
 async def main():
     """Main entry point for seeding system compliance profiles."""
-    print("🌱 Seeding System Compliance Profiles for Open Badge v3...\n")
+    print("🌱 Seeding System Compliance Profiles...\n")
     
     async for session in get_async_session():
         try:

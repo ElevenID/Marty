@@ -21,6 +21,8 @@ from digital_identity.application.ports.trust_profile import (
     ChainValidationResult,
     RevocationCheckResult,
     RefreshResult,
+    ValidationStatus,
+    RevocationStatus,
 )
 
 logger = logging.getLogger(__name__)
@@ -30,167 +32,199 @@ logger = logging.getLogger(__name__)
 class CustomTrustProfile:
     """
     Custom Trust Profile implementation.
-    
+
     Provides a flexible trust framework for custom trust sources.
-    Supports:
-    - Manual trust anchor configuration
-    - Custom validation logic via callbacks
-    - Pluggable revocation checking
-    - Custom refresh mechanisms
+    Supports manual trust anchor configuration, custom validation logic
+    via callbacks, pluggable revocation checking, and custom refresh
+    mechanisms.
     """
-    
+
     name: str
     trust_anchors: dict[str, TrustAnchor] = field(default_factory=dict)
     validation_callback: Callable[[list[str], str | None], ChainValidationResult] | None = None
     revocation_callback: Callable[[str, str | None], RevocationCheckResult] | None = None
     refresh_callback: Callable[[], RefreshResult] | None = None
-    
-    async def get_trust_anchors(self, issuer: str | None = None) -> list[TrustAnchor]:
-        """
-        Get configured trust anchors.
-        
-        Args:
-            issuer: Optional issuer filter
-        
-        Returns:
-            List of trust anchors, optionally filtered by issuer
-        """
-        if issuer:
+
+    # ------------------------------------------------------------------
+    # TrustProfilePort interface
+    # ------------------------------------------------------------------
+
+    async def get_trust_anchors(
+        self,
+        jurisdiction: str | None = None,
+        country_code: str | None = None,
+    ) -> list[TrustAnchor]:
+        """Get configured trust anchors, optionally filtered."""
+        lookup = jurisdiction or country_code
+        if lookup:
             return [
-                anchor for anchor in self.trust_anchors.values()
-                if anchor.subject.find(issuer) != -1 or anchor.issuer.find(issuer) != -1
+                anchor
+                for anchor in self.trust_anchors.values()
+                if lookup in (anchor.subject or "")
+                or lookup in (anchor.issuer or "")
+                or anchor.country_code == lookup
+                or anchor.jurisdiction == lookup
             ]
         return list(self.trust_anchors.values())
-    
+
+    async def get_anchor_by_id(self, anchor_id: str) -> TrustAnchor | None:
+        """Get a specific trust anchor by ID."""
+        return self.trust_anchors.get(anchor_id)
+
     async def validate_chain(
         self,
-        certificate_chain: list[str],
-        issuer: str | None = None,
+        certificate_pem: str | None = None,
+        certificate_der: bytes | None = None,
     ) -> ChainValidationResult:
-        """
-        Validate certificate chain.
-        
-        Uses custom validation callback if provided, otherwise performs basic validation.
-        """
+        """Validate certificate chain using callback or Rust ChainValidator."""
         if self.validation_callback:
             try:
-                return self.validation_callback(certificate_chain, issuer)
+                chain = [certificate_pem] if certificate_pem else []
+                return self.validation_callback(chain, None)
             except Exception as e:
                 logger.exception("Custom validation callback failed")
                 return ChainValidationResult(
-                    is_valid=False,
-                    trust_anchor_used=None,
-                    validation_time=datetime.now(),
-                    errors=[f"Validation callback error: {str(e)}"],
+                    status=ValidationStatus.INVALID,
+                    errors=[f"Validation callback error: {e}"],
                 )
-        
-        # Default validation: check if leaf certificate is issued by a known trust anchor
-        return await self._default_validate_chain(certificate_chain, issuer)
-    
+
+        return await self._default_validate_chain(certificate_pem, certificate_der)
+
     async def _default_validate_chain(
         self,
-        certificate_chain: list[str],
-        issuer: str | None,
+        certificate_pem: str | None,
+        certificate_der: bytes | None,
     ) -> ChainValidationResult:
-        """Default chain validation logic."""
-        if not certificate_chain:
+        """Default chain validation using Rust ChainValidator."""
+        if not certificate_pem and not certificate_der:
             return ChainValidationResult(
-                is_valid=False,
-                trust_anchor_used=None,
-                validation_time=datetime.now(),
-                errors=["Empty certificate chain"],
+                status=ValidationStatus.INVALID,
+                errors=["No certificate provided"],
             )
-        
+
+        if not self.trust_anchors:
+            return ChainValidationResult(
+                status=ValidationStatus.INVALID,
+                errors=["No trust anchors configured"],
+            )
+
         try:
-            # Parse leaf certificate
-            leaf_pem = certificate_chain[0]
-            leaf_cert = x509.load_pem_x509_certificate(leaf_pem.encode('utf-8'))
-            leaf_issuer = leaf_cert.issuer.rfc4514_string()
-            
-            # Find matching trust anchor
-            for anchor_id, anchor in self.trust_anchors.items():
-                anchor_cert = x509.load_pem_x509_certificate(anchor.pem.encode('utf-8'))
-                anchor_subject = anchor_cert.subject.rfc4514_string()
-                
-                if leaf_issuer == anchor_subject:
-                    # Found matching trust anchor
-                    # Verify signature (basic check)
-                    try:
-                        anchor_cert.public_key().verify(
-                            leaf_cert.signature,
-                            leaf_cert.tbs_certificate_bytes,
-                            # padding and hash algorithm depend on signature algorithm
-                        )
-                        
-                        return ChainValidationResult(
-                            is_valid=True,
-                            trust_anchor_used=anchor.subject,
-                            validation_time=datetime.now(),
-                            errors=None,
-                            warnings=["Basic validation only - full chain validation not performed"],
-                        )
-                    except Exception as e:
-                        return ChainValidationResult(
-                            is_valid=False,
-                            trust_anchor_used=None,
-                            validation_time=datetime.now(),
-                            errors=[f"Signature verification failed: {str(e)}"],
-                        )
-            
-            return ChainValidationResult(
-                is_valid=False,
-                trust_anchor_used=None,
-                validation_time=datetime.now(),
-                errors=[f"No trust anchor found for issuer: {leaf_issuer}"],
-            )
-        
+            from marty_verification import ChainValidator, certificate_der_to_pem  # type: ignore
+
+            if certificate_der and not certificate_pem:
+                certificate_pem = certificate_der_to_pem(certificate_der)
+
+            validator = ChainValidator()
+            for anchor in self.trust_anchors.values():
+                if anchor.certificate_pem:
+                    validator.add_trust_anchor(anchor.certificate_pem)
+
+            result = validator.validate_chain([certificate_pem])
+
+            if result.valid:
+                return ChainValidationResult(
+                    status=ValidationStatus.VALID,
+                    trust_anchor_id=result.issuer,
+                    chain_length=result.chain_depth,
+                    chain_path=[result.subject or "leaf"],
+                    warnings=list(result.warnings) if result.warnings else [],
+                )
+            else:
+                return ChainValidationResult(
+                    status=ValidationStatus.INVALID,
+                    errors=list(result.errors) if result.errors else ["Chain validation failed"],
+                )
+
+        except ImportError:
+            # Fallback to pure-Python issuer matching
+            return self._python_fallback_validate(certificate_pem)
+
         except Exception as e:
             logger.exception("Default chain validation failed")
             return ChainValidationResult(
-                is_valid=False,
-                trust_anchor_used=None,
-                validation_time=datetime.now(),
-                errors=[f"Validation error: {str(e)}"],
+                status=ValidationStatus.INVALID,
+                errors=[f"Validation error: {e}"],
             )
-    
+
+    def _python_fallback_validate(self, certificate_pem: str) -> ChainValidationResult:
+        """Minimal pure-Python fallback: match leaf issuer to anchor subject."""
+        try:
+            leaf_cert = x509.load_pem_x509_certificate(certificate_pem.encode("utf-8"))
+            leaf_issuer = leaf_cert.issuer.rfc4514_string()
+
+            for anchor_id, anchor in self.trust_anchors.items():
+                if not anchor.certificate_pem:
+                    continue
+                anchor_cert = x509.load_pem_x509_certificate(
+                    anchor.certificate_pem.encode("utf-8")
+                )
+                if leaf_issuer == anchor_cert.subject.rfc4514_string():
+                    # Verify signature using cryptography library
+                    try:
+                        from cryptography.hazmat.primitives.asymmetric import ec, padding
+                        pubkey = anchor_cert.public_key()
+                        sig_algo = leaf_cert.signature_algorithm_oid.dotted_string
+
+                        if isinstance(pubkey, ec.EllipticCurvePublicKey):
+                            pubkey.verify(
+                                leaf_cert.signature,
+                                leaf_cert.tbs_certificate_bytes,
+                                ec.ECDSA(leaf_cert.signature_hash_algorithm),
+                            )
+                        else:
+                            pubkey.verify(
+                                leaf_cert.signature,
+                                leaf_cert.tbs_certificate_bytes,
+                                padding.PKCS1v15(),
+                                leaf_cert.signature_hash_algorithm,
+                            )
+
+                        return ChainValidationResult(
+                            status=ValidationStatus.VALID,
+                            trust_anchor_id=anchor_id,
+                            chain_length=1,
+                            warnings=["Python fallback validation — Rust unavailable"],
+                        )
+                    except Exception as e:
+                        return ChainValidationResult(
+                            status=ValidationStatus.INVALID,
+                            errors=[f"Signature verification failed: {e}"],
+                        )
+
+            return ChainValidationResult(
+                status=ValidationStatus.INVALID,
+                errors=[f"No trust anchor found for issuer: {leaf_issuer}"],
+            )
+
+        except Exception as e:
+            return ChainValidationResult(
+                status=ValidationStatus.INVALID,
+                errors=[f"Validation error: {e}"],
+            )
+
     async def check_revocation(
         self,
-        certificate: str,
-        issuer: str | None = None,
+        certificate_pem: str | None = None,
+        certificate_der: bytes | None = None,
     ) -> RevocationCheckResult:
-        """
-        Check revocation status.
-        
-        Uses custom revocation callback if provided.
-        """
+        """Check revocation status using callback or return UNKNOWN."""
         if self.revocation_callback:
             try:
-                return self.revocation_callback(certificate, issuer)
+                return self.revocation_callback(certificate_pem or "", None)
             except Exception as e:
                 logger.exception("Custom revocation callback failed")
                 return RevocationCheckResult(
-                    is_revoked=False,
-                    status="error",
-                    checked_at=datetime.now(),
-                    source=None,
-                    error=f"Revocation callback error: {str(e)}",
+                    status=RevocationStatus.UNKNOWN,
+                    errors=[f"Revocation callback error: {e}"],
                 )
-        
-        # No revocation checking configured
+
         return RevocationCheckResult(
-            is_revoked=False,
-            status="unknown",
-            checked_at=datetime.now(),
-            source=None,
-            error="No revocation checking configured",
+            status=RevocationStatus.UNKNOWN,
+            errors=["No revocation checking configured"],
         )
-    
+
     async def refresh(self) -> RefreshResult:
-        """
-        Refresh trust anchors.
-        
-        Uses custom refresh callback if provided.
-        """
+        """Refresh trust anchors using callback."""
         if self.refresh_callback:
             try:
                 return self.refresh_callback()
@@ -198,70 +232,66 @@ class CustomTrustProfile:
                 logger.exception("Custom refresh callback failed")
                 return RefreshResult(
                     success=False,
-                    anchors_updated=0,
-                    error=f"Refresh callback error: {str(e)}",
+                    errors=[f"Refresh callback error: {e}"],
                 )
-        
-        # No refresh mechanism configured
-        return RefreshResult(
-            success=True,
-            anchors_updated=0,
-            error=None,
-        )
-    
-    async def is_issuer_trusted(self, issuer: str) -> bool:
+
+        return RefreshResult(success=True)
+
+    async def is_issuer_trusted(self, issuer_id: str) -> bool:
         """Check if an issuer is trusted."""
         for anchor in self.trust_anchors.values():
-            if issuer in anchor.subject or issuer in anchor.issuer:
+            if (
+                issuer_id in (anchor.subject or "")
+                or issuer_id in (anchor.issuer or "")
+                or anchor.country_code == issuer_id
+                or anchor.jurisdiction == issuer_id
+            ):
                 return True
         return False
-    
+
+    # ------------------------------------------------------------------
+    # Anchor management helpers
+    # ------------------------------------------------------------------
+
     def add_trust_anchor(
         self,
         identifier: str,
         certificate_pem: str,
         source: str = "manual",
     ) -> None:
-        """
-        Add a trust anchor.
-        
-        Args:
-            identifier: Unique identifier for this anchor
-            certificate_pem: PEM-encoded certificate
-            source: Source of this anchor (for audit trail)
-        """
-        try:
-            cert = x509.load_pem_x509_certificate(certificate_pem.encode('utf-8'))
-            
-            anchor = TrustAnchor(
-                identifier=identifier,
-                subject=cert.subject.rfc4514_string(),
-                issuer=cert.issuer.rfc4514_string(),
-                not_before=cert.not_valid_before_utc if hasattr(cert, 'not_valid_before_utc') else cert.not_valid_before,
-                not_after=cert.not_valid_after_utc if hasattr(cert, 'not_valid_after_utc') else cert.not_valid_after,
-                pem=certificate_pem,
-                source=source,
-            )
-            
-            self.trust_anchors[identifier] = anchor
-            logger.info(f"Added trust anchor: {identifier} from {source}")
-        
-        except Exception as e:
-            logger.exception(f"Failed to add trust anchor: {identifier}")
-            raise ValueError(f"Invalid certificate: {str(e)}")
-    
+        """Add a trust anchor from a PEM certificate."""
+        cert = x509.load_pem_x509_certificate(certificate_pem.encode("utf-8"))
+        not_before = (
+            cert.not_valid_before_utc
+            if hasattr(cert, "not_valid_before_utc")
+            else cert.not_valid_before
+        )
+        not_after = (
+            cert.not_valid_after_utc
+            if hasattr(cert, "not_valid_after_utc")
+            else cert.not_valid_after
+        )
+        fingerprint = cert.fingerprint(hashes.SHA256()).hex()
+
+        anchor = TrustAnchor(
+            id=fingerprint,
+            subject=cert.subject.rfc4514_string(),
+            issuer=cert.issuer.rfc4514_string(),
+            serial_number=format(cert.serial_number, "x"),
+            valid_from=not_before,
+            valid_until=not_after,
+            certificate_pem=certificate_pem,
+            certificate_der=cert.public_bytes(serialization.Encoding.DER),
+            metadata={"source": source},
+        )
+
+        self.trust_anchors[identifier] = anchor
+        logger.info("Added trust anchor: %s from %s", identifier, source)
+
     def remove_trust_anchor(self, identifier: str) -> bool:
-        """
-        Remove a trust anchor.
-        
-        Args:
-            identifier: Identifier of anchor to remove
-        
-        Returns:
-            True if anchor was removed
-        """
+        """Remove a trust anchor by identifier."""
         if identifier in self.trust_anchors:
             del self.trust_anchors[identifier]
-            logger.info(f"Removed trust anchor: {identifier}")
+            logger.info("Removed trust anchor: %s", identifier)
             return True
         return False
