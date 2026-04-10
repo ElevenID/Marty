@@ -15,6 +15,7 @@ crypto_boundaries:
         security_level: "hsm_required"
         max_lifetime_days: 3650  # 10 years
         requires_audit: true
+        require_attestation: true
         cross_boundary_usage: false
 
       dsc:
@@ -23,6 +24,7 @@ crypto_boundaries:
         security_level: "hsm_required"
         max_lifetime_days: 1095  # 3 years
         requires_audit: true
+        require_attestation: true
         cross_boundary_usage: false
 
     # Verification roles (only need public keys)
@@ -32,6 +34,7 @@ crypto_boundaries:
         purposes: ["signature_verification", "certificate_validation"]
         security_level: "software_ok"
         requires_audit: true
+        require_attestation: false
         cross_boundary_usage: false
 
       verifier:
@@ -39,6 +42,7 @@ crypto_boundaries:
         purposes: ["signature_verification", "certificate_validation"]
         security_level: "software_ok"
         requires_audit: true
+        require_attestation: false
         cross_boundary_usage: false
 
     # End-user roles (completely separate key space)
@@ -49,6 +53,7 @@ crypto_boundaries:
         security_level: "software_ok"
         max_lifetime_days: 365  # 1 year
         requires_audit: false
+        require_attestation: false
         cross_boundary_usage: false
 
       holder:
@@ -57,6 +62,7 @@ crypto_boundaries:
         security_level: "ephemeral_only"
         max_lifetime_days: 1  # Very short-lived
         requires_audit: false
+        require_attestation: false
         cross_boundary_usage: false
 
     # Infrastructure roles
@@ -67,6 +73,7 @@ crypto_boundaries:
         security_level: "hsm_preferred"
         max_lifetime_days: 1095  # 3 years
         requires_audit: true
+        require_attestation: false
         cross_boundary_usage: false
 
       evidence:
@@ -75,6 +82,7 @@ crypto_boundaries:
         security_level: "hsm_preferred"
         max_lifetime_days: 1095  # 3 years
         requires_audit: true
+        require_attestation: false
         cross_boundary_usage: false
 
 # KMS/HSM Provider Configuration
@@ -82,12 +90,23 @@ kms_providers:
   # Default provider for each environment
   default_provider:
     production: "aws_kms"        # Use AWS KMS in production
-    staging: "software_hsm"      # Use software HSM in staging
-    development: "software_hsm"  # Use software HSM in dev
+    staging: "openbao"           # Use OpenBao in staging
+    development: "openbao"       # Use OpenBao in dev (falls back to software_hsm)
     testing: "file_based"        # Use file-based for testing
 
   # Provider-specific configurations
   providers:
+    openbao:
+      addr: "${BAO_ADDR:-http://openbao:8200}"
+      transit_mount: "transit"
+      auth_method: "approle"     # approle | token
+      approle_role: "credential-signer"
+      approle_mount: "approle"
+      token: "${BAO_TOKEN}"      # Dev-only: direct token auth
+      tls_enabled: false         # Enable in production
+      tls_ca_cert: "${BAO_TLS_CA_CERT}"
+      timeout_seconds: 10
+
     aws_kms:
       region: "us-east-1"
       key_policy_template: "crypto_role_based_policy"

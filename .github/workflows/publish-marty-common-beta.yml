@@ -39,7 +39,7 @@ jobs:
             VERSION="${{ github.event.inputs.version }}"
           else
             SHORT_SHA=$(git rev-parse --short HEAD)
-            BASE_VERSION=$(grep -oP '__version__ = "\K[^"]+' packages/marty-common/marty_common/__init__.py || echo "0.1.0")
+            BASE_VERSION=$(grep -oP '__version__ = "\K[^"]+' packages/marty-common/marty_backend_common/__init__.py || echo "0.1.0")
             VERSION="${BASE_VERSION}-beta.$(date +%Y%m%d).${SHORT_SHA}"
           fi
           echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
@@ -53,7 +53,7 @@ jobs:
       - name: Update version
         working-directory: packages/marty-common
         run: |
-          sed -i "s/__version__ = .*/__version__ = \"${{ steps.version.outputs.VERSION }}\"/" marty_common/__init__.py
+          sed -i "s/__version__ = .*/__version__ = \"${{ steps.version.outputs.VERSION }}\"/" marty_backend_common/__init__.py
       
       - name: Build package
         working-directory: packages/marty-common

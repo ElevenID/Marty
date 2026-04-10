@@ -32,6 +32,9 @@ from digital_identity.infrastructure.adapters.rest.routers import (
     biometric_enrollment_router,
     notification_payload_router,
 )
+from digital_identity.infrastructure.adapters.rest.signing_keys_router import (
+    router as signing_key_router,
+)
 from digital_identity.infrastructure.adapters.rest.credential_router import (
     router as credential_router,
 )
@@ -44,6 +47,9 @@ from digital_identity.infrastructure.adapters.rest.device_router import (
 )
 from digital_identity.infrastructure.adapters.rest.trust_anchors import (
     trust_anchor_router,
+)
+from digital_identity.infrastructure.adapters.rest.status_list_router import (
+    router as status_list_router,
 )
 from digital_identity.infrastructure.adapters.rest.schemas import (
     TrustProfileCreate,
@@ -154,6 +160,7 @@ __all__ = [
     "vetting_check_router",
     "biometric_enrollment_router",
     "notification_payload_router",
+    "signing_key_router",
     # Trust Profile Schemas
     "TrustProfileCreate",
     "TrustProfileUpdate",

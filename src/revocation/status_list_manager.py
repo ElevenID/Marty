@@ -6,6 +6,7 @@ Provides shard-based storage and efficient status updates.
 """
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import logging
 from dataclasses import dataclass, field
@@ -71,6 +72,9 @@ class StatusListManager:
         
         # Credential ID to (shard_id, index) mapping
         self._credential_index: dict[str, tuple[str, int]] = {}
+
+        # Lock for safe concurrent access
+        self._lock = asyncio.Lock()
     
     async def set_status(
         self,
@@ -91,34 +95,35 @@ class StatusListManager:
         Returns:
             The status list index assigned to this credential
         """
-        # Check if credential already has an index
-        if credential_id in self._credential_index:
-            shard_id, index = self._credential_index[credential_id]
-            shard = self._shards.get(shard_id)
-            if shard:
-                self._set_status_in_shard(shard, index, status)
-                shard.updated_at = datetime.now(timezone.utc)
-                await self._persist_shard(shard)
-                return index
-        
-        # Get or create shard
-        shard = await self._get_or_create_shard(format_type, issuer_id)
-        
-        # Allocate index
-        index = shard.next_index
-        shard.next_index += 1
-        
-        # Set status
-        self._set_status_in_shard(shard, index, status)
-        shard.updated_at = datetime.now(timezone.utc)
-        
-        # Record mapping
-        self._credential_index[credential_id] = (shard.id, index)
-        
-        # Persist
-        await self._persist_shard(shard)
-        
-        return index
+        async with self._lock:
+            # Check if credential already has an index
+            if credential_id in self._credential_index:
+                shard_id, index = self._credential_index[credential_id]
+                shard = self._shards.get(shard_id)
+                if shard:
+                    self._set_status_in_shard(shard, index, status)
+                    shard.updated_at = datetime.now(timezone.utc)
+                    await self._persist_shard(shard)
+                    return index
+            
+            # Get or create shard
+            shard = await self._get_or_create_shard(format_type, issuer_id)
+            
+            # Allocate index
+            index = shard.next_index
+            shard.next_index += 1
+            
+            # Set status
+            self._set_status_in_shard(shard, index, status)
+            shard.updated_at = datetime.now(timezone.utc)
+            
+            # Record mapping
+            self._credential_index[credential_id] = (shard.id, index)
+            
+            # Persist
+            await self._persist_shard(shard)
+            
+            return index
     
     async def get_status(
         self,

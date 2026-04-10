@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import secrets
 import time
 import uuid
@@ -462,7 +463,23 @@ class ISO18013_7RelyingParty:
             # Mock verification of mDL credential
             if isinstance(vp_token, str):
                 try:
-                    # Decode JWT (without verification for demo)
+                    _demo_mode = os.environ.get("MARTY_DEMO_MODE", "").lower() == "true"
+                    _environment = os.environ.get("MARTY_ENVIRONMENT", "development").lower()
+                    if _demo_mode and _environment in ("production", "staging"):
+                        logger.critical(
+                            "MARTY_DEMO_MODE=true is FORBIDDEN in %s — ignoring",
+                            _environment,
+                        )
+                        _demo_mode = False
+                    if not _demo_mode:
+                        verification_result["valid"] = False
+                        verification_result["errors"].append(
+                            "JWT signature verification is not implemented. "
+                            "Set MARTY_DEMO_MODE=true to use unverified demo decoding."
+                        )
+                        return verification_result
+
+                    logger.warning("DEMO_MODE: Decoding VP token WITHOUT signature verification")
                     decoded = jwt.decode(vp_token, options={"verify_signature": False})
 
                     # Extract credential data
@@ -471,7 +488,7 @@ class ISO18013_7RelyingParty:
 
                     for cred in credentials:
                         if isinstance(cred, str):
-                            # Decode credential JWT
+                            # Decode credential JWT (demo mode only — no sig verification)
                             cred_data = jwt.decode(cred, options={"verify_signature": False})
                             credential_subject = cred_data.get("vc", {}).get(
                                 "credentialSubject", {}
@@ -618,9 +635,23 @@ class ISO18013_7Holder:
         """
         try:
             # Decode presentation request
+            _demo_mode = os.environ.get("MARTY_DEMO_MODE", "").lower() == "true"
+            _environment = os.environ.get("MARTY_ENVIRONMENT", "development").lower()
+            if _demo_mode and _environment in ("production", "staging"):
+                logger.critical(
+                    "MARTY_DEMO_MODE=true is FORBIDDEN in %s — ignoring",
+                    _environment,
+                )
+                _demo_mode = False
+            if not _demo_mode:
+                raise ValueError(
+                    "JWT signature verification not implemented. "
+                    "Set MARTY_DEMO_MODE=true for unverified demo decoding."
+                )
+            logger.warning("DEMO_MODE: Decoding presentation request JWT WITHOUT signature verification")
             request_data = jwt.decode(
                 presentation_request_jwt,
-                options={"verify_signature": False},  # In production, verify signature
+                options={"verify_signature": False},
             )
 
             presentation_definition = request_data["presentation_definition"]

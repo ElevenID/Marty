@@ -13,8 +13,8 @@ class NotificationPayloadService:
     async def create(self, event_type: str, subscription_id: str,
                      payload: dict | None = None, **kwargs) -> NotificationPayload:
         notification = NotificationPayload(event_type=event_type,
-                                           subscription_id=subscription_id,
-                                           payload=payload or {}, **kwargs)
+                                           correlation_id=subscription_id,
+                                           data=payload or {}, **kwargs)
         saved = await self._repository.save(notification)
         logger.info(f"Created NotificationPayload: {saved.id} ({saved.event_type})")
         return saved

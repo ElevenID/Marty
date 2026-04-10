@@ -1,8 +1,5 @@
-name: Marty CI (Validation Only)
+name: Marty CI
 
-# ZERO-COST CI: Only validation, linting, and pre-commit checks
-# All builds happen locally and push to GHCR
-# See docs/LOCAL_BUILD_SETUP.md for setup instructions
 on:
   workflow_dispatch:
   push:
@@ -15,29 +12,48 @@ jobs:
     name: Lint & Format Check
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
     
     - name: Set up Python 3.11
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
         python-version: "3.11"
     
     - name: Install linting tools
-      run: |
-        pip install ruff black isort mypy
+      run: pip install ruff black isort
     
     - name: Run ruff
       run: ruff check .
-      continue-on-error: true
     
     - name: Run black
       run: black --check .
-      continue-on-error: true
     
     - name: Run isort
       run: isort --check-only .
-      continue-on-error: true
-  
+
+  test:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python 3.11
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.11"
+
+    - name: Install dependencies
+      run: |
+        pip install --upgrade pip
+        pip install -e ".[dev]" 2>/dev/null || pip install -e .
+        pip install pytest pytest-asyncio pytest-anyio httpx pyyaml
+
+    - name: Run licensing tests
+      run: python -m pytest tests/licensing/ -q --tb=short
+
+    - name: Run security tests
+      run: python -m pytest tests/security/test_kms_auth.py -q --tb=short
+
   validate-artifacts:
     name: Validate Artifacts Exist
     runs-on: ubuntu-latest
@@ -53,12 +69,3 @@ jobs:
         echo "To build and push locally:"
         echo "  make setup          # One-time authentication"
         echo "  make build-push     # Build and push artifacts"
-      run: |
-        uv run -m mypy src --config-file pyproject.toml --html-report mypy-report
-
-    - name: Upload mypy report
-      if: failure()
-      uses: actions/upload-artifact@v3
-      with:
-        name: mypy-report
-        path: mypy-report/

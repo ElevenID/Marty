@@ -9,10 +9,13 @@ This script validates template files for:
 - Multi-language template consistency
 """
 
+import logging
 import re
 import sys
 from pathlib import Path
 from typing import Dict, List, Set
+
+logger = logging.getLogger(__name__)
 
 
 def check_jinja2_syntax() -> list[str]:
@@ -133,9 +136,8 @@ def check_variable_consistency() -> list[str]:
             template_vars[template_file] = all_vars
 
         except Exception:
+            logger.warning("Failed to parse template %s", template_file, exc_info=True)
             continue
-
-    # Check for common variables that should be consistent
     common_vars = ["service_name", "service_package", "author", "description"]
 
     for var in common_vars:

@@ -5,6 +5,63 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **FREE Subscription Tier Key Vault Access**: FREE tier can now use service key vault with weekly rotation
+  - Weekly (7-day) mandatory key rotation for FREE tier
+  - More aggressive rotation than DEVS tier to prevent long-term free usage
+  - Service-managed key vault access (HashiCorp Vault)
+  - Per-organization key isolation
+- **DEVS Subscription Tier**: New developer tier with service key vault access for development and testing
+  - Service-managed key vault access (HashiCorp Vault)
+  - Biweekly (14-day) mandatory key rotation
+  - 10,000 API calls/month, 5 API keys, 3 webhook endpoints
+  - Per-organization key isolation
+- **Tier-Based Signing Service**: New `SigningService` for cryptographic signing with subscription enforcement
+  - Automatic tier-based access control
+  - Service key vault for FREE and DEVS tiers (weekly and biweekly rotation respectively)
+  - Remote signing requirement for production tiers (STARTER, PROFESSIONAL, ENTERPRISE)
+  - Key rotation enforcement and tracking per tier
+  - Comprehensive error handling (`KeyRotationRequired`, `RemoteSigningRequired`, `UnauthorizedKeyVaultAccess`)
+- **Key Rotation Enforcement**: Automatic rotation for FREE and DEVS tiers
+  - FREE tier: 7-day rotation (weekly)
+  - DEVS tier: 14-day rotation (biweekly)
+  - Signing operations blocked after rotation deadline
+  - Automated rotation workflow with versioned keys
+  - Per-key rotation tracking
+- **Subscription Plan Limits**: Extended `PlanLimits` with key vault access fields
+  - `can_use_service_key_vault`: Control service vault access per tier
+  - `requires_remote_signing`: Enforce remote signing for production tiers
+- **Comprehensive Test Suite**: 26 test cases for tier-based signing (`tests/subscription/test_tier_based_signing.py`)
+  - FREE tier weekly rotation tests
+  - DEVS tier biweekly rotation tests
+  - Remote signing enforcement tests
+  - Access control validation tests
+- **Documentation**: Complete developer and user documentation
+  - DEVS Tier Key Vault Guide (`docs/DEVS_TIER_KEY_VAULT_GUIDE.md`)
+  - Tier-Based Signing Implementation Summary (`docs/TIER_BASED_SIGNING_IMPLEMENTATION.md`)
+  - Test suite documentation (`tests/subscription/README.md`)
+  - Working code examples (`examples/tier_based_signing_example.py`)
+
+### Changed
+
+- **Subscription Tiers**: Updated tier structure
+  - FREE tier now uses service key vault with 7-day rotation
+  - DEVS tier uses service key vault with 14-day rotation
+  - Production tiers (STARTER, PROFESSIONAL, ENTERPRISE) require remote signing
+- **Plan Configuration**: All tiers now include key vault access control flags
+
+### Security
+
+- **Key Isolation**: Organization-scoped key IDs prevent cross-organization access
+- **Zero-Knowledge Architecture**: Production tiers never expose private keys to service
+- **Rotation Enforcement**: Automatic key rotation prevents long-term key compromise risk
+  - Weekly rotation for FREE tier prevents abuse
+  - Biweekly rotation for DEVS tier balances security and usability
+- **Access Control**: Tier-based enforcement ensures proper key management practices
+
 ## [1.0.0] - 2025-10-03
 
 ### Added

@@ -51,8 +51,11 @@ async def upload_crl(
 
     - **crl_file**: The Certificate Revocation List file
     """
-    # Read the uploaded file
-    content = await crl_file.read()
+    # Read the uploaded file (limit 20 MB)
+    content = await crl_file.read(20 * 1024 * 1024 + 1)
+    if len(content) > 20 * 1024 * 1024:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=413, detail="Upload exceeds 20 MB limit")
 
     # Process the CRL data
     return await service.upload_crl(content)

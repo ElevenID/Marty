@@ -2,7 +2,21 @@
 Digital Identity API Routers
 
 FastAPI endpoints for Compliance Profiles and Application Templates.
+
+.. deprecated::
+    These routers are NOT mounted in the application.  The active endpoints
+    live in ``digital_identity.infrastructure.adapters.rest.routers`` and are
+    registered by the DigitalIdentityPlugin.  This module is retained for
+    reference but will be removed in a future cleanup pass.
 """
+
+import warnings
+warnings.warn(
+    "digital_identity.api.routers is orphaned and not mounted in any FastAPI app. "
+    "Use digital_identity.infrastructure.adapters.rest.routers instead.",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
 from __future__ import annotations
 
@@ -49,23 +63,31 @@ application_template_router = APIRouter(
 
 # =============================================================================
 # Dependencies (to be configured by application)
-# =============================================================================
+    # Override via app.dependency_overrides[get_*] at startup.
+    # =============================================================================
 
-async def get_compliance_profile_service():
-    """Get ComplianceProfileService instance."""
-    raise NotImplementedError("ComplianceProfileService dependency not configured")
-
-
-async def get_application_template_service():
-    """Get ApplicationTemplateService instance."""
-    raise NotImplementedError("ApplicationTemplateService dependency not configured")
-
-
-async def get_issuer_artifact_service() -> IssuerArtifactService:
-    """Get IssuerArtifactService instance."""
-    raise NotImplementedError("IssuerArtifactService dependency not configured")
+    async def get_compliance_profile_service():
+        """Get ComplianceProfileService — override at app startup."""
+        raise NotImplementedError(
+            "get_compliance_profile_service() not configured. "
+            "Set app.dependency_overrides[get_compliance_profile_service]."
+        )
 
 
+    async def get_application_template_service():
+        """Get ApplicationTemplateService — override at app startup."""
+        raise NotImplementedError(
+            "get_application_template_service() not configured. "
+            "Set app.dependency_overrides[get_application_template_service]."
+        )
+
+
+    async def get_issuer_artifact_service() -> IssuerArtifactService:
+        """Get IssuerArtifactService — override at app startup."""
+        raise NotImplementedError(
+            "get_issuer_artifact_service() not configured. "
+            "Set app.dependency_overrides[get_issuer_artifact_service]."
+        )
 # =============================================================================
 # Compliance Profile Endpoints
 # =============================================================================

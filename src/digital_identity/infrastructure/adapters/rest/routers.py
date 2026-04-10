@@ -7,11 +7,13 @@ Implements REST endpoints with /v1/identity/ prefix.
 from __future__ import annotations
 
 import logging
+import os
 from typing import Any
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Header, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from jose import jwt, JWTError
 
 from digital_identity.infrastructure.adapters.rest.schemas import (
     # Trust Profile
@@ -191,7 +193,7 @@ async def create_trust_profile(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     except Exception as e:
         logger.exception("Failed to create trust profile")
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Internal server error")
 
 
 @trust_profile_router.get(
@@ -362,7 +364,7 @@ async def add_issuer_to_trust_profile(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     except Exception as e:
         logger.exception("Failed to add issuer to trust profile")
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Internal server error")
 
 
 @trust_profile_router.get(
@@ -384,7 +386,7 @@ async def list_trust_profile_issuers(
         return [_trust_profile_issuer_to_response(r) for r in relationships]
     except Exception as e:
         logger.exception("Failed to list trust profile issuers")
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Internal server error")
 
 
 @trust_profile_router.patch(
@@ -420,7 +422,7 @@ async def update_trust_profile_issuer(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     except Exception as e:
         logger.exception("Failed to update trust profile issuer")
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Internal server error")
 
 
 @trust_profile_router.delete(
@@ -441,7 +443,7 @@ async def remove_issuer_from_trust_profile(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
     except Exception as e:
         logger.exception("Failed to remove issuer from trust profile")
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Internal server error")
 
 
 # Revocation Configuration Endpoints
@@ -466,7 +468,7 @@ async def get_revocation_config(
         raise
     except Exception as e:
         logger.exception("Failed to get revocation config")
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Internal server error")
 
 
 @trust_profile_router.put(
@@ -490,7 +492,7 @@ async def update_revocation_config(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     except Exception as e:
         logger.exception("Failed to update revocation config")
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Internal server error")
 
 
 # System Issuer Override Endpoints
@@ -517,7 +519,7 @@ async def update_system_issuer_overrides(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     except Exception as e:
         logger.exception("Failed to update system issuer overrides")
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Internal server error")
 
 
 def _trust_profile_issuer_to_response(relationship) -> TrustProfileIssuerResponse:
@@ -597,13 +599,13 @@ async def create_credential_template(
 ) -> CredentialTemplateResponse:
     """Create a new Credential Template."""
     try:
-        template = await service.create(data.model_dump())
+        template = await service.create(**data.model_dump())
         return _credential_template_to_response(template)
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     except Exception as e:
         logger.exception("Failed to create credential template")
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Internal server error")
 
 
 @credential_template_router.get(
@@ -651,7 +653,7 @@ async def update_credential_template(
 ) -> CredentialTemplateResponse:
     """Update a Credential Template."""
     try:
-        template = await service.update(template_id, data.model_dump(exclude_unset=True))
+        template = await service.update(template_id, **data.model_dump(exclude_unset=True))
         if not template:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Credential template not found")
         return _credential_template_to_response(template)
@@ -787,13 +789,13 @@ async def create_presentation_policy(
 ) -> PresentationPolicyResponse:
     """Create a new Presentation Policy."""
     try:
-        policy = await service.create(data.model_dump())
+        policy = await service.create(**data.model_dump())
         return _presentation_policy_to_response(policy)
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     except Exception as e:
         logger.exception("Failed to create presentation policy")
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Internal server error")
 
 
 @presentation_policy_router.get(
@@ -840,7 +842,7 @@ async def update_presentation_policy(
 ) -> PresentationPolicyResponse:
     """Update a Presentation Policy."""
     try:
-        policy = await service.update(policy_id, data.model_dump(exclude_unset=True))
+        policy = await service.update(policy_id, **data.model_dump(exclude_unset=True))
         if not policy:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Presentation policy not found")
         return _presentation_policy_to_response(policy)
@@ -876,14 +878,40 @@ async def sync_presentation_policies(
 ) -> list[PresentationPolicyResponse]:
     """
     Sync Presentation Policies with delta support.
-    
+
     Accepts license JWT as Bearer token for authentication.
     Supports If-Modified-Since header for delta sync.
     """
-    # TODO: Validate license JWT and extract org_id
-    # For now, return all policies
-    # In production, filter by org_id from license claims
-    
+    # Validate license JWT signature and extract org_id
+    _jwt_secret = os.environ.get("LICENSE_JWT_SECRET")
+    _jwt_algorithm = os.environ.get("LICENSE_JWT_ALGORITHM", "HS256")
+    if not _jwt_secret:
+        logger.error("/sync called but LICENSE_JWT_SECRET is not configured")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Sync endpoint is not configured",
+        )
+    try:
+        claims = jwt.decode(
+            credentials.credentials,
+            _jwt_secret,
+            algorithms=[_jwt_algorithm],
+        )
+    except JWTError as exc:
+        logger.warning("License JWT validation failed on /sync: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired license token",
+            headers={"WWW-Authenticate": "Bearer"},
+        ) from exc
+
+    org_id: str | None = claims.get("org_id") or claims.get("organization_id")
+    if not org_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="License token missing org_id claim",
+        )
+
     modified_since = None
     if if_modified_since:
         try:
@@ -895,9 +923,10 @@ async def sync_presentation_policies(
                 detail="Invalid If-Modified-Since header format. Expected RFC 2822 format."
             )
     
-    # Get all policies (TODO: filter by org_id and modified_since)
+    # Get all policies and filter by org_id from license claims
     policies = await service.list(skip=0, limit=1000)
-    
+    policies = [p for p in policies if getattr(p, "organization_id", None) == org_id]
+
     # Filter by modification time if provided
     if modified_since:
         policies = [p for p in policies if p.updated_at > modified_since]
@@ -974,13 +1003,13 @@ async def create_deployment_profile(
 ) -> DeploymentProfileResponse:
     """Create a new Deployment Profile."""
     try:
-        profile = await service.create(data.model_dump())
+        profile = await service.create(**data.model_dump())
         return _deployment_profile_to_response(profile)
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     except Exception as e:
         logger.exception("Failed to create deployment profile")
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Internal server error")
 
 
 @deployment_profile_router.get(
@@ -1027,7 +1056,7 @@ async def update_deployment_profile(
 ) -> DeploymentProfileResponse:
     """Update a Deployment Profile."""
     try:
-        profile = await service.update(profile_id, data.model_dump(exclude_unset=True))
+        profile = await service.update(profile_id, **data.model_dump(exclude_unset=True))
         if not profile:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Deployment profile not found")
         return _deployment_profile_to_response(profile)
@@ -1054,7 +1083,7 @@ def _deployment_profile_to_response(profile) -> DeploymentProfileResponse:
     """Convert entity to response schema."""
     return DeploymentProfileResponse(
         id=profile.id,
-        organization_id=getattr(profile, 'organization_id', ''),
+        organization_id=profile.organization_id or '',
         name=profile.name,
         description=profile.description,
         site_id=profile.site_id,
@@ -1133,7 +1162,7 @@ async def create_lane(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     except Exception as e:
         logger.exception("Failed to create lane")
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Internal server error")
 
 
 @lane_router.get(
@@ -1275,13 +1304,13 @@ async def create_flow(
 ) -> FlowResponse:
     """Create a new Flow."""
     try:
-        flow = await service.create(data.model_dump())
+        flow = await service.create(**data.model_dump())
         return _flow_to_response(flow)
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     except Exception as e:
         logger.exception("Failed to create flow")
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Internal server error")
 
 
 @flow_router.get(
@@ -1329,7 +1358,7 @@ async def update_flow(
 ) -> FlowResponse:
     """Update a Flow."""
     try:
-        flow = await service.update(flow_id, data.model_dump(exclude_unset=True))
+        flow = await service.update(flow_id, **data.model_dump(exclude_unset=True))
         if not flow:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Flow not found")
         return _flow_to_response(flow)
@@ -1368,14 +1397,14 @@ async def start_flow_execution(
     try:
         execution = await service.start_execution(
             flow_id=flow_id,
-            context=data.context_data,
+            context_data=data.context_data,
         )
         return _flow_execution_to_response(execution)
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     except Exception as e:
         logger.exception("Failed to start flow execution")
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Internal server error")
 
 
 @flow_router.get(
@@ -1464,7 +1493,7 @@ async def reject_flow_execution(
 def _flow_to_response(flow) -> FlowResponse:
     """Convert entity to response schema."""
     # Get fixed steps for this flow type
-    steps = [s.value for s in FLOW_STEPS.get(flow.flow_type, [])]
+    steps = [s.name for s in FLOW_STEPS.get(flow.flow_type, [])]
     
     return FlowResponse(
         id=flow.id,

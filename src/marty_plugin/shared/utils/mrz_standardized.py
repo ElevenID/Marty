@@ -25,7 +25,7 @@ from datetime import date
 from enum import Enum
 from typing import ClassVar
 
-from marty_common.crypto_bridge import (
+from marty_backend_common.crypto_bridge import (
     compute_check_digit as _rust_compute_check_digit,
     validate_check_digit as _rust_validate_check_digit,
 )

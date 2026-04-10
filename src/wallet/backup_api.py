@@ -10,16 +10,22 @@ ensuring only the device with the private key can decrypt the backup.
 from __future__ import annotations
 
 import base64
+import hmac
+import logging
+import os
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any, Optional
 
-from fastapi import APIRouter, Header, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi.security import APIKeyHeader
 from pydantic import BaseModel, Field
 from sqlalchemy import Column, DateTime, Integer, LargeBinary, String, select
 from sqlalchemy.orm import declarative_base
 
 if TYPE_CHECKING:
-    from marty_common.infrastructure.database import DatabaseManager
+    from marty_backend_common.infrastructure.database import DatabaseManager
+
+logger = logging.getLogger(__name__)
 
 # Create a local Base for this module
 # In production, this would be imported from shared infrastructure
@@ -59,9 +65,9 @@ class WalletBackup(Base):  # type: ignore[valid-type,misc]
 
 class BackupRequest(BaseModel):
     """Request to store an encrypted backup."""
-    device_id: str = Field(..., description="Device ID that owns this backup")
-    encrypted_data: str = Field(..., description="Base64-encoded encrypted backup data")
-    key_id: str = Field(..., description="Key ID (SHA-256 thumbprint) used for encryption")
+    device_id: str = Field(..., max_length=255, description="Device ID that owns this backup")
+    encrypted_data: str = Field(..., max_length=14_000_000, description="Base64-encoded encrypted backup data")
+    key_id: str = Field(..., max_length=512, description="Key ID (SHA-256 thumbprint) used for encryption")
     description: Optional[str] = Field(None, max_length=500, description="Optional backup description")
 
 
@@ -113,6 +119,23 @@ class DeleteBackupRequest(BaseModel):
 
 router = APIRouter(prefix="/api/v1/wallet", tags=["wallet"])
 
+# API key guard — X-User-ID alone is spoofable; require an API key as a
+# minimum authorization layer.  In production, this should be replaced with
+# JWT-based auth that extracts user identity from the verified token.
+_wallet_api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
+
+
+async def _require_wallet_api_key(
+    api_key: str | None = Depends(_wallet_api_key_header),
+) -> str:
+    expected = os.environ.get("WALLET_API_KEY")
+    if not expected:
+        logger.warning("WALLET_API_KEY not set — wallet backup API is unprotected")
+        return ""
+    if not api_key or not hmac.compare_digest(api_key, expected):
+        raise HTTPException(status_code=403, detail="Invalid or missing API key")
+    return api_key
+
 # Database manager instance - should be configured on app startup
 _db_manager: Optional[Any] = None
 
@@ -128,7 +151,7 @@ def get_database_manager() -> Any:
     if _db_manager is None:
         raise HTTPException(
             status_code=500,
-            detail="Database not configured for wallet backup API"
+            detail={"code": "SERVICE_UNAVAILABLE", "message": "Database not configured for wallet backup API"}
         )
     return _db_manager
 
@@ -137,6 +160,7 @@ def get_database_manager() -> Any:
 async def create_or_update_backup(
     request: BackupRequest,
     x_user_id: str = Header(..., alias="X-User-ID"),
+    _key: str = Depends(_require_wallet_api_key),
 ):
     """
     Store or update an encrypted wallet backup.
@@ -151,13 +175,13 @@ async def create_or_update_backup(
     try:
         encrypted_bytes = base64.b64decode(request.encrypted_data)
     except Exception as exc:
-        raise HTTPException(status_code=400, detail="Invalid base64 encoded data") from exc
+        raise HTTPException(status_code=400, detail={"code": "VALIDATION_ERROR", "message": "Invalid base64 encoded data", "field": "encrypted_data"}) from exc
     
     if len(encrypted_bytes) == 0:
-        raise HTTPException(status_code=400, detail="Encrypted data cannot be empty")
+        raise HTTPException(status_code=400, detail={"code": "VALIDATION_ERROR", "message": "Encrypted data cannot be empty", "field": "encrypted_data"})
     
     if len(encrypted_bytes) > 10 * 1024 * 1024:  # 10MB limit
-        raise HTTPException(status_code=400, detail="Backup data exceeds 10MB limit")
+        raise HTTPException(status_code=400, detail={"code": "VALIDATION_ERROR", "message": "Backup data exceeds 10MB limit", "field": "encrypted_data"})
     
     db = get_database_manager()
     async with db.session_scope() as session:
@@ -172,7 +196,7 @@ async def create_or_update_backup(
             if existing.key_id != request.key_id:
                 raise HTTPException(
                     status_code=403,
-                    detail="Key ID mismatch. Only the original device can update its backup."
+                    detail={"code": "AUTHORIZATION_ERROR", "message": "Key ID mismatch. Only the original device can update its backup."}
                 )
             
             # Update existing backup
@@ -215,13 +239,16 @@ async def create_or_update_backup(
 
 
 @router.post("/restore", response_model=RestoreResponse)
-async def restore_backup(request: RestoreRequest):
+async def restore_backup(
+    request: RestoreRequest,
+    x_user_id: str = Header(..., alias="X-User-ID"),
+    _key: str = Depends(_require_wallet_api_key),
+):
     """
     Retrieve an encrypted wallet backup.
     
-    The caller must provide the correct key_id to retrieve the backup.
-    This provides basic ownership verification - the caller must know
-    the key ID that was used when creating the backup.
+    The caller must provide the correct key_id and user identity to retrieve
+    the backup. This ensures ownership verification.
     
     The returned data is still encrypted and must be decrypted client-side.
     """
@@ -233,10 +260,13 @@ async def restore_backup(request: RestoreRequest):
         backup = result.scalar_one_or_none()
         
         if not backup:
-            raise HTTPException(status_code=404, detail="No backup found for this device")
+            raise HTTPException(status_code=404, detail={"code": "NOT_FOUND", "message": "No backup found for this device"})
+        
+        if backup.user_id != x_user_id:
+            raise HTTPException(status_code=403, detail={"code": "AUTHORIZATION_ERROR", "message": "Not authorized to access this backup"})
         
         if backup.key_id != request.key_id:
-            raise HTTPException(status_code=403, detail="Key ID mismatch")
+            raise HTTPException(status_code=403, detail={"code": "AUTHORIZATION_ERROR", "message": "Key ID mismatch"})
         
         return RestoreResponse(
             success=True,
@@ -252,6 +282,7 @@ async def restore_backup(request: RestoreRequest):
 async def get_backup_info(
     device_id: str,
     x_user_id: str = Header(..., alias="X-User-ID"),
+    _key: str = Depends(_require_wallet_api_key),
 ):
     """
     Get information about an existing backup without retrieving the data.
@@ -288,6 +319,7 @@ async def get_backup_info(
 async def delete_backup(
     request: DeleteBackupRequest,
     x_user_id: str = Header(..., alias="X-User-ID"),
+    _key: str = Depends(_require_wallet_api_key),
 ):
     """
     Delete an encrypted wallet backup.
@@ -302,13 +334,13 @@ async def delete_backup(
         backup = result.scalar_one_or_none()
         
         if not backup:
-            raise HTTPException(status_code=404, detail="No backup found for this device")
+            raise HTTPException(status_code=404, detail={"code": "NOT_FOUND", "message": "No backup found for this device"})
         
         if backup.key_id != request.key_id:
-            raise HTTPException(status_code=403, detail="Key ID mismatch")
+            raise HTTPException(status_code=403, detail={"code": "AUTHORIZATION_ERROR", "message": "Key ID mismatch"})
         
         if backup.user_id != x_user_id:
-            raise HTTPException(status_code=403, detail="User ID mismatch")
+            raise HTTPException(status_code=403, detail={"code": "AUTHORIZATION_ERROR", "message": "User ID mismatch"})
         
         await session.delete(backup)
         # Commit handled by session_scope

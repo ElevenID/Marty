@@ -14,13 +14,16 @@ correctness and performance.
 from __future__ import annotations
 
 import hmac
+import logging
 import os
 from typing import Any, Dict, List, Optional, Tuple
 
 import cbor2
 
+logger = logging.getLogger(__name__)
+
 # Use crypto_bridge for Rust-backed cryptographic operations
-from marty_common.crypto_bridge import (
+from marty_backend_common.crypto_bridge import (
     hkdf_sha256,
     pbkdf2_sha256,
     aes_gcm_encrypt,
@@ -351,7 +354,8 @@ class DigitalSignature:
         """
         try:
             return ecdsa_p256_verify(public_key, message, signature)
-        except Exception:
+        except Exception as e:
+            logger.error("ECDSA P-256 verification error: %s", e)
             return False
 
     @staticmethod
@@ -373,7 +377,8 @@ class DigitalSignature:
         """
         try:
             return ecdsa_p384_verify(public_key, message, signature)
-        except Exception:
+        except Exception as e:
+            logger.error("ECDSA P-384 verification error: %s", e)
             return False
 
     @staticmethod
@@ -433,7 +438,8 @@ class DigitalSignature:
                 return rsa_pss_sha512_verify(public_key_der, message, signature)
             else:
                 return False
-        except Exception:
+        except Exception as e:
+            logger.error("RSA-PSS verification error (algo=%s): %s", hash_algorithm, e)
             return False
 
     # Legacy compatibility methods that accept cryptography key objects
@@ -500,7 +506,8 @@ class DigitalSignature:
                 return ecdsa_p384_verify(raw_key, message, signature)
             else:
                 return False
-        except Exception:
+        except Exception as e:
+            logger.error("Legacy ECDSA verification error: %s", e)
             return False
 
     @staticmethod
@@ -546,7 +553,8 @@ class DigitalSignature:
                 format=serialization.PublicFormat.SubjectPublicKeyInfo,
             )
             return rsa_pss_sha256_verify(der_key, message, signature)
-        except Exception:
+        except Exception as e:
+            logger.error("Legacy RSA-PSS verification error: %s", e)
             return False
 
 

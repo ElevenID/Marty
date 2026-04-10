@@ -107,6 +107,18 @@ class FlowService:
         if existing:
             raise ValueError(f"Flow with name '{name}' already exists")
         
+        # Convert flow_type to enum if it's a string
+        if isinstance(flow_type, str):
+            flow_type = FlowType(flow_type)
+        
+        # Convert approval_strategy to enum if it's a string
+        if isinstance(approval_strategy, str):
+            approval_strategy = ApprovalStrategy(approval_strategy)
+        
+        # Remove keys we handle explicitly so they don't collide with kwargs
+        kwargs.pop("flow_type", None)
+        kwargs.pop("approval_strategy", None)
+        
         # Create entity
         flow = Flow(
             name=name,
@@ -284,8 +296,22 @@ class FlowService:
                 for hook in pre_hooks:
                     await self._run_hook(hook, execution)
                 
-                # Check if this is an approval step
-                if step.extensible and step.name == "approval_decision":
+                # Check if approval is required before this step.
+                # Two cases:
+                #   1. Explicit approval_decision step (MDL, APPLICATION flows)
+                #   2. Non-AUTO approval_strategy on an issuance step (OID4VCI flows)
+                #
+                # The "_approval_granted" marker in step_results prevents
+                # re-triggering after approve_execution() resumes the loop.
+                needs_approval = (
+                    (step.extensible and step.name == "approval_decision")
+                    or (
+                        flow.approval_strategy != ApprovalStrategy.AUTO
+                        and step.name == "issue_credential"
+                        and not execution.step_results.get("_approval_granted")
+                    )
+                )
+                if needs_approval:
                     # Handle approval based on strategy
                     approval_result = await self._handle_approval(flow, execution)
                     
@@ -599,8 +625,15 @@ class FlowService:
         # Resume execution
         flow = await self._flow_repository.get(execution.flow_id)
         if flow:
-            # Move past the approval step
-            execution.current_step_index += 1
+            steps = flow.get_steps()
+            current_step = steps[execution.current_step_index] if execution.current_step_index < len(steps) else None
+            if current_step and current_step.name == "approval_decision":
+                # Explicit approval step — move past it to the next step
+                execution.current_step_index += 1
+            else:
+                # Inlined approval gate (e.g., on issue_credential) —
+                # stay on the same step but mark approval as granted
+                execution.step_results["_approval_granted"] = True
             execution.status = FlowStatus.IN_PROGRESS
             await self._execute_steps(flow, execution)
         

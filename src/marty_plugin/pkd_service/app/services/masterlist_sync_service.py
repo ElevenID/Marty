@@ -115,8 +115,13 @@ class MasterListSyncService:
 
             async with aiohttp.ClientSession() as session:
                 # Request the master list
+                ssl_ctx = None
+                ca_bundle = config.get("ca_bundle")
+                if ca_bundle:
+                    import ssl
+                    ssl_ctx = ssl.create_default_context(cafile=ca_bundle)
                 async with session.get(
-                    url, headers=auth_headers, ssl=False if config.get("ignore_ssl") else None
+                    url, headers=auth_headers, ssl=ssl_ctx
                 ) as response:
                     if response.status != 200:
                         logger.error(
@@ -161,8 +166,13 @@ class MasterListSyncService:
         try:
             async with aiohttp.ClientSession() as session:
                 # Request the master list
+                ssl_ctx = None
+                ca_bundle = config.get("ca_bundle")
+                if ca_bundle:
+                    import ssl
+                    ssl_ctx = ssl.create_default_context(cafile=ca_bundle)
                 async with session.get(
-                    url, ssl=False if config.get("ignore_ssl") else None
+                    url, ssl=ssl_ctx
                 ) as response:
                     if response.status != 200:
                         logger.error(

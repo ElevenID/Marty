@@ -1517,6 +1517,29 @@ class IssuedCredentialRepository:
         ).offset(skip).limit(limit)
         result = await self._session.execute(stmt)
         return [self._to_entity(m) for m in result.scalars().all()]
+
+    async def list_by_organization(
+        self,
+        organization_id: str,
+        flow_id: str | None = None,
+        credential_template_id: str | None = None,
+        status: str | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> list[IssuedCredential]:
+        """List credentials scoped to an organization with optional filters."""
+        stmt = select(IssuedCredentialModel).where(
+            IssuedCredentialModel.organization_id == organization_id
+        )
+        if credential_template_id:
+            stmt = stmt.where(
+                IssuedCredentialModel.credential_template_id == credential_template_id
+            )
+        if status:
+            stmt = stmt.where(IssuedCredentialModel.status == status)
+        stmt = stmt.offset(offset).limit(limit)
+        result = await self._session.execute(stmt)
+        return [self._to_entity(m) for m in result.scalars().all()]
     
     async def delete(self, entity_id: str) -> bool:
         """Delete an Issued Credential record."""

@@ -160,7 +160,7 @@ echo "Testing Python security testing framework:"
 if python3 -c "
 import sys
 sys.path.append('src')
-from marty_common.security.security_testing import SecurityTestFramework, CryptographyTestUtils
+from marty_backend_common.security.security_testing import SecurityTestFramework, CryptographyTestUtils
 print('✅ Security testing framework imports successfully')
 " 2>/dev/null; then
     print_success "Security testing framework imports correctly"

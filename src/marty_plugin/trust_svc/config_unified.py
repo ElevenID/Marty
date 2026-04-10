@@ -77,8 +77,8 @@ class TrustServiceUnifiedConfig:
         if self._config:
             try:
                 return self._config.database
-            except Exception:
-                pass
+            except Exception as exc:
+                print(f"Warning: Failed to load database config, falling back to env vars: {exc}")
         
         # Fallback to environment variables (legacy behavior)
         from dataclasses import dataclass
@@ -89,8 +89,14 @@ class TrustServiceUnifiedConfig:
             port: int = int(os.getenv("TRUST_DB_PORT", "5432"))
             database: str = os.getenv("TRUST_DB_NAME", "marty_trust")
             username: str = os.getenv("TRUST_DB_USER", "trust_service")
-            password: str = os.getenv("TRUST_DB_PASSWORD", "change_me")
+            password: str = os.getenv("TRUST_DB_PASSWORD", "")
             pool_size: int = int(os.getenv("TRUST_DB_POOL_SIZE", "10"))
+            
+            def __post_init__(self):
+                if not self.password:
+                    raise ValueError(
+                        "TRUST_DB_PASSWORD environment variable is required"
+                    )
             
             @property
             def connection_url(self) -> str:
@@ -104,8 +110,8 @@ class TrustServiceUnifiedConfig:
         if self._config:
             try:
                 return self._config.security
-            except Exception:
-                pass
+            except Exception as exc:
+                print(f"Warning: Failed to load security config: {exc}")
         return None
     
     @property
@@ -114,8 +120,8 @@ class TrustServiceUnifiedConfig:
         if self._config:
             try:
                 return self._config.trust_store
-            except Exception:
-                pass
+            except Exception as exc:
+                print(f"Warning: Failed to load trust_store config: {exc}")
         return None
     
     @property
@@ -124,8 +130,8 @@ class TrustServiceUnifiedConfig:
         if self._config:
             try:
                 return self._config.cryptographic
-            except Exception:
-                pass
+            except Exception as exc:
+                print(f"Warning: Failed to load cryptographic config: {exc}")
         return None
     
     @property
@@ -134,8 +140,8 @@ class TrustServiceUnifiedConfig:
         if self._config:
             try:
                 return self._config.service_discovery
-            except Exception:
-                pass
+            except Exception as exc:
+                print(f"Warning: Failed to load service_discovery config: {exc}")
         return None
     
     @property
@@ -144,8 +150,8 @@ class TrustServiceUnifiedConfig:
         if self._config:
             try:
                 return self._config.logging
-            except Exception:
-                pass
+            except Exception as exc:
+                print(f"Warning: Failed to load logging config: {exc}")
         return None
     
     @property
@@ -154,8 +160,8 @@ class TrustServiceUnifiedConfig:
         if self._config:
             try:
                 return self._config.monitoring
-            except Exception:
-                pass
+            except Exception as exc:
+                print(f"Warning: Failed to load monitoring config: {exc}")
         return None
     
     # Legacy compatibility methods

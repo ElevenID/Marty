@@ -14,7 +14,7 @@ from certvalidator import CertificateValidator as CertValidatorLib
 from certvalidator import ValidationContext
 from certvalidator.errors import InvalidCertificateError, PathValidationError, RevokedError
 # Use Rust crypto_bridge for certificate operations
-from marty_common.crypto_bridge import Certificate as CertificateBridge
+from marty_backend_common.crypto_bridge import Certificate as CertificateBridge
 # Import x509 for compatibility with certvalidator library
 from cryptography import x509
 from cryptography.hazmat.backends import default_backend

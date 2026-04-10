@@ -21,7 +21,7 @@ def test_role_separation():
 
     try:
         # Import core components
-        from marty_common.crypto.role_separation import (
+        from marty_backend_common.crypto.role_separation import (
             ROLE_POLICIES,
             CryptoRole,
             KeyIdentity,
@@ -100,7 +100,7 @@ def test_kms_provider_basic():
     print("\n🔑 Testing KMS Provider (basic)...")
 
     try:
-        from marty_common.crypto.kms_provider import (
+        from marty_backend_common.crypto.kms_provider import (
             KeyMaterial,
             KeyOperation,
             KMSManager,
@@ -108,7 +108,7 @@ def test_kms_provider_basic():
             SoftwareHSMProvider,
             create_kms_manager,
         )
-        from marty_common.crypto.role_separation import CryptoRole, KeyPurpose
+        from marty_backend_common.crypto.role_separation import CryptoRole, KeyPurpose
 
         print("  ✅ Successfully imported KMS provider components")
         print(f"  ✅ Available providers: {[p.value for p in KMSProvider]}")
@@ -136,7 +136,7 @@ def test_evidence_signing_basic():
     print("\n📋 Testing Evidence Signing (basic)...")
 
     try:
-        from marty_common.crypto.evidence_signing import (
+        from marty_backend_common.crypto.evidence_signing import (
             EvidenceChain,
             EvidenceMetadata,
             EvidenceSigner,
@@ -192,8 +192,8 @@ async def test_kms_integration():
     print("\n🔗 Testing KMS Integration...")
 
     try:
-        from marty_common.crypto.kms_provider import KMSProvider, create_kms_manager
-        from marty_common.crypto.role_separation import CryptoRole, KeyPurpose
+        from marty_backend_common.crypto.kms_provider import KMSProvider, create_kms_manager
+        from marty_backend_common.crypto.role_separation import CryptoRole, KeyPurpose
 
         # Create KMS manager
         kms = create_kms_manager(KMSProvider.SOFTWARE_HSM)
@@ -240,12 +240,12 @@ async def test_evidence_integration():
     print("\n📝 Testing Evidence Integration...")
 
     try:
-        from marty_common.crypto.evidence_signing import (
+        from marty_backend_common.crypto.evidence_signing import (
             EvidenceSigner,
             EvidenceType,
             VerificationOutcome,
         )
-        from marty_common.crypto.kms_provider import KMSProvider, create_kms_manager
+        from marty_backend_common.crypto.kms_provider import KMSProvider, create_kms_manager
 
         # Create KMS and evidence signer
         kms = create_kms_manager(KMSProvider.SOFTWARE_HSM)

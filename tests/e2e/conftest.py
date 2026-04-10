@@ -2,6 +2,7 @@
 Pytest configuration for E2E tests using Playwright.
 """
 
+import importlib.util
 import socket
 import threading
 import time
@@ -20,8 +21,28 @@ from playwright.async_api import (
     async_playwright,
 )
 
-from marty_plugin.legacy_apps.ui_app.app import create_app
-from marty_plugin.legacy_apps.ui_app.config import UiSettings
+
+def _module_available(module_name: str) -> bool:
+    try:
+        return importlib.util.find_spec(module_name) is not None
+    except ModuleNotFoundError:
+        return False
+
+_LEGACY_UI_APP_MISSING = not _module_available("marty_plugin.legacy_apps.ui_app")
+
+
+def pytest_ignore_collect(collection_path, config):
+    if (
+        _LEGACY_UI_APP_MISSING
+        and collection_path.name.startswith("test_")
+        and collection_path.suffix == ".py"
+    ):
+        return True
+    return None
+
+if not _LEGACY_UI_APP_MISSING:
+    from marty_plugin.legacy_apps.ui_app.app import create_app
+    from marty_plugin.legacy_apps.ui_app.config import UiSettings
 
 from . import config
 

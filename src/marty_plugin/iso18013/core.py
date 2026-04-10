@@ -110,11 +110,10 @@ class DeviceEngagement:
     def generate_qr_code(self) -> str:
         """Generate QR code content for device engagement"""
         # QR code format: "mdoc:" + base64url-encoded CBOR
-        import base64
+        from marty_backend_common.utils.base64_utils import b64url_encode
 
         cbor_data = self.to_cbor()
-        b64_data = base64.urlsafe_b64encode(cbor_data).decode("ascii").rstrip("=")
-        return f"mdoc:{b64_data}"
+        return f"mdoc:{b64url_encode(cbor_data)}"
 
 
 @dataclass

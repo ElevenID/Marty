@@ -11,8 +11,15 @@ This script demonstrates:
 
 import asyncio
 import os
+import re
 import sys
 from pathlib import Path
+
+
+def _validate_identifier(name: str) -> None:
+    """Validate that a name is a safe SQL identifier."""
+    if not re.match(r"^[a-zA-Z_][a-zA-Z0-9_]*$", name):
+        raise ValueError(f"Invalid SQL identifier: {name!r}")
 
 # Setup environment
 project_root = Path(__file__).parent.parent
@@ -34,7 +41,7 @@ class DatabasePerServiceVerification:
         print("=" * 50)
 
         try:
-            from marty_common.config import Config
+            from marty_backend_common.config import Config
 
             config = Config()
 
@@ -102,6 +109,7 @@ class DatabasePerServiceVerification:
                     )
 
                     # Test database isolation
+                    _validate_identifier(service)
                     await conn.execute(
                         f"""
                         CREATE TABLE IF NOT EXISTS {service}_isolation_test (
@@ -138,7 +146,7 @@ class DatabasePerServiceVerification:
         try:
             # Instead of importing the complex runtime module, test the core logic
             # by verifying the configuration system enforces service names
-            from marty_common.config import Config
+            from marty_backend_common.config import Config
 
             # Test that we cannot create database dependencies without service name
             config = Config()

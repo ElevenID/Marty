@@ -13,6 +13,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -401,9 +402,15 @@ class ISO18013_5Protocol:
                     disclosed_elements[element_id] = element_value
 
             # Create device signed data
+            if not os.environ.get("MARTY_DEMO_MODE"):
+                raise ProtocolError(
+                    "Real COSE_Sign1 device/issuer signatures not implemented. "
+                    "Set MARTY_DEMO_MODE=1 to use mock signatures for development only."
+                )
+            logger.warning("DEMO_MODE: Using mock device/issuer signatures — NOT FOR PRODUCTION")
             device_signed = {
                 "nameSpaces": {"org.iso.18013.5.1": disclosed_elements},
-                "deviceAuth": {"deviceSignature": b"mock_device_signature"},  # TODO: Real signature
+                "deviceAuth": {"deviceSignature": b"mock_device_signature"},  # TODO: Real COSE_Sign1
             }
 
             return {

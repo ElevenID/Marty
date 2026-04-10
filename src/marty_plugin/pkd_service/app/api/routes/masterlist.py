@@ -56,8 +56,11 @@ async def upload_master_list(
 
     - **master_list_file**: The ASN.1 encoded Master List file
     """
-    # Read the uploaded file
-    content = await master_list_file.read()
+    # Read the uploaded file (limit 20 MB)
+    content = await master_list_file.read(20 * 1024 * 1024 + 1)
+    if len(content) > 20 * 1024 * 1024:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=413, detail="Upload exceeds 20 MB limit")
 
     # Process the Master List data
     return await service.upload_master_list(content)

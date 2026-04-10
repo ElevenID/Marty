@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 from abc import ABC, abstractmethod
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -454,7 +455,12 @@ class HTTPSTransport(TransportInterface):
         try:
             logger.info("Authenticating with relying party")
 
+            if not os.environ.get("MARTY_DEMO_MODE"):
+                logger.error("Real OAuth 2.0 authentication not implemented. Set MARTY_DEMO_MODE=1 for development.")
+                return False
+
             # TODO: Implement OAuth 2.0 or similar authentication
+            logger.warning("DEMO_MODE: Using simulated access token — NOT FOR PRODUCTION")
             await asyncio.sleep(0.1)
 
             self.access_token = "simulated_access_token"

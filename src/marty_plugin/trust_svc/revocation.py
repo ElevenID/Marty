@@ -24,14 +24,15 @@ from cryptography.x509.oid import ExtensionOID
 from .database import DatabaseManager
 from .models import RevocationStatus
 
-# Import Rust bindings for OCSP/CRL operations and crypto
-from marty_common.crypto_bridge import (
+import hashlib
+
+# Import Rust bindings for OCSP/CRL operations
+from marty_backend_common.crypto_bridge import (
     parse_crl as rust_parse_crl,
     build_ocsp_request as rust_build_ocsp_request,
     parse_ocsp_response as rust_parse_ocsp_response,
     get_ocsp_responder_url as rust_get_ocsp_responder_url,
     check_certificate_revocation as rust_check_revocation,
-    sha256,
 )
 
 logger = logging.getLogger(__name__)
@@ -67,26 +68,27 @@ class RevocationProcessor:
             Dictionary with processing results
         """
         try:
-            # Parse CRL
+            # Parse CRL using Rust binding (handles DER; PEM must be decoded first)
             if crl_data.startswith(b"-----BEGIN"):
-                crl = x509.load_pem_x509_crl(crl_data)
+                import base64
+                lines = crl_data.decode("ascii").splitlines()
+                b64 = "".join(
+                    line for line in lines
+                    if not line.startswith("-----")
+                )
+                der_bytes = base64.b64decode(b64)
             else:
-                crl = x509.load_der_x509_crl(crl_data)
+                der_bytes = crl_data
 
-            # Extract CRL metadata
-            this_update = crl.last_update
-            next_update = crl.next_update
-            crl_number = None
+            crl_info = rust_parse_crl(der_bytes)
 
-            # Extract CRL number if present
-            try:
-                crl_number_ext = crl.extensions.get_extension_for_oid(ExtensionOID.CRL_NUMBER).value
-                crl_number = crl_number_ext.crl_number
-            except x509.ExtensionNotFound:
-                pass
+            # Extract CRL metadata from Rust CrlInfo object
+            this_update = crl_info.this_update  # ISO-8601 string or None
+            next_update = crl_info.next_update
+            crl_number = crl_info.crl_number
 
-            # Generate CRL hash using Rust sha256
-            crl_hash = sha256(crl_data).hex()
+            # Generate CRL hash
+            crl_hash = hashlib.sha256(crl_data).hexdigest()
 
             # Store CRL in cache
             crl_cache_data = {
@@ -98,30 +100,21 @@ class RevocationProcessor:
                 "next_update": next_update,
                 "crl_data": crl_data,
                 "crl_hash": crl_hash,
-                "signature_valid": True,  # TODO: Verify signature
-                "revoked_count": len(crl),
+                "signature_valid": None,  # Not yet verified — requires issuer certificate
+                "revoked_count": len(crl_info.revoked_certificates()),
                 "status": "active",
             }
 
             crl_id = await self.db_manager.add_crl(crl_cache_data)
 
-            # Process revoked certificates
+            # Process revoked certificates from Rust CrlInfo
             revoked_certificates = []
             updated_dscs = 0
 
-            for revoked_cert in crl:
-                serial_number = format(revoked_cert.serial_number, "X")
-                revocation_date = revoked_cert.revocation_date
-
-                # Extract reason code if present
-                reason_code = None
-                try:
-                    reason_ext = revoked_cert.extensions.get_extension_for_oid(
-                        ExtensionOID.CRL_REASON
-                    ).value
-                    reason_code = reason_ext.reason.value
-                except x509.ExtensionNotFound:
-                    pass
+            for revoked_cert in crl_info.revoked_certificates():
+                serial_number = revoked_cert.serial_number  # hex string
+                revocation_date = revoked_cert.revocation_date  # ISO-8601 string or None
+                reason_code = revoked_cert.reason  # string or None
 
                 revoked_certificates.append(
                     {
@@ -216,8 +209,8 @@ class RevocationProcessor:
                 revocation_date = None
                 reason_code = None
 
-            # Update DSC status using Rust sha256
-            cert_hash = sha256(cert_der).hex()
+            # Update DSC status
+            cert_hash = hashlib.sha256(cert_der).hexdigest()
             await self.db_manager.update_dsc_revocation_status(
                 cert_hash, status, revocation_date, reason_code, "OCSP"
             )
@@ -342,8 +335,14 @@ class RevocationProcessor:
         if not self.session:
             await self.initialize()
 
+        # Validate URL scheme — only http/https allowed (no file://, gopher://, etc.)
+        from urllib.parse import urlparse
+        parsed = urlparse(crl_url)
+        if parsed.scheme not in ("http", "https"):
+            return {"success": False, "error": f"Unsupported URL scheme: {parsed.scheme}", "url": crl_url}
+
         try:
-            async with self.session.get(crl_url) as response:
+            async with self.session.get(crl_url, allow_redirects=False) as response:
                 if response.status != 200:
                     raise ValueError(f"HTTP {response.status}")
 
@@ -430,11 +429,11 @@ class RevocationProcessor:
         # Check OCSP if requested and URL available
         ocsp_status = None
         if check_ocsp:
-            # TODO: Extract OCSP URL from certificate extensions
             ocsp_url = self._extract_ocsp_url(dsc["certificate_data"])
             if ocsp_url:
-                # TODO: Get issuer certificate
-                pass
+                ocsp_status = await self._check_ocsp_status(
+                    dsc["certificate_data"], dsc["issuer_dn"], ocsp_url
+                )
 
         # Determine final status
         final_status = RevocationStatus.UNKNOWN
@@ -513,24 +512,65 @@ class RevocationProcessor:
                     "crl_next_update": crl_row.next_update if crl_row else None,
                 }
 
+    async def _check_ocsp_status(
+        self, cert_data: bytes, issuer_dn: str, ocsp_url: str
+    ) -> dict[str, Any] | None:
+        """Perform OCSP check for a certificate."""
+        if not self.session:
+            await self.initialize()
+
+        try:
+            # Look up issuer certificate from CSCA/trust anchor store
+            issuer_certs = await self.db_manager.get_csca_certificates(
+                subject_dn=issuer_dn
+            )
+            if not issuer_certs:
+                logger.warning(
+                    "Cannot perform OCSP check: issuer certificate not found for %s",
+                    issuer_dn,
+                )
+                return None
+
+            issuer_cert_data = issuer_certs[0]["certificate_data"]
+
+            # Build OCSP request via Rust
+            if rust_build_ocsp_request is None:
+                logger.warning("OCSP bindings not available")
+                return None
+
+            request_der = rust_build_ocsp_request(cert_data, issuer_cert_data)
+
+            # Send OCSP request
+            async with self.session.post(
+                ocsp_url,
+                data=request_der,
+                headers={"Content-Type": "application/ocsp-request"},
+                timeout=aiohttp.ClientTimeout(total=self.ocsp_timeout),
+            ) as response:
+                if response.status != 200:
+                    return {"success": False, "error": f"OCSP responder HTTP {response.status}"}
+
+                response_der = await response.read()
+
+            # Parse OCSP response via Rust
+            ocsp_result = rust_parse_ocsp_response(response_der)
+
+            return {
+                "success": True,
+                "status": ocsp_result.cert_status if hasattr(ocsp_result, 'cert_status') else "unknown",
+                "this_update": str(ocsp_result.this_update) if hasattr(ocsp_result, 'this_update') else None,
+                "next_update": str(ocsp_result.next_update) if hasattr(ocsp_result, 'next_update') else None,
+            }
+
+        except Exception as e:
+            logger.error("OCSP check failed for %s: %s", ocsp_url, e)
+            return {"success": False, "error": str(e)}
+
     def _extract_ocsp_url(self, certificate_data: bytes) -> str | None:
         """Extract OCSP URL from certificate Authority Information Access extension."""
         try:
-            cert = x509.load_der_x509_certificate(certificate_data)
-
-            try:
-                aia_ext = cert.extensions.get_extension_for_oid(
-                    ExtensionOID.AUTHORITY_INFORMATION_ACCESS
-                ).value
-
-                for access_description in aia_ext:
-                    if access_description.access_method == x509.AuthorityInformationAccessOID.OCSP:
-                        return access_description.access_location.value
-
-            except x509.ExtensionNotFound:
-                pass
-
+            url = rust_get_ocsp_responder_url(certificate_data)
+            return url if url else None
         except Exception as e:
             logger.warning(f"Failed to extract OCSP URL: {e}")
-
-        return None
+            return None

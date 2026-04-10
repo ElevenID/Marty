@@ -25,7 +25,7 @@ def test_implementation():
 
     # Test hash comparison
     try:
-        from marty_common.crypto.hash_comparison import (
+        from marty_backend_common.crypto.hash_comparison import (
             HashComparisonEngine,
             IntegrityVerificationReport,
         )
@@ -46,7 +46,7 @@ def test_implementation():
 
     # Test certificate validator
     try:
-        from marty_common.crypto.certificate_validator import CertificateChainValidator
+        from marty_backend_common.crypto.certificate_validator import CertificateChainValidator
 
         CertificateChainValidator()
 
@@ -65,7 +65,7 @@ def test_implementation():
 
     # Test CSCA trust store
     try:
-        from marty_common.crypto.csca_trust_store import CSCATrustStore
+        from marty_backend_common.crypto.csca_trust_store import CSCATrustStore
 
         CSCATrustStore()
 
@@ -81,7 +81,7 @@ def test_implementation():
 
     # Test SOD parser
     try:
-        from marty_common.crypto.sod_parser import SODParser
+        from marty_backend_common.crypto.sod_parser import SODParser
 
         SODParser()
 
@@ -97,7 +97,7 @@ def test_implementation():
 
     # Test data group hasher
     try:
-        from marty_common.crypto.data_group_hasher import DataGroupHasher
+        from marty_backend_common.crypto.data_group_hasher import DataGroupHasher
 
         DataGroupHasher()
 
@@ -116,7 +116,7 @@ def test_implementation():
 
     # Test EAC protocol
     try:
-        from marty_common.crypto.eac_protocol import EACProtocolHandler
+        from marty_backend_common.crypto.eac_protocol import EACProtocolHandler
 
         EACProtocolHandler()
 
@@ -132,7 +132,7 @@ def test_implementation():
 
     # Test enhanced biometric processing
     try:
-        from marty_common.security.enhanced_biometric_processing import BiometricProcessor
+        from marty_backend_common.security.enhanced_biometric_processing import BiometricProcessor
 
         BiometricProcessor()
 

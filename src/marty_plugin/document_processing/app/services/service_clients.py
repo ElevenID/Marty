@@ -12,6 +12,7 @@ from abc import ABC, abstractmethod
 from typing import Any
 
 import grpc
+import os
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
@@ -23,6 +24,20 @@ DOCUMENT_SIGNER = "document-signer"
 
 # Error messages
 GRPC_UNAVAILABLE = "gRPC modules not available"
+
+
+def _create_grpc_channel(address: str) -> grpc.Channel:
+    """Create a gRPC channel, using TLS when GRPC_CA_CERT is configured."""
+    ca_cert_path = os.environ.get("GRPC_CA_CERT")
+    if ca_cert_path:
+        with open(ca_cert_path, "rb") as f:
+            ca_cert = f.read()
+        credentials = grpc.ssl_channel_credentials(root_certificates=ca_cert)
+        logger.debug("Creating secure gRPC channel to %s", address)
+        return grpc.secure_channel(address, credentials)
+    else:
+        logger.warning("GRPC_CA_CERT not set — using insecure gRPC channel to %s", address)
+        return grpc.insecure_channel(address)
 
 
 class ServiceClientError(Exception):
@@ -83,7 +98,7 @@ class GrpcPassportEngineClient(PassportEngineClient):
             # Import here to handle potential grpc import issues gracefully
             from marty_plugin.proto.v1 import passport_engine_pb2, passport_engine_pb2_grpc
 
-            with grpc.insecure_channel(self.address) as channel:
+            with _create_grpc_channel(self.address) as channel:
                 stub = passport_engine_pb2_grpc.PassportEngineStub(channel)
                 request = passport_engine_pb2.PassportRequest(passport_number=passport_number)
                 response = stub.ProcessPassport(request)
@@ -121,7 +136,7 @@ class GrpcInspectionSystemClient(InspectionSystemClient):
         try:
             from marty_plugin.proto.v1 import inspection_system_pb2, inspection_system_pb2_grpc
 
-            with grpc.insecure_channel(self.address) as channel:
+            with _create_grpc_channel(self.address) as channel:
                 stub = inspection_system_pb2_grpc.InspectionSystemStub(channel)
                 request = inspection_system_pb2.InspectRequest(item=document_id)
                 response = stub.Inspect(request)
@@ -159,7 +174,7 @@ class GrpcDocumentSignerClient(DocumentSignerClient):
         try:
             from marty_plugin.proto.v1 import document_signer_pb2, document_signer_pb2_grpc
 
-            with grpc.insecure_channel(self.address):
+            with _create_grpc_channel(self.address):
                 # This would call appropriate document signer endpoints
                 # Implementation depends on available document signer methods
                 logger.info("Document signature validation via document-signer not yet implemented")

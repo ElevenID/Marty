@@ -766,7 +766,8 @@ class CredentialTemplate(Entity):
     # Signing key configuration
     issuer_key_id: str | None = None
     issuer_algorithm: str | None = None  # RS256, ES256, EdDSA, etc. (spec: issuer_algorithm)
-    key_access_mode: str = "key_vault"  # key_vault, hsm, local (dev only)
+    key_access_mode: str = "key_vault"  # key_vault, hsm, local, remote_signing
+    remote_signing_config: dict[str, Any] | None = None  # KMS provider config for remote_signing mode
     
     # Certificate chain (for mDoc/X.509-based credentials)
     issuer_certificate_chain_pem: str | None = None
@@ -1641,6 +1642,7 @@ class IssuedCredential(Entity):
         return False
 
 
+@dataclass
 class RevocationBatch(Entity):
     """
     Revocation Batch entity - tracks batch revocation operations for privacy.
@@ -1804,9 +1806,7 @@ class VerificationSession(Entity):
     expires_at: datetime | None = None
     completed_at: datetime | None = None
     error: str | None = None
-
-
-# =============================================================================
+    metadata: dict[str, Any] = field(default_factory=dict)
 # Webhook
 # =============================================================================
 

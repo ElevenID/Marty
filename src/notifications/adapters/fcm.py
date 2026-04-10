@@ -7,6 +7,7 @@ Supports batching, exponential backoff, and token validation.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import logging
 from dataclasses import dataclass
@@ -332,7 +333,8 @@ class FCMAdapter:
     
     async def _handle_invalid_token(self, token: str) -> None:
         """Handle an invalid FCM token."""
-        logger.info(f"Marking token as invalid: {token[:20]}...")
+        token_hash = hashlib.sha256(token.encode()).hexdigest()[:12]
+        logger.info("Marking token as invalid: %s", token_hash)
         
         if self._token_invalidator:
             try:

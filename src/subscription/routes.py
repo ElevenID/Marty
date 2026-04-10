@@ -2,12 +2,28 @@
 Subscription API Routes
 
 FastAPI endpoints for subscription management, API keys, and webhooks.
+
+.. deprecated::
+    These routers are NOT mounted in the application.  The active subscription,
+    API key, and webhook endpoints are defined in
+    ``digital_identity.infrastructure.adapters.rest.routers`` and registered by
+    the DigitalIdentityPlugin.  This module is retained for reference but will
+    be removed in a future cleanup pass.
 """
 from __future__ import annotations
 
 import logging
+import os
+import warnings
 from datetime import datetime, timezone
 from typing import Any, Optional
+
+warnings.warn(
+    "subscription.routes is orphaned and not mounted in any FastAPI app. "
+    "Use digital_identity.infrastructure.adapters.rest.routers instead.",
+    DeprecationWarning,
+    stacklevel=2,
+)
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
@@ -137,24 +153,37 @@ class UpdateWebhookRequest(BaseModel):
 
 
 # Dependencies (to be configured by the application)
+# Override these via app.dependency_overrides[get_db] = your_impl
 async def get_db():
-    """Get database session."""
-    raise NotImplementedError("Database dependency not configured")
+    """Get database session — must be overridden at app startup."""
+    raise NotImplementedError(
+        "get_db() dependency not configured. "
+        "Set app.dependency_overrides[get_db] in your application startup."
+    )
 
 
 async def get_current_organization(request: Request) -> Organization:
-    """Get current organization from request context."""
-    raise NotImplementedError("Auth dependency not configured")
+    """Get current organization — must be overridden at app startup."""
+    raise NotImplementedError(
+        "get_current_organization() dependency not configured. "
+        "Set app.dependency_overrides[get_current_organization] in your application startup."
+    )
 
 
 async def get_square_service() -> SquareService:
-    """Get Square service instance."""
-    raise NotImplementedError("Square service not configured")
+    """Get Square service — must be overridden at app startup."""
+    raise NotImplementedError(
+        "get_square_service() dependency not configured. "
+        "Set app.dependency_overrides[get_square_service] in your application startup."
+    )
 
 
 async def get_api_key_service() -> APIKeyService:
-    """Get API key service instance."""
-    raise NotImplementedError("API key service not configured")
+    """Get API key service — must be overridden at app startup."""
+    raise NotImplementedError(
+        "get_api_key_service() dependency not configured. "
+        "Set app.dependency_overrides[get_api_key_service] in your application startup."
+    )
 
 
 # Subscription Routes
@@ -167,11 +196,13 @@ async def get_api_key_service() -> APIKeyService:
 async def create_organization(
     request: CreateOrganizationRequest,
     db=Depends(get_db),
+    current_user: str = Header(..., alias="X-User-ID"),
 ) -> OrganizationResponse:
     """
     Create a new organization.
     
     This is typically called during initial onboarding.
+    Requires authenticated user identity.
     """
     from sqlalchemy import select
     from .models import Organization
@@ -355,7 +386,7 @@ async def create_subscription(
         logger.error(f"Failed to create subscription: {e}")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e),
+            detail="Failed to create subscription",
         )
     
     return SubscriptionResponse(
@@ -803,8 +834,12 @@ async def create_webhook(
         parsed = urlparse(request.url)
         if not all([parsed.scheme, parsed.netloc]):
             raise ValueError("Invalid URL")
-        if parsed.scheme not in ["http", "https"]:
-            raise ValueError("URL must use http or https")
+        _env = os.environ.get("MARTY_ENVIRONMENT", "production").lower()
+        allowed_schemes = ["https"]
+        if _env in ("development", "test") and parsed.hostname in ("localhost", "127.0.0.1", "::1"):
+            allowed_schemes.append("http")
+        if parsed.scheme not in allowed_schemes:
+            raise ValueError("Webhook URL must use HTTPS")
     except Exception:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -1029,12 +1064,14 @@ async def delete_webhook(
 )
 async def get_webhook_delivery_attempts(
     webhook_id: UUID,
+    limit: int = 50,
+    offset: int = 0,
     org: Organization = Depends(get_current_organization),
     db=Depends(get_db),
 ) -> dict[str, Any]:
     """Get delivery attempt history for a webhook."""
-    from sqlalchemy import and_, select
-    from .models import WebhookEndpoint
+    from sqlalchemy import and_, func, select
+    from .models import WebhookDeliveryAttempt, WebhookEndpoint
     
     result = await db.execute(
         select(WebhookEndpoint).where(
@@ -1052,12 +1089,47 @@ async def get_webhook_delivery_attempts(
             detail="Webhook not found",
         )
     
-    # Return mock delivery attempts for now
-    # TODO: Implement actual delivery tracking
+    # Clamp pagination bounds
+    limit = max(1, min(limit, 100))
+    offset = max(0, offset)
+
+    # Count total deliveries
+    count_result = await db.execute(
+        select(func.count()).where(
+            WebhookDeliveryAttempt.webhook_id == webhook_id,
+        )
+    )
+    total = count_result.scalar() or 0
+
+    # Fetch delivery attempts ordered by most recent first
+    deliveries_result = await db.execute(
+        select(WebhookDeliveryAttempt)
+        .where(WebhookDeliveryAttempt.webhook_id == webhook_id)
+        .order_by(WebhookDeliveryAttempt.created_at.desc())
+        .limit(limit)
+        .offset(offset)
+    )
+    deliveries = deliveries_result.scalars().all()
+
     return {
         "webhook_id": str(webhook_id),
-        "deliveries": [],
-        "total": 0,
+        "deliveries": [
+            {
+                "id": str(d.id),
+                "event_id": d.event_id,
+                "event_type": d.event_type,
+                "success": d.success,
+                "response_status_code": d.response_status_code,
+                "error_message": d.error_message,
+                "retry_count": d.retry_count,
+                "response_time_ms": d.response_time_ms,
+                "created_at": d.created_at.isoformat() if d.created_at else None,
+            }
+            for d in deliveries
+        ],
+        "total": total,
+        "limit": limit,
+        "offset": offset,
     }
 
 

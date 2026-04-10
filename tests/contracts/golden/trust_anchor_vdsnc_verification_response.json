@@ -1,0 +1,17 @@
+{
+  "is_valid": true,
+  "key_info": {
+    "issuer_country": "AU",
+    "kid": "key-2024-001",
+    "not_after": "2034-01-01T00:00:00Z",
+    "not_before": "2024-01-01T00:00:00Z",
+    "role": "SIGNING",
+    "rotation_generation": 1,
+    "status": "ACTIVE"
+  },
+  "reason": "Signature verified successfully",
+  "security_level": "HIGH",
+  "warnings": [
+    "Certificate expires in 30 days"
+  ]
+}

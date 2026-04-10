@@ -1,0 +1,9 @@
+{
+  "country_code": "AU",
+  "fingerprint": "AB:CD:EF:01:23:45:67:89",
+  "issuer": "CN=Test Root,C=AU",
+  "not_after": "2034-01-01T00:00:00Z",
+  "not_before": "2024-01-01T00:00:00Z",
+  "serial_number": "1234567890ABCDEF",
+  "subject": "CN=Test CSCA,C=AU"
+}

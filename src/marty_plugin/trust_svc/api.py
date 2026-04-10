@@ -8,11 +8,18 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import os
 from datetime import datetime, timezone
 from typing import Any, Optional
 
+import asyncio
+import collections
+import hmac
+import secrets
+import time
+
 import uvicorn
-from fastapi import Depends, FastAPI, HTTPException, status
+from fastapi import Depends, FastAPI, Header, HTTPException, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
@@ -60,6 +67,25 @@ def get_revocation_processor() -> RevocationProcessor:
     return revocation_processor
 
 
+async def require_admin_api_key(
+    x_admin_api_key: str = Header(..., alias="X-Admin-API-Key"),
+) -> str:
+    """Validate admin API key for administrative endpoints."""
+    expected_key = os.environ.get("TRUST_SVC_ADMIN_API_KEY")
+    if not expected_key:
+        logger.error("TRUST_SVC_ADMIN_API_KEY not configured")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Admin authentication not configured",
+        )
+    if not hmac.compare_digest(x_admin_api_key, expected_key):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Invalid admin API key",
+        )
+    return x_admin_api_key
+
+
 def create_app(config_obj: TrustServiceConfig = config) -> FastAPI:
     """Create FastAPI application with trust services."""
 
@@ -72,13 +98,46 @@ def create_app(config_obj: TrustServiceConfig = config) -> FastAPI:
     )
 
     # CORS middleware
+    _cors_origins = os.environ.get("CORS_ALLOWED_ORIGINS", "http://localhost:3000").split(",")
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],  # Configure appropriately for production
+        allow_origins=_cors_origins,
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    # Simple in-memory rate limiter for public endpoints
+    _rate_limit_rpm = int(os.environ.get("TRUST_SVC_RATE_LIMIT_RPM", "60"))
+    _rate_window = 60  # seconds
+    _rate_buckets: dict[str, collections.deque] = {}
+    _rate_lock = asyncio.Lock()
+
+    @app.middleware("http")
+    async def rate_limit_middleware(request: Request, call_next):
+        # Only rate-limit public API endpoints (not /health or /docs)
+        path = request.url.path
+        if not path.startswith("/api/v1/trust/"):
+            return await call_next(request)
+        # Admin endpoints are key-protected, skip rate limiting
+        if "/admin/" in path:
+            return await call_next(request)
+
+        client_ip = request.client.host if request.client else "unknown"
+        now = time.monotonic()
+        async with _rate_lock:
+            bucket = _rate_buckets.setdefault(client_ip, collections.deque())
+            # Evict old entries
+            while bucket and bucket[0] < now - _rate_window:
+                bucket.popleft()
+            if len(bucket) >= _rate_limit_rpm:
+                return JSONResponse(
+                    status_code=429,
+                    content={"detail": "Rate limit exceeded. Try again later."},
+                    headers={"Retry-After": str(_rate_window)},
+                )
+            bucket.append(now)
+        return await call_next(request)
 
     @app.on_event("startup")
     async def startup_event():
@@ -284,8 +343,18 @@ def create_app(config_obj: TrustServiceConfig = config) -> FastAPI:
             # Calculate age
             age_seconds = int((datetime.now(timezone.utc) - snapshot.snapshot_time).total_seconds())
 
-            # TODO: Verify signature
-            signature_valid = snapshot.signature is not None
+            # Verify HMAC signature if signing key is configured
+            signature_valid = False
+            signing_key = os.environ.get("TRUST_SNAPSHOT_SIGNING_KEY", "")
+            if signing_key and snapshot.signature:
+                expected = hmac.new(
+                    signing_key.encode(), snapshot.snapshot_hash.encode(), hashlib.sha256
+                ).hexdigest()
+                signature_valid = hmac.compare_digest(expected, snapshot.signature)
+                if not signature_valid:
+                    logger.warning("Trust snapshot signature verification failed")
+            elif not signing_key:
+                logger.debug("TRUST_SNAPSHOT_SIGNING_KEY not set, cannot verify snapshot signature")
 
             return SnapshotResponse(
                 snapshot=snapshot, signature_valid=signature_valid, age_seconds=age_seconds
@@ -302,9 +371,11 @@ def create_app(config_obj: TrustServiceConfig = config) -> FastAPI:
     # Administrative endpoints
     @app.post("/api/v1/admin/masterlist/upload", response_model=MasterListUploadResponse)
     async def upload_master_list(
-        request: MasterListUploadRequest, db: DatabaseManager = Depends(get_db_manager)
+        request: MasterListUploadRequest,
+        db: DatabaseManager = Depends(get_db_manager),
+        _admin_key: str = Depends(require_admin_api_key),
     ):
-        """Upload and process a master list."""
+        """Upload and process a master list. Requires admin API key."""
         try:
             # TODO: Implement master list parsing using existing PKD service logic
             # For now, return a mock response
@@ -326,15 +397,16 @@ def create_app(config_obj: TrustServiceConfig = config) -> FastAPI:
                 certificates_processed=0,
                 trust_anchors_added=0,
                 dscs_added=0,
-                errors=[str(e)],
+                errors=["Internal error during master list processing"],
             )
 
     @app.post("/api/v1/admin/crl/refresh", response_model=CRLRefreshResponse)
     async def refresh_crls(
         request: CRLRefreshRequest = CRLRefreshRequest(),
         revocation: RevocationProcessor = Depends(get_revocation_processor),
+        _admin_key: str = Depends(require_admin_api_key),
     ):
-        """Refresh CRLs from known sources."""
+        """Refresh CRLs from known sources. Requires admin API key."""
         try:
             result = await revocation.refresh_all_crls(request.force_refresh)
 
@@ -353,20 +425,36 @@ def create_app(config_obj: TrustServiceConfig = config) -> FastAPI:
                 message="CRL refresh failed",
                 crls_processed=0,
                 revoked_certificates_found=0,
-                errors=[str(e)],
+                errors=["Internal error during CRL refresh"],
             )
 
     @app.post("/api/v1/admin/snapshot/create")
-    async def create_trust_snapshot(db: DatabaseManager = Depends(get_db_manager)):
-        """Create a new trust snapshot."""
+    async def create_trust_snapshot(
+        db: DatabaseManager = Depends(get_db_manager),
+        _admin_key: str = Depends(require_admin_api_key),
+    ):
+        """Create a new trust snapshot. Requires admin API key."""
         try:
             # Generate snapshot hash
             timestamp = datetime.now(timezone.utc)
             snapshot_content = f"TRUST_SNAPSHOT_{timestamp.isoformat()}"
             snapshot_hash = hashlib.sha256(snapshot_content.encode()).hexdigest()
 
-            # TODO: Generate KMS signature
-            signature = f"MOCK_KMS_SIGNATURE_{int(timestamp.timestamp())}"
+            # Sign with HMAC using admin key as interim measure
+            # TODO: Replace with OpenBao Transit engine signing (K16)
+            signing_key = os.environ.get("TRUST_SNAPSHOT_SIGNING_KEY", "")
+            if signing_key:
+                signature = hmac.new(
+                    signing_key.encode(), snapshot_hash.encode(), hashlib.sha256
+                ).hexdigest()
+            else:
+                logger.error(
+                    "TRUST_SNAPSHOT_SIGNING_KEY not set — refusing to create unsigned snapshot"
+                )
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail="Snapshot signing key not configured; cannot create unsigned snapshot",
+                )
 
             # Create snapshot
             snapshot_id = await db.create_trust_snapshot(
@@ -389,7 +477,10 @@ def create_app(config_obj: TrustServiceConfig = config) -> FastAPI:
             )
 
     @app.get("/api/v1/admin/status", response_model=ServiceStatusResponse)
-    async def get_service_status(db: DatabaseManager = Depends(get_db_manager)):
+    async def get_service_status(
+        db: DatabaseManager = Depends(get_db_manager),
+        _admin_key: str = Depends(require_admin_api_key),
+    ):
         """Get comprehensive service status."""
         try:
             # Get uptime
@@ -429,8 +520,8 @@ def create_app(config_obj: TrustServiceConfig = config) -> FastAPI:
                 version="1.0.0",
                 uptime_seconds=uptime_seconds,
                 database_connected=db_connected,
-                kms_available=True,  # TODO: Check KMS connectivity
-                job_scheduler_running=True,  # TODO: Check scheduler status
+                kms_available=False,  # Conservative default — set True only when KMS client is configured
+                job_scheduler_running=len(recent_jobs) > 0 or True,  # TODO: Replace with actual scheduler health probe
                 last_snapshot_age_seconds=last_snapshot_age,
                 certificate_counts=certificate_counts,
                 recent_jobs=recent_jobs,

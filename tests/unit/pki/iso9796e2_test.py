@@ -12,7 +12,7 @@ sys.path.append(str(project_root))
 
 
 # Import from Marty's codebase
-from src.marty_common.models.authentication import ActiveAuthenticationAlgorithm
+from marty_backend_common.models.authentication import ActiveAuthenticationAlgorithm
 
 
 @pytest.mark.depends(

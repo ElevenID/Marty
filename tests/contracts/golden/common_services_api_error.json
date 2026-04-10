@@ -1,0 +1,10 @@
+{
+  "code": "ERROR_CODE_INVALID_ARGUMENT",
+  "details": {
+    "expected_values": "passport,id_card,driver_license",
+    "parameter": "document_type",
+    "provided_value": "invalid_type",
+    "timestamp": "2024-01-15T10:30:00Z"
+  },
+  "message": "Invalid input parameter provided"
+}

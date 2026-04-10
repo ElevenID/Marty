@@ -4,12 +4,20 @@ import pathlib
 import pytest
 
 # Dynamically load crypto.py (avoids triggering package __init__ side effects)
-_crypto_file = pathlib.Path(__file__).resolve().parent.parent / "src" / "marty_common" / "crypto.py"
+_crypto_file = pathlib.Path(__file__).resolve().parent.parent / "packages" / "marty-common" / "marty_backend_common" / "crypto.py"
 spec = importlib.util.spec_from_file_location("marty_secure_crypto", _crypto_file)
 assert spec is not None
 assert spec.loader is not None
 crypto_module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(crypto_module)  # type: ignore[attr-defined]
+
+# Skip all tests if crypto_bridge is a stub (Rust extension not available)
+_bridge = getattr(crypto_module, "crypto_bridge", None)
+_bridge_is_stub = _bridge is not None and not hasattr(_bridge, "__file__")
+pytestmark = pytest.mark.skipif(
+    _bridge_is_stub,
+    reason="crypto_bridge is a MagicMock stub — Rust extension not available",
+)
 
 
 @pytest.mark.parametrize(

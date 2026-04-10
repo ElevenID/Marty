@@ -70,7 +70,7 @@ class IcaoTrustProfile:
 
     def __post_init__(self):
         """Initialize the trust store and Rust-side chain validator."""
-        from marty_common.crypto.csca_trust_store import CSCATrustStore
+        from marty_backend_common.crypto.csca_trust_store import CSCATrustStore
 
         self._trust_store = CSCATrustStore(trust_store_path=self.trust_store_path)
 

@@ -396,6 +396,10 @@ class CredentialTemplateService:
             # TODO: Add trust profile validation logic
             # This would check if the trust profile's validation rules are compatible
             # with the compliance profile's requirements
-            pass
+            logger.warning(
+                "Trust/compliance profile compatibility check not implemented — "
+                "template %s accepted without cross-validation (trust_profile=%s, compliance_profile=%s)",
+                template.id, template.trust_profile_id, template.compliance_profile_id,
+            )
         
         return errors

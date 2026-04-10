@@ -34,7 +34,7 @@ except ImportError:
     qrcode = None
 
 # Use crypto_bridge for Rust-backed cryptographic operations
-from marty_common.crypto_bridge import (
+from marty_backend_common.crypto_bridge import (
     sha256,
     ecdsa_p256_sign,
     ecdsa_p256_verify,
@@ -239,17 +239,17 @@ class VDSNCEncoder:
         Returns:
             Signature bytes
         """
-        # For testing with mock keys, return a mock signature
-        if "1234567890abcdef" in private_key_pem or private_key_pem.strip() == "":
-            return sha256(signature_input)[:32]  # Mock signature
+        if not private_key_pem or private_key_pem.strip() == "":
+            raise ValueError("Private key is empty — cannot sign VDS-NC data")
 
         try:
             # Load key using Rust crypto_bridge
             private_der = load_private_key_pem(private_key_pem)
             key_type = detect_private_key_type(private_der)
-        except Exception:
-            # Fallback to mock signature for invalid keys
-            return sha256(signature_input)[:32]
+        except Exception as exc:
+            raise ValueError(
+                f"Failed to load private key for VDS-NC signing: {exc}"
+            ) from exc
 
         if algorithm in [
             SignatureAlgorithm.ES256,
@@ -263,8 +263,8 @@ class VDSNCEncoder:
                 return ecdsa_p256_sign(raw_key, signature_input)
             elif algorithm == SignatureAlgorithm.ES384:
                 return ecdsa_p384_sign(raw_key, signature_input)
-            else:  # ES512 - not yet supported in Rust, fallback
-                return sha256(signature_input)[:32]
+            else:  # ES512
+                raise NotImplementedError("ES512 (P-521) signing is not yet supported")
 
         elif algorithm in [
             SignatureAlgorithm.PS256,

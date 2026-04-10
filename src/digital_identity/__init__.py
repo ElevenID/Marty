@@ -27,41 +27,45 @@ Quick Start:
     await plugin.shutdown()
 """
 
+from importlib import import_module
+
 __version__ = "0.1.0"
 
-# Main plugin registration
-from digital_identity.plugin import DigitalIdentityPlugin, register_plugin
 
-# Domain entities
-from digital_identity.domain.entities import (
-    TrustProfile,
-    CredentialTemplate,
-    PresentationPolicy,
-    DeploymentProfile,
-    Flow,
-    FlowExecution,
-)
+_LAZY_IMPORTS = {
+    # Plugin
+    "DigitalIdentityPlugin": ("digital_identity.plugin", "DigitalIdentityPlugin"),
+    "register_plugin": ("digital_identity.plugin", "register_plugin"),
+    # Entities
+    "TrustProfile": ("digital_identity.domain.entities", "TrustProfile"),
+    "CredentialTemplate": ("digital_identity.domain.entities", "CredentialTemplate"),
+    "PresentationPolicy": ("digital_identity.domain.entities", "PresentationPolicy"),
+    "DeploymentProfile": ("digital_identity.domain.entities", "DeploymentProfile"),
+    "Flow": ("digital_identity.domain.entities", "Flow"),
+    "FlowExecution": ("digital_identity.domain.entities", "FlowExecution"),
+    # Value objects
+    "TrustProfileType": ("digital_identity.domain.value_objects", "TrustProfileType"),
+    "FlowType": ("digital_identity.domain.value_objects", "FlowType"),
+    "FlowStatus": ("digital_identity.domain.value_objects", "FlowStatus"),
+    "ApprovalStrategy": ("digital_identity.domain.value_objects", "ApprovalStrategy"),
+    "ClaimDefinition": ("digital_identity.domain.value_objects", "ClaimDefinition"),
+    "RevocationPolicy": ("digital_identity.domain.value_objects", "RevocationPolicy"),
+    "TimePolicy": ("digital_identity.domain.value_objects", "TimePolicy"),
+    # Database management
+    "init_database": ("digital_identity.infrastructure.persistence", "init_database"),
+    "close_database": ("digital_identity.infrastructure.persistence", "close_database"),
+    "get_database_manager": ("digital_identity.infrastructure.persistence", "get_database_manager"),
+}
 
-# Value objects
-from digital_identity.domain.value_objects import (
-    TrustProfileType,
-    FlowType,
-    FlowStatus,
-    ApprovalStrategy,
-    ClaimDefinition,
-    RevocationPolicy,
-    TimePolicy,
-    # CredentialRequirement,  # TODO: Add this value object
-    # FlowHooks,  # TODO: Add this value object
-    # EnvironmentConfig,  # TODO: Add this value object
-)
 
-# Database management
-from digital_identity.infrastructure.persistence import (
-    init_database,
-    close_database,
-    get_database_manager,
-)
+def __getattr__(name: str):
+    """Lazy-load digital identity exports so subpackage imports stay lightweight."""
+    if name in _LAZY_IMPORTS:
+        module_name, attr_name = _LAZY_IMPORTS[name]
+        value = getattr(import_module(module_name), attr_name)
+        globals()[name] = value
+        return value
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 __all__ = [
     # Version

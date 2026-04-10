@@ -8,7 +8,7 @@ project_root = Path(__file__).resolve().parents[3]
 sys.path.append(str(project_root))
 
 # Import from Marty's codebase
-from src.marty_common.models.asn1_structures import SOD, LDSSecurityObject
+from marty_backend_common.models.asn1_structures import SOD, LDSSecurityObject
 
 # Directory containing test certificates
 CERTS_DIR = Path(__file__).resolve().parent.parent / "pki" / "certs"
@@ -63,7 +63,7 @@ def test_signed_object():
     import base64
     import time
 
-    from src.marty_common.models.passport import SignedObject
+    from marty_backend_common.models.passport import SignedObject
 
     # Create a test signature (base64 encoded)
     signature_bytes = b"This is a test signature"

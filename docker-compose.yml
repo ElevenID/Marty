@@ -7,19 +7,16 @@
 #   make dev          # Start development environment
 #   make test         # Run E2E tests (Playwright + wallet-simulator)
 #   make test-local   # Run fast Chromium-only tests
-#   make pytest       # Run Python unit/integration tests
 #
 # PROFILES:
 #   dev        - Core services for local development (default)
 #   test       - E2E tests with full browser matrix
 #   test-local - Fast Chromium-only E2E tests
-#   pytest     - Python unit/integration tests
 #
 # MANUAL USAGE:
 #   docker compose --profile dev up -d
 #   docker compose --profile test up playwright --exit-code-from playwright
 #   docker compose --profile test-local up playwright-local --exit-code-from playwright-local
-#   docker compose --profile pytest up pytest --exit-code-from pytest
 
 # =============================================================================
 # YAML Anchors for DRY Configuration
@@ -27,8 +24,8 @@
 x-test-env: &test-env
   CI: "true"
   PW_FAST: ${PW_FAST:-}
-  TEST_PROVIDER: mailhog
-  MAILHOG_URL: http://mailhog:8025
+  TEST_PROVIDER: mailpit
+  MAILPIT_URL: http://mailpit:8025
   # Browser-accessible URLs - use Docker service names since browser runs in container
   BASE_URL: http://ui-test:80
   API_URL: http://oid4vc-api-test:8000
@@ -38,11 +35,11 @@ x-test-env: &test-env
 
 x-keycloak-env: &keycloak-env
   KEYCLOAK_ADMIN: admin
-  KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin}
+  KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:?Set KEYCLOAK_ADMIN_PASSWORD in .env}
   KC_DB: postgres
   KC_DB_URL: jdbc:postgresql://postgres:5432/keycloak
   KC_DB_USERNAME: keycloak
-  KC_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD:-keycloak}
+  KC_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD:?Set KEYCLOAK_DB_PASSWORD in .env}
   KC_HEALTH_ENABLED: "true"
   KC_METRICS_ENABLED: "true"
   # Hostname configuration - ensures tokens have consistent issuer
@@ -56,9 +53,9 @@ x-keycloak-env: &keycloak-env
   KEYCLOAK_REALM: ${KEYCLOAK_REALM:-11id}
   PUBLIC_DOMAIN: ${PUBLIC_DOMAIN:-localhost}
   UI_BASE_URL: ${UI_BASE_URL:-http://localhost:3000}
-  # SMTP (MailHog)
+  # SMTP (Mailpit)
   KC_SPI_EMAIL_SENDER: default
-  KC_SPI_EMAIL_SENDER_DEFAULT_HOST: mailhog
+  KC_SPI_EMAIL_SENDER_DEFAULT_HOST: mailpit
   KC_SPI_EMAIL_SENDER_DEFAULT_PORT: "1025"
   KC_SPI_EMAIL_SENDER_DEFAULT_FROM: noreply@elevenid.demo
   KC_SPI_EMAIL_SENDER_DEFAULT_FROM_DISPLAY_NAME: ElevenID
@@ -66,12 +63,12 @@ x-keycloak-env: &keycloak-env
   DEMO_ADMIN_EMAIL: ${DEMO_ADMIN_EMAIL:-admin@elevenid.demo}
   DEMO_ADMIN_FIRST_NAME: ${DEMO_ADMIN_FIRST_NAME:-Admin}
   DEMO_ADMIN_LAST_NAME: ${DEMO_ADMIN_LAST_NAME:-User}
-  DEMO_ADMIN_PASSWORD: ${DEMO_ADMIN_PASSWORD:-Admin123!}
+  DEMO_ADMIN_PASSWORD: ${DEMO_ADMIN_PASSWORD:?Set DEMO_ADMIN_PASSWORD in .env}
   DEMO_VENDOR_EMAIL: ${DEMO_VENDOR_EMAIL:-vendor@elevenid.demo}
   DEMO_VENDOR_FIRST_NAME: ${DEMO_VENDOR_FIRST_NAME:-Vendor}
   DEMO_VENDOR_LAST_NAME: ${DEMO_VENDOR_LAST_NAME:-Admin}
-  DEMO_VENDOR_PASSWORD: ${DEMO_VENDOR_PASSWORD:-Vendor123!}
-  DEMO_APPLICANT_PASSWORD: ${DEMO_APPLICANT_PASSWORD:-Applicant123!}
+  DEMO_VENDOR_PASSWORD: ${DEMO_VENDOR_PASSWORD:?Set DEMO_VENDOR_PASSWORD in .env}
+  DEMO_APPLICANT_PASSWORD: ${DEMO_APPLICANT_PASSWORD:?Set DEMO_APPLICANT_PASSWORD in .env}
   DEMO_APPLICANT1_EMAIL: ${DEMO_APPLICANT1_EMAIL:-john.doe@elevenid.demo}
   DEMO_APPLICANT1_FIRST_NAME: ${DEMO_APPLICANT1_FIRST_NAME:-John}
   DEMO_APPLICANT1_LAST_NAME: ${DEMO_APPLICANT1_LAST_NAME:-Doe}
@@ -87,6 +84,16 @@ x-keycloak-env: &keycloak-env
   DEMO_APPLICANT3_LAST_NAME: ${DEMO_APPLICANT3_LAST_NAME:-Garcia}
   DEMO_APPLICANT3_NATIONALITY: ${DEMO_APPLICANT3_NATIONALITY:-ESP}
   DEMO_APPLICANT3_DOB: ${DEMO_APPLICANT3_DOB:-1978-11-08}
+
+# License enforcement for all Marty containers.
+# Run `python scripts/generate-dev-license.py` to create the dev license files.
+# Production: set MARTY_LICENSE and LICENSE_SIGNING_PUBLIC_KEY env vars directly.
+x-license-env: &license-env
+  MARTY_LICENSE_STRICT: ${MARTY_LICENSE_STRICT:-true}
+  LICENSE_SIGNING_PUBLIC_KEY_PATH: /etc/marty/license.pub
+
+x-license-volumes: &license-volumes
+  - ./docker/dev-license:/etc/marty:ro
 
 # =============================================================================
 # Services
@@ -106,6 +113,8 @@ services:
       SERVICE_NAME: document-signer
       GRPC_PORT: "8082"
       PYTHONPATH: /app/src
+      MARTY_PRODUCT_ID: document-signer
+      <<: *license-env
       # Key management
       KEY_VAULT_URL: ${KEY_VAULT_URL:-}
       # Database
@@ -113,6 +122,7 @@ services:
       # Storage
       S3_ENDPOINT: ${S3_ENDPOINT:-}
       S3_BUCKET: ${S3_BUCKET:-marty-credentials}
+    volumes: *license-volumes
     depends_on:
       postgres:
         condition: service_healthy
@@ -136,7 +146,7 @@ services:
     build:
       context: .
       dockerfile: docker/mmf-plugin.Dockerfile
-    command: ["python", "-m", "apps.open_badges"]
+    command: ["python", "-m", "marty_plugin.open_badges"]
     ports:
       - "8091:8091"
       - "9091:9091"
@@ -145,11 +155,13 @@ services:
       MARTY_ENV: development
       GRPC_PORT: "8091"
       SERVICE_NAME: open-badges
-      PYTHONPATH: /app/src/marty_plugin/legacy_apps:/app/src
+      MARTY_PRODUCT_ID: open-badges
+      <<: *license-env
       OPEN_BADGES_TRUST_STORE_PATH: /app/data/trust/open_badges/trust_store.json
     volumes:
       - ./data:/app/data
       - ./config:/app/config:ro
+      - ./docker/dev-license:/etc/marty:ro
     profiles:
       - trust-services
 
@@ -167,6 +179,8 @@ services:
       STORAGE_MODE: ${STORAGE_MODE:-memory}
       TEST_MODE: ${TEST_MODE:-false}
       NOTIFICATION_ADAPTER: ${NOTIFICATION_ADAPTER:-sse}
+      MARTY_PRODUCT_ID: oid4vc-api
+      <<: *license-env
       # Document Signer gRPC connection
       DOCUMENT_SIGNER_HOST: document-signer
       DOCUMENT_SIGNER_PORT: "8082"
@@ -179,7 +193,7 @@ services:
       OIDC_POST_LOGOUT_REDIRECT_URI: http://localhost:3000
       # Redis & Session
       REDIS_URL: redis://redis:6379/0
-      SESSION_SECRET: ${SESSION_SECRET:-dev-session-secret-change-in-production}
+      SESSION_SECRET: ${SESSION_SECRET:?Set SESSION_SECRET in .env}
       # Cookies
       COOKIE_SECURE: "false"
       COOKIE_SAMESITE: lax
@@ -193,6 +207,7 @@ services:
       - ./marty-ui/src:/app/src
       - ./marty-microservices-framework:/app/marty-microservices-framework
       - ./src/notifications:/app/notifications
+      - ./docker/dev-license:/etc/marty:ro
     depends_on:
       keycloak:
         condition: service_healthy
@@ -214,7 +229,7 @@ services:
       context: .
       dockerfile: marty-ui/docker/api.Dockerfile
     ports:
-      - "8000:8000"
+      - "8100:8000"  # Offset from dev to avoid port conflict
     networks:
       default:
         aliases:
@@ -226,6 +241,8 @@ services:
       STORAGE_MODE: ${STORAGE_MODE:-memory}
       TEST_MODE: "true"
       NOTIFICATION_ADAPTER: ${NOTIFICATION_ADAPTER:-sse}
+      MARTY_PRODUCT_ID: oid4vc-api
+      <<: *license-env
       # Document Signer gRPC connection
       DOCUMENT_SIGNER_HOST: document-signer
       DOCUMENT_SIGNER_PORT: "8082"
@@ -240,7 +257,7 @@ services:
       OIDC_POST_LOGOUT_REDIRECT_URI: http://localhost:3000
       # Redis & Session
       REDIS_URL: redis://redis:6379/0
-      SESSION_SECRET: ${SESSION_SECRET:-dev-session-secret-change-in-production}
+      SESSION_SECRET: ${SESSION_SECRET:?Set SESSION_SECRET in .env}
       # Cookies
       COOKIE_SECURE: "false"
       COOKIE_SAMESITE: lax
@@ -252,6 +269,7 @@ services:
       - ./marty-ui/src:/app/src
       - ./marty-microservices-framework:/app/marty-microservices-framework
       - ./src/notifications:/app/notifications
+      - ./docker/dev-license:/etc/marty:ro
     depends_on:
       keycloak:
         condition: service_healthy
@@ -297,7 +315,7 @@ services:
       args:
         NGINX_CONFIG: nginx.dev.conf
     ports:
-      - "9080:80"
+      - "9180:80"  # Offset from dev to avoid port conflict
     extra_hosts:
       - "host.docker.internal:host-gateway"  # Enable host.docker.internal on Linux
     networks:
@@ -378,7 +396,7 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      mailhog:
+      mailpit:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "exec 3<>/dev/tcp/localhost/9000 && echo -e 'GET /health/ready HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3 && cat <&3 | grep -q '200 OK'"]
@@ -392,18 +410,17 @@ services:
       - test-local
 
   # ---------------------------------------------------------------------------
-  # Email Testing (MailHog)
+  # Email Testing (Mailpit)
   # ---------------------------------------------------------------------------
-  mailhog:
-    image: mailhog/mailhog:latest
+  mailpit:
+    image: axllent/mailpit:v1.21
     ports:
       - "9025:8025"  # Web UI (changed to avoid conflict)
       - "2025:1025"  # SMTP (changed to avoid conflict)
     environment:
-      MH_STORAGE: memory
-      MH_UI_WEB_PATH: /
+      MP_DATABASE: /tmp/mailpit.db
     healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8025"]
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8025/livez"]
       interval: 5s
       timeout: 3s
       retries: 5
@@ -412,7 +429,6 @@ services:
       - dev
       - test
       - test-local
-      - pytest
 
   # ---------------------------------------------------------------------------
   # PostgreSQL (Consolidated: keycloak + marty_applicants)
@@ -425,9 +441,9 @@ services:
     environment:
       POSTGRES_DB: postgres
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
-      KEYCLOAK_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD:-keycloak}
-      APPLICANT_DB_PASSWORD: ${APPLICANT_DB_PASSWORD:-marty}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      KEYCLOAK_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD:?Set KEYCLOAK_DB_PASSWORD in .env}
+      APPLICANT_DB_PASSWORD: ${APPLICANT_DB_PASSWORD:?Set APPLICANT_DB_PASSWORD in .env}
     volumes:
       - ${POSTGRES_VOLUME:-postgres-data}:/var/lib/postgresql/data
       - ./marty-ui/docker/init-databases.sh:/docker-entrypoint-initdb.d/init-databases.sh:ro
@@ -441,6 +457,7 @@ services:
       - dev
       - test
       - test-local
+    restart: unless-stopped
 
   # ---------------------------------------------------------------------------
   # Redis (Development - Single Instance)
@@ -477,6 +494,33 @@ services:
       - dev
       - test
       - test-local
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # LocalStack - AWS Service Emulation for Testing (no AWS account needed)
+  # Note: KMS is a Pro feature in LocalStack, so we'll focus on SoftwareHSM for testing
+  # ---------------------------------------------------------------------------
+  localstack:
+    image: localstack/localstack:3.0
+    ports:
+      - "4566:4566"  # LocalStack gateway
+    environment:
+      - SERVICES=secretsmanager
+      - DEBUG=0
+      - DEFAULT_REGION=us-east-1
+      - DISABLE_CORS_CHECKS=1
+    volumes:
+      - "localstack-data:/var/lib/localstack"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4566/_localstack/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    profiles:
+      - dev
+      - test
+      - integration
+    restart: unless-stopped
 
   # ---------------------------------------------------------------------------
   # Demo Data Seeding (one-shot)
@@ -516,7 +560,7 @@ services:
     depends_on:
       ui-test:
         condition: service_healthy
-      mailhog:
+      mailpit:
         condition: service_healthy
       keycloak:
         condition: service_healthy
@@ -545,7 +589,7 @@ services:
     depends_on:
       ui-test:
         condition: service_healthy
-      mailhog:
+      mailpit:
         condition: service_healthy
       keycloak:
         condition: service_healthy
@@ -555,68 +599,33 @@ services:
       - test-local
 
   # ---------------------------------------------------------------------------
-  # Pytest Runner (Unit & Integration Tests)
-  # Uses separate postgres/redis with tmpfs for isolation
+  # OpenBao KMS (Transit Secrets Engine for BYOK signing)
   # ---------------------------------------------------------------------------
-  postgres-pytest:
-    image: postgres:15-alpine
+  # Self-hosted key management service (Apache 2.0 fork of Vault).
+  # Provides Transit secrets engine for remote credential signing and
+  # PKI engine for X.509 certificate lifecycle management.
+  #
+  # Dev mode:  single-node, in-memory. Root token = "dev-root-token".
+  # Prod mode: use docker-compose.cluster.yml with Raft storage.
+  openbao:
+    image: quay.io/openbao/openbao:2
+    ports:
+      - "8200:8200"
     environment:
-      POSTGRES_DB: postgres
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      KEYCLOAK_DB_PASSWORD: keycloak
-      APPLICANT_DB_PASSWORD: marty
-    tmpfs:
-      - /var/lib/postgresql/data
+      BAO_DEV_ROOT_TOKEN_ID: dev-root-token
+      BAO_DEV_LISTEN_ADDRESS: "0.0.0.0:8200"
+    cap_add:
+      - IPC_LOCK
     volumes:
-      - ./marty-ui/docker/init-databases.sh:/docker-entrypoint-initdb.d/init-databases.sh:ro
+      - openbao-data:/bao/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres && pg_isready -U keycloak -d keycloak && pg_isready -U marty -d marty_applicants"]
-      interval: 3s
-      timeout: 3s
-      retries: 10
-      start_period: 20s
-    profiles:
-      - pytest
-
-  redis-pytest:
-    image: redis:7-alpine
-    command: redis-server --appendonly no --maxmemory 64mb --maxmemory-policy allkeys-lru
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 3s
+      test: ["CMD", "bao", "status", "-address=http://127.0.0.1:8200"]
+      interval: 5s
       timeout: 3s
       retries: 5
     profiles:
-      - pytest
-
-  pytest:
-    build:
-      context: .
-      dockerfile: marty-ui/tests/Dockerfile.pytest
-    environment:
-      PYTHONPATH: /app/src:/app/marty-microservices-framework
-      TEST_MODE: "true"
-      APPLICANT_DB_URL: postgresql+asyncpg://marty:marty@postgres-pytest:5432/marty_applicants
-      REDIS_URL: redis://redis-pytest:6379/0
-    volumes:
-      - ./marty-ui/src:/app/src:ro
-      - ./marty-microservices-framework:/app/marty-microservices-framework:ro
-      - ./tests:/app/tests:ro
-      - ./marty-ui/tests/pytest-results:/app/pytest-results
-    working_dir: /app
-    command: >
-      pytest tests/unit/api_keys/ -v --tb=short
-      --junitxml=/app/pytest-results/junit.xml
-      --html=/app/pytest-results/report.html
-      --self-contained-html
-    depends_on:
-      postgres-pytest:
-        condition: service_healthy
-      redis-pytest:
-        condition: service_healthy
-    profiles:
-      - pytest
+      - dev
+      - test
 
 # =============================================================================
 # Volumes (dev profile only - tests use tmpfs)
@@ -624,6 +633,8 @@ services:
 volumes:
   postgres-data:
   redis-data:
+  localstack-data:  # LocalStack AWS emulation data
+  openbao-data:
 
 # =============================================================================
 # Networks

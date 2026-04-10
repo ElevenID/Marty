@@ -6,11 +6,75 @@ without requiring live services.
 """
 from __future__ import annotations
 
+# ---------------------------------------------------------------------------
+# Pre-mock marty_plugin.common subtree (Rust FFI bridge not available in tests)
+# Must run before any other imports that may trigger the chain:
+#   test → marty_backend_common → marty_plugin.common.*
+# ---------------------------------------------------------------------------
+import importlib.abc
+import importlib.machinery
+import sys
+from unittest.mock import MagicMock
+
+
+class _StubModule(MagicMock):
+    """A MagicMock that acts as a module but returns real classes for names
+    that are used as base classes (to avoid metaclass conflicts with ABC etc.)."""
+
+    # Names that must be real classes (used in inheritance)
+    _CLASS_NAMES = {
+        "BaseService", "ServiceConfig", "BaseValidator", "BaseProvider",
+        "BaseCryptoProvider", "BaseTransport", "BaseEngine",
+    }
+    # Names that must be real exceptions (used in except/raise)
+    _EXCEPTION_NAMES = {
+        "CryptoError", "ValidationError", "ConfigError", "SecurityError",
+        "EncryptionError", "DecryptionError", "SigningError", "VerificationError",
+    }
+
+    def __getattr__(self, name):
+        if name in self._CLASS_NAMES:
+            return type(name, (), {})
+        if name in self._EXCEPTION_NAMES:
+            return type(name, (Exception,), {})
+        return super().__getattr__(name)
+
+
+class _CommonSubmoduleFinder(importlib.abc.MetaPathFinder, importlib.abc.Loader):
+    """Intercept any `marty_plugin.common*` import and return a stub module."""
+
+    _PREFIXES = ("marty_plugin.common", "src.marty_plugin.common")
+
+    def find_spec(self, fullname, path, target=None):
+        for prefix in self._PREFIXES:
+            if fullname == prefix or fullname.startswith(prefix + "."):
+                return importlib.machinery.ModuleSpec(fullname, self)
+        return None
+
+    def create_module(self, spec):
+        mod = _StubModule()
+        mod.__name__ = spec.name
+        mod.__package__ = spec.name
+        mod.__path__ = [f"/mock/{spec.name.replace('.', '/')}"]
+        mod.__spec__ = spec
+        mod.__loader__ = self
+        return mod
+
+    def exec_module(self, module):
+        pass  # _StubModule is already usable
+
+
+# Install finder early so all downstream conftest and test imports are covered
+if not any(isinstance(f, _CommonSubmoduleFinder) for f in sys.meta_path):
+    sys.meta_path.insert(0, _CommonSubmoduleFinder())
+
+# ---------------------------------------------------------------------------
+
 import json
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any, Generator
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 from jwcrypto import jwk

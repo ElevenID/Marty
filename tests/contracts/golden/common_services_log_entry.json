@@ -1,0 +1,11 @@
+{
+  "level": "INFO",
+  "logger_name": "main",
+  "message": "Document signed successfully",
+  "metadata": {
+    "document_id": "doc-123",
+    "duration_ms": "45"
+  },
+  "service_name": "document-signer",
+  "timestamp": "2024-01-15T10:30:00Z"
+}

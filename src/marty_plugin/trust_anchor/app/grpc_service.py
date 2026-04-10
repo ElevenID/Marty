@@ -21,11 +21,11 @@ _project_root = Path(__file__).resolve().parents[3]
 if str(_project_root) not in sys.path:
     sys.path.insert(0, str(_project_root))
 
-from marty_common.logging_config import get_logger, setup_logging
-from marty_common.service_config_factory import get_config_manager
+from marty_backend_common.logging_config import get_logger, setup_logging
+from marty_backend_common.service_config_factory import get_config_manager
 
 # Import shared utilities
-from marty_common.services import BaseGrpcService
+from marty_backend_common.services import BaseGrpcService
 
 # Local application/library specific imports
 # Import gRPC generated modules

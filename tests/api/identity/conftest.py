@@ -87,19 +87,20 @@ def trust_profile_type(request) -> TrustProfileType:
 
 
 @pytest.fixture
-def trust_profile_payload(trust_profile_type: TrustProfileType) -> dict[str, Any]:
+def trust_profile_payload(trust_profile_type: TrustProfileType, mock_organization) -> dict[str, Any]:
     """
     Generate valid trust profile creation payload based on profile type.
     
     Returns a dict matching TrustProfileCreate schema for the given type.
     """
     base_payload = {
+        "organization_id": str(mock_organization.id),
         "name": f"Test {trust_profile_type.value.upper()} Profile {uuid4().hex[:8]}",
         "description": f"Test trust profile for {trust_profile_type.value}",
         "profile_type": trust_profile_type.value,
         "enabled": True,
         "allowed_algorithms": ["ES256", "ES384", "ES512"],
-        "allowed_formats": ["sd_jwt_vc", "mdoc"],
+        "supported_formats": ["MDOC", "SD_JWT_VC"],
         "metadata": {"test": True, "profile_type": trust_profile_type.value},
     }
     
@@ -165,9 +166,10 @@ def sample_trust_profile_create() -> dict[str, Any]:
     Use this when you don't need to test all profile types.
     """
     return {
+        "organization_id": str(uuid4()),
         "name": f"Simple Test Profile {uuid4().hex[:8]}",
         "description": "Simple test trust profile",
-        "profile_type": "custom",
+        "profile_type": "CUSTOM",
         "enabled": True,
         "trust_sources": [
             {
@@ -176,7 +178,7 @@ def sample_trust_profile_create() -> dict[str, Any]:
             }
         ],
         "allowed_algorithms": ["ES256", "ES384"],
-        "allowed_formats": ["sd_jwt_vc"],
+        "supported_formats": ["SD_JWT_VC"],
         "revocation_policy": {
             "mode": "hard_fail",
             "check_ocsp": True,
@@ -208,6 +210,7 @@ async def authenticated_client_with_event_publisher(
     """
     from src.subscription.routes import router as subscription_router
     from src.subscription.routes import api_key_router, webhook_router
+    from src.subscription.kms_router import kms_router
     from fastapi import FastAPI
     from fastapi.middleware.cors import CORSMiddleware
     from httpx import AsyncClient, ASGITransport
@@ -228,6 +231,7 @@ async def authenticated_client_with_event_publisher(
     app.include_router(subscription_router)
     app.include_router(api_key_router)
     app.include_router(webhook_router)
+    app.include_router(kms_router)
     
     # Include digital identity routers
     try:

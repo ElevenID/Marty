@@ -299,3 +299,162 @@ def mdoc_engine_address() -> str:
 def oid4vc_api_base_url() -> str:
     """OID4VC API base URL."""
     return os.getenv("OID4VC_API_URL", "http://localhost:8000")
+
+
+# =============================================================================
+# Database Fixtures for KMS Integration Tests
+# =============================================================================
+
+@pytest.fixture(scope="session")
+def event_loop():
+    """Create an event loop for the test session."""
+    import asyncio
+    loop = asyncio.get_event_loop_policy().new_event_loop()
+    yield loop
+    loop.close()
+
+
+@pytest.fixture(scope="session")
+async def db_engine():
+    """
+    Create database engine for integration tests.
+    Uses test database: postgresql://test:test@localhost:5432/marty_test
+    """
+    from sqlalchemy.ext.asyncio import create_async_engine
+    from src.subscription.models import Base
+    
+    # Use test database
+    database_url = os.getenv(
+        "TEST_DATABASE_URL",
+        "postgresql+asyncpg://test:test@localhost:5432/marty_test"
+    )
+    
+    engine = create_async_engine(database_url, echo=False)
+    
+    # Create tables
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    
+    yield engine
+    
+    # Cleanup
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.drop_all)
+    
+    await engine.dispose()
+
+
+@pytest.fixture(scope="function")
+async def db_session(db_engine):
+    """Provide a database session for each test."""
+    from sqlalchemy.ext.asyncio import AsyncSession
+    from sqlalchemy.orm import sessionmaker
+    
+    async_session = sessionmaker(
+        db_engine, class_=AsyncSession, expire_on_commit=False
+    )
+    
+    async with async_session() as session:
+        yield session
+        await session.rollback()
+
+
+@pytest.fixture
+async def free_organization(db_session):
+    """Create a free tier organization for testing."""
+    from src.subscription.models import Organization
+    
+    org = Organization(
+        id=uuid.uuid4(),
+        name="Free Test Organization",
+        square_customer_id=f"test_customer_{uuid.uuid4().hex[:8]}"
+    )
+    db_session.add(org)
+    await db_session.flush()
+    return org
+
+
+@pytest.fixture
+async def starter_organization(db_session):
+    """Create a starter tier organization for testing."""
+    from src.subscription.models import Organization
+    
+    org = Organization(
+        id=uuid.uuid4(),
+        name="Starter Test Organization",
+        square_customer_id=f"test_customer_{uuid.uuid4().hex[:8]}"
+    )
+    db_session.add(org)
+    await db_session.flush()
+    return org
+
+
+@pytest.fixture
+async def professional_organization(db_session):
+    """Create a professional tier organization for testing."""
+    from src.subscription.models import Organization
+    
+    org = Organization(
+        id=uuid.uuid4(),
+        name="Professional Test Organization",
+        square_customer_id=f"test_customer_{uuid.uuid4().hex[:8]}"
+    )
+    db_session.add(org)
+    await db_session.flush()
+    return org
+
+
+@pytest.fixture
+async def free_subscription(db_session, free_organization):
+    """Create a free subscription."""
+    from src.subscription.models import Subscription
+    from src.subscription.square_service import SquarePlan
+    
+    subscription = Subscription(
+        id=uuid.uuid4(),
+        organization_id=free_organization.id,
+        plan=SquarePlan.SANDBOX.value,
+        status="active",
+        is_trial=False
+    )
+    db_session.add(subscription)
+    await db_session.flush()
+    return subscription
+
+
+@pytest.fixture
+async def starter_subscription(db_session, starter_organization):
+    """Create a starter subscription with KMS enabled."""
+    from src.subscription.models import Subscription
+    from src.subscription.square_service import SquarePlan
+    
+    subscription = Subscription(
+        id=uuid.uuid4(),
+        organization_id=starter_organization.id,
+        plan=SquarePlan.STARTER.value,
+        status="active",
+        is_trial=False,
+        remote_signing_enabled=True
+    )
+    db_session.add(subscription)
+    await db_session.flush()
+    return subscription
+
+
+@pytest.fixture
+async def professional_subscription(db_session, professional_organization):
+    """Create a professional subscription with KMS enabled."""
+    from src.subscription.models import Subscription
+    from src.subscription.square_service import SquarePlan
+    
+    subscription = Subscription(
+        id=uuid.uuid4(),
+        organization_id=professional_organization.id,
+        plan=SquarePlan.PROFESSIONAL.value,
+        status="active",
+        is_trial=False,
+        remote_signing_enabled=True
+    )
+    db_session.add(subscription)
+    await db_session.flush()
+    return subscription

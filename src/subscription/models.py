@@ -94,6 +94,24 @@ class Organization(Base):
     # Organization settings
     settings: Mapped[dict] = mapped_column(JSONBType, default=dict, nullable=False)
     
+    # Remote signing / KMS configuration (production tiers only)
+    kms_provider: Mapped[Optional[str]] = mapped_column(
+        String(50),
+        nullable=True,
+        comment="KMS provider: aws_kms, azure_key_vault, gcp_kms, hashicorp_vault, pkcs11_hsm",
+    )
+    kms_config: Mapped[dict] = mapped_column(
+        JSONBType,
+        default=dict,
+        nullable=False,
+        comment="KMS/HSM configuration (region, key_id, endpoint, etc.)",
+    )
+    kms_credentials_encrypted: Mapped[Optional[str]] = mapped_column(
+        Text,
+        nullable=True,
+        comment="Encrypted KMS credentials/API keys (Fernet encrypted)",
+    )
+    
     # Timestamps
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     updated_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -249,6 +267,8 @@ class WebhookEndpoint(Base):
     # Circuit breaker state
     failure_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     last_failure_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_triggered_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    circuit_breaker_open_until: Mapped[Optional[float]] = mapped_column(nullable=True)
     disabled_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     
     # Timestamps
@@ -259,6 +279,51 @@ class WebhookEndpoint(Base):
     organization: Mapped["Organization"] = relationship(
         "Organization",
         back_populates="webhook_endpoints",
+    )
+    delivery_attempts: Mapped[list["WebhookDeliveryAttempt"]] = relationship(
+        "WebhookDeliveryAttempt",
+        back_populates="webhook",
+        lazy="selectin",
+    )
+
+
+class WebhookDeliveryAttempt(Base):
+    """
+    Record of a single webhook delivery attempt.
+
+    Tracks success/failure, response details, and retry count
+    for auditing and debugging webhook delivery issues.
+    """
+    __tablename__ = "webhook_delivery_attempts"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True)
+    webhook_id: Mapped[UUID] = mapped_column(
+        ForeignKey("webhook_endpoints.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+
+    # Event info
+    event_id: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    event_type: Mapped[str] = mapped_column(String(255), nullable=False)
+
+    # Result
+    success: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    response_status_code: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    response_body: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    # Retry info
+    retry_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    response_time_ms: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+
+    # Timestamps
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    # Relationships
+    webhook: Mapped["WebhookEndpoint"] = relationship(
+        "WebhookEndpoint",
+        back_populates="delivery_attempts",
     )
 
 

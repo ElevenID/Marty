@@ -43,6 +43,8 @@ from digital_identity.infrastructure.adapters.rest import (
     vetting_check_router,
     biometric_enrollment_router,
     notification_payload_router,
+    signing_key_router,
+    status_list_router,
 )
 from digital_identity.infrastructure.persistence.database import (
     DigitalIdentityDatabaseConfig,
@@ -57,6 +59,30 @@ from digital_identity.infrastructure.adapters.events import (
     DigitalIdentityEventPublisher,
     create_event_publisher,
 )
+from licensing.routes import (
+    admin_license_router,
+    public_license_router,
+    admin_registry_router,
+    configure_license_dependencies,
+)
+from subscription.billing_routes import (
+    billing_router,
+    payments_router,
+    configure_billing_dependencies,
+)
+from licensing.usage_routes import (
+    usage_router,
+    admin_usage_router,
+    configure_usage_dependencies,
+)
+from subscription.kms_router import kms_router
+
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
+from subscription.kms_router import limiter as kms_limiter
+from subscription.metrics import get_metrics as get_kms_metrics
+from subscription.tls_middleware import EnforceTLSMiddleware
 
 logger = logging.getLogger(__name__)
 
@@ -127,12 +153,40 @@ class DigitalIdentityPlugin:
             ("Vetting Checks", vetting_check_router),
             ("Biometric Enrollments", biometric_enrollment_router),
             ("Notification Payloads", notification_payload_router),
+            ("Signing Keys", signing_key_router),
+            ("Status List", status_list_router),
+            ("License Administration", admin_license_router),
+            ("License Validation", public_license_router),
+            ("Registry Administration", admin_registry_router),
+            ("Billing", billing_router),
+            ("Payments", payments_router),
+            ("Usage", usage_router),
+            ("Usage Administration", admin_usage_router),
+            ("KMS Configuration", kms_router),
         ]
         
         for name, router in routers:
             app.include_router(router)
             logger.info(f"Registered {name} router: {router.prefix}")
         
+        # Wire slowapi rate limiter
+        app.state.limiter = kms_limiter
+        app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+        app.add_middleware(SlowAPIMiddleware)
+
+        # Wire TLS enforcement middleware
+        app.add_middleware(EnforceTLSMiddleware)
+
+        # KMS metrics endpoint
+        from starlette.responses import Response
+
+        @app.get("/metrics/kms", include_in_schema=False)
+        async def kms_metrics():
+            return Response(
+                content=get_kms_metrics(),
+                media_type="text/plain; version=0.0.4; charset=utf-8",
+            )
+
         logger.info("Digital Identity API routes registered")
     
     def configure_services(self, container: Any) -> None:
@@ -296,16 +350,37 @@ class DigitalIdentityPlugin:
         template_repo = CredentialTemplateRepository(session=None)  # type: ignore
         batch_repo = RevocationBatchRepository(session=None)  # type: ignore
         
-        # Create credential issuance service
-        # TODO: Initialize status_list_service from marty-credentials
+        # Wire status list service from marty-credentials
+        status_list_svc = self._create_status_list_service(db_manager)
+        
+        # Wire status list serving endpoint
+        from digital_identity.infrastructure.adapters.rest.status_list_router import (
+            set_status_list_service,
+        )
+        if status_list_svc:
+            set_status_list_service(status_list_svc)
+        
+        # Wire JWT issuer via bridge adapter
+        jwt_issuer = self._create_jwt_issuer()
+        
         issuance_service = CredentialIssuanceService(
             credential_repository=credential_repo,
             credential_template_repository=template_repo,
             revocation_batch_repository=batch_repo,
-            status_list_service=None,  # TODO: Wire up status list service
-            jwt_issuer=None,  # TODO: Wire up JWT issuer from marty-credentials
-            mdoc_issuer=None,  # TODO: Wire up mDoc issuer when ready
+            status_list_service=status_list_svc,
+            jwt_issuer=jwt_issuer,
+            mdoc_issuer=None,  # mDoc local signing not yet supported by Rust bindings
         )
+        if not status_list_svc or not jwt_issuer:
+            stubs = []
+            if not status_list_svc:
+                stubs.append("status_list_service")
+            if not jwt_issuer:
+                stubs.append("jwt_issuer")
+            logger.warning(
+                "Credential issuance initialized with stubs: %s",
+                ", ".join(stubs),
+            )
         
         # Register services with credential router
         set_credential_services(
@@ -324,8 +399,56 @@ class DigitalIdentityPlugin:
             trust_adapters=trust_adapters,
         )
         
+        # Wire licensing dependencies
+        await self._configure_licensing()
+        
         logger.info("Digital Identity plugin started successfully")
     
+    def _create_status_list_service(
+        self, db_manager: DigitalIdentityDatabaseManager
+    ) -> Any | None:
+        """Create StatusListService from marty-credentials, or None on failure."""
+        try:
+            from status_list.infrastructure.persistence.repository import (
+                StatusListRepository,
+                StatusEntryRepository,
+            )
+            from status_list.domain.value_objects import ShardConfig
+
+            session_factory = db_manager.session_factory()
+            status_list_repo = StatusListRepository(session_factory)
+            status_entry_repo = StatusEntryRepository(session_factory)
+
+            from status_list.application.services.status_list_service import (
+                StatusListService,
+            )
+
+            svc = StatusListService(
+                status_list_repository=status_list_repo,
+                status_entry_repository=status_entry_repo,
+                event_publisher=None,
+                default_config=ShardConfig(),
+            )
+            logger.info("StatusListService wired successfully")
+            return svc
+        except Exception as e:
+            logger.warning("Could not wire StatusListService: %s", e)
+            return None
+
+    def _create_jwt_issuer(self) -> Any | None:
+        """Create JWT issuer bridge adapter, or None on failure."""
+        try:
+            from digital_identity.infrastructure.adapters.jwt_issuer_adapter import (
+                JwtIssuerBridgeAdapter,
+            )
+
+            adapter = JwtIssuerBridgeAdapter()
+            logger.info("JWT issuer bridge adapter wired successfully")
+            return adapter
+        except Exception as e:
+            logger.warning("Could not wire JWT issuer: %s", e)
+            return None
+
     async def _seed_system_trust_frameworks(
         self, db_manager: DigitalIdentityDatabaseManager
     ) -> None:
@@ -386,6 +509,80 @@ class DigitalIdentityPlugin:
         
         return adapters
     
+    async def _configure_licensing(self) -> None:
+        """Wire license service dependencies for route handlers."""
+        try:
+            from licensing.keys import LicenseKeyManager
+            from licensing.service import LicenseIssuerService
+            from licensing.registry import RegistryGatingService
+
+            key_manager = LicenseKeyManager.from_env(allow_dev_keys=True)
+            db_manager = get_database_manager()
+
+            async def license_service_factory():
+                session = db_manager.session_factory()()
+                return LicenseIssuerService(db=session, key_manager=key_manager)
+
+            def key_manager_factory():
+                return key_manager
+
+            async def registry_service_factory():
+                session = db_manager.session_factory()()
+                return RegistryGatingService(db=session)
+
+            configure_license_dependencies(
+                license_service_factory=license_service_factory,
+                key_manager_factory=key_manager_factory,
+                registry_service_factory=registry_service_factory,
+            )
+
+            # Wire usage metering
+            from licensing.usage import UsageMeter
+            usage_meter = UsageMeter()  # in-memory fallback; Redis injected when available
+            configure_usage_dependencies(usage_meter)
+
+            logger.info("Licensing dependencies configured")
+        except Exception as e:
+            logger.warning("Licensing service not available: %s", e)
+
+        # Wire billing routes
+        try:
+            from subscription.square_service import SquareConfig, SquareService
+            from licensing.subscription_bridge import SubscriptionLicenseBridge
+
+            db_manager = get_database_manager()
+            billing_config = self.config.get("square", {})
+            square_config = SquareConfig(
+                access_token=billing_config.get("access_token", ""),
+                environment=billing_config.get("environment", "sandbox"),
+                location_id=billing_config.get("location_id", ""),
+                webhook_signature_key=billing_config.get("webhook_signature_key", ""),
+            )
+
+            async def square_service_factory():
+                session = db_manager.session_factory()()
+                bridge = None
+                try:
+                    from licensing.keys import LicenseKeyManager as _KM
+                    km = _KM.from_env(allow_dev_keys=True)
+                    bridge = SubscriptionLicenseBridge(db=session, key_manager=km)
+                except Exception:
+                    pass
+                return SquareService(
+                    config=square_config, db_session=session, license_bridge=bridge,
+                )
+
+            async def billing_db_session_factory():
+                return db_manager.session_factory()()
+
+            configure_billing_dependencies(
+                square_service_factory=square_service_factory,
+                db_session_factory=billing_db_session_factory,
+            )
+            logger.info("Billing dependencies configured")
+        except Exception as e:
+            logger.warning("Billing service not available: %s", e)
+
     async def shutdown(self) -> None:
         """
         Plugin shutdown hook.

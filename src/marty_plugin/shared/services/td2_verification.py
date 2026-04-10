@@ -328,7 +328,7 @@ class TD2VerificationEngine:
 
         try:
             # Import SOD processor
-            from marty_common.crypto.sod_parser import SODProcessor
+            from marty_backend_common.crypto.sod_parser import SODProcessor
 
             processor = SODProcessor()
 

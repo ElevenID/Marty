@@ -305,7 +305,7 @@ class RealNFCTransport(BaseNFCTransport):
                 response, sw1, sw2 = await self.send_apdu(0x00, 0xCA, 0x00, 0x65, le=0)
                 if [sw1, sw2] == self.SW_SUCCESS:
                     info["capabilities"] = toHexString(response)
-            except:
+            except Exception:
                 pass
 
             return info

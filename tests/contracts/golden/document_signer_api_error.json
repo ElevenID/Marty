@@ -1,0 +1,7 @@
+{
+  "code": "DOCUMENT_SIGNER_ERROR_SIGNING_FAILED",
+  "details": {
+    "document_id": "doc-missing"
+  },
+  "message": "Document not found"
+}

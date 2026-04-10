@@ -46,4 +46,9 @@ EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
   CMD python -c "import requests; requests.get('http://localhost:8080/api/ping', timeout=10)"
 
+# Note: License enforcement for document-processing uses the FastAPI lifespan
+# approach (create_licensed_lifespan) in app/main.py rather than the shell
+# entrypoint, since this service does not copy the full src/ tree.
+ENV MARTY_PRODUCT_ID=document-processing
+
 CMD ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8080"]

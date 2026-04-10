@@ -80,6 +80,16 @@ class PresentationPolicyService:
         else:
             hb_config = HolderBindingConfig.from_legacy(str(holder_binding))
         
+        # Coerce string enum fields that arrive via **kwargs from Pydantic model_dump()
+        from digital_identity.domain.value_objects import (
+            PredicateFallbackPolicy,
+            CredentialRankingStrategy,
+        )
+        if "fallback_policy" in kwargs and isinstance(kwargs["fallback_policy"], str):
+            kwargs["fallback_policy"] = PredicateFallbackPolicy(kwargs["fallback_policy"])
+        if "credential_ranking_strategy" in kwargs and isinstance(kwargs["credential_ranking_strategy"], str):
+            kwargs["credential_ranking_strategy"] = CredentialRankingStrategy(kwargs["credential_ranking_strategy"])
+
         # Create entity
         policy = PresentationPolicy(
             name=name,

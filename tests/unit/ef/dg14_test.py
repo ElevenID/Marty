@@ -8,7 +8,7 @@ project_root = Path(__file__).resolve().parents[3]
 sys.path.append(str(project_root))
 
 # Import from Marty's codebase
-from src.marty_common.models.passport import DataGroup, DataGroupType
+from marty_backend_common.models.passport import DataGroup, DataGroupType
 
 
 @pytest.mark.depends(

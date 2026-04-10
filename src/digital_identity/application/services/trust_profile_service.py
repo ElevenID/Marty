@@ -98,6 +98,9 @@ class TrustProfileService:
         ]
         
         # Create entity
+        # Remove keys we handle explicitly so they don't collide with kwargs
+        kwargs.pop("supported_formats", None)
+        kwargs.pop("allowed_algorithms", None)
         profile = TrustProfile(
             name=name,
             profile_type=profile_type,

@@ -242,5 +242,6 @@ class EudiTrustProfile:
         try:
             supported = self._rust_registry.supported_member_states()
             return issuer_id in supported
-        except Exception:
+        except Exception as e:
+            logger.error("EUDI trust check failed for issuer %s: %s", issuer_id, e)
             return False

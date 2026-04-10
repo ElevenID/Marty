@@ -1,0 +1,11 @@
+# KMS Router Security Dependencies
+# Add these to your main requirements.txt or install separately
+
+# Rate limiting
+slowapi==0.1.9
+
+# TTL cache for provider caching
+cachetools==5.3.2
+
+# Retry with exponential backoff
+tenacity==8.2.3

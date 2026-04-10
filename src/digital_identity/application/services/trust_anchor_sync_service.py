@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Protocol
 
-from marty_common.infrastructure.key_vault import KeyVaultClient
+from marty_backend_common.infrastructure.key_vault import KeyVaultClient
 
 from digital_identity.application.ports.secrets import SecretsServicePort
 from digital_identity.domain.entities import TrustFramework
@@ -59,8 +59,8 @@ class IcaoPkdProvider:
         Returns CMS-signed master list bytes.
         """
         # Get credentials from secrets service
-        username = await self.secrets_service.get_secret("icao_pkd", "username")
-        password = await self.secrets_service.get_secret("icao_pkd", "password")
+        username = await self.secrets_service.get_secret("icao_pkd/username")
+        password = await self.secrets_service.get_secret("icao_pkd/password")
         
         # Import Rust module
         from marty_verification import IcaoPkdClient, IcaoPkdConfig
@@ -77,16 +77,24 @@ class IcaoPkdProvider:
         client = IcaoPkdClient(config)
         entries = await asyncio.to_thread(client.fetch_master_list)
         
-        # For now, return raw CMS bytes (would be returned by Rust in production)
-        # This is a placeholder - the Rust module would return the CMS bytes
-        raise NotImplementedError("CMS byte extraction from Rust not yet implemented")
+        # Build a CscaRegistry from fetched master list entries
+        from marty_verification import CscaRegistry, certificate_der_to_pem
+        
+        def _build_csca_registry():
+            registry = CscaRegistry()
+            for entry in entries:
+                pem = certificate_der_to_pem(entry.certificate_der)
+                registry.add_country_csca(entry.country, pem)
+            return "\n".join(registry.get_anchors_pem()).encode("utf-8")
+        
+        return await asyncio.to_thread(_build_csca_registry)
     
     async def fetch_signer_certificate(self) -> bytes:
         """Fetch ICAO PKD signing certificate (pinned)."""
         # ICAO PKD signing certificates are pinned
         # In production, these would be stored as custom anchors
         # or in a dedicated secure storage
-        cert_pem = await self.secrets_service.get_secret("icao_pkd", "signer_cert")
+        cert_pem = await self.secrets_service.get_secret("icao_pkd/signer_cert")
         if not cert_pem:
             raise ValueError("ICAO PKD signer certificate not configured")
         
@@ -107,14 +115,39 @@ class AamvaVicalProvider:
     async def fetch_trust_anchors(self) -> bytes:
         """Fetch VICAL (AAMVA IACA registry)."""
         # AAMVA credentials
-        api_key = await self.secrets_service.get_secret("aamva_vical", "api_key")
+        api_key = await self.secrets_service.get_secret("aamva_vical/api_key")
         
-        # Would fetch from AAMVA VICAL endpoint
-        raise NotImplementedError("AAMVA VICAL sync not yet implemented")
+        import aiohttp
+        from marty_verification import IacaRegistry
+        
+        async with aiohttp.ClientSession() as session:
+            async with session.get(
+                "https://dts.aamva.org/api/v1/vical",
+                headers={"Authorization": f"Bearer {api_key}"},
+            ) as response:
+                response.raise_for_status()
+                vical_data = await response.json()
+        
+        def _build_iaca_registry():
+            registry = IacaRegistry()
+            for cert in vical_data["certificates"]:
+                if cert["status"] == "active":
+                    registry.add_certificate(
+                        cert["certificate_pem"], cert.get("jurisdiction")
+                    )
+            return "\n".join(registry.get_anchors_pem()).encode("utf-8")
+        
+        return await asyncio.to_thread(_build_iaca_registry)
     
     async def fetch_signer_certificate(self) -> bytes:
         """Fetch AAMVA signing certificate."""
-        raise NotImplementedError("AAMVA signer cert fetch not yet implemented")
+        cert_pem = await self.secrets_service.get_secret("aamva_vical/signer_cert")
+        if not cert_pem:
+            raise ValueError("AAMVA VICAL signer certificate not configured")
+        
+        from marty_verification import certificate_pem_to_der
+        
+        return bytes(certificate_pem_to_der(cert_pem))
 
 
 class TrustAnchorSyncService:

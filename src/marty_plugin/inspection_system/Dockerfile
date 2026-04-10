@@ -52,13 +52,22 @@ RUN touch /app/proto/__init__.py && \
     touch /app/src/proto/__init__.py
 
 
+# License entrypoint
+COPY Marty/docker/license-entrypoint.sh /usr/local/bin/license-entrypoint.sh
+RUN chmod +x /usr/local/bin/license-entrypoint.sh
+
+# Create license key mount point
+RUN mkdir -p /etc/marty
+
 RUN groupadd -r marty && useradd -r -g marty marty && \
-    mkdir -p /app/data && chown -R marty:marty /app
+    mkdir -p /app/data && chown -R marty:marty /app /etc/marty
 
 USER marty
 
 ENV SERVICE_NAME=inspection-system
 ENV GRPC_PORT=8083
 ENV PYTHONPATH=/app/src
+ENV MARTY_PRODUCT_ID=inspection-system
 
+ENTRYPOINT ["/usr/local/bin/license-entrypoint.sh"]
 CMD ["python", "-m", "src.apps.inspection_system"]

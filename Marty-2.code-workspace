@@ -32,6 +32,9 @@
 		},
 		{
 			"path": "../marty-protocol"
+		},
+		{
+			"path": "../marty-blog"
 		}
 	],
 	"settings": {

@@ -257,13 +257,13 @@ def create_migration_templates() -> dict[str, str]:
     return {
         "import_mrz_utils": """
 # Before:
-from src.marty_common.utils.mrz_utils import MRZParser, MRZException
+from marty_backend_common.utils.mrz_utils import MRZParser, MRZException
 
 # After (with backward compatibility):
-from src.marty_common.utils.mrz_enhanced import MRZParser, MRZException
+from marty_backend_common.utils.mrz_enhanced import MRZParser, MRZException
 
 # Or (for enhanced features):
-from src.marty_common.utils.mrz_enhanced import MRZParser, MRZException, validate_mrz
+from marty_backend_common.utils.mrz_enhanced import MRZParser, MRZException, validate_mrz
 """,
         "instantiate_parser": """
 # Before:
@@ -296,7 +296,7 @@ else:
 """,
         "migration_helper": """
 # Use migration helper to test compatibility:
-from src.marty_common.utils.mrz_enhanced import MRZMigrationHelper
+from marty_backend_common.utils.mrz_enhanced import MRZMigrationHelper
 
 # Test your MRZ samples
 mrz_samples = ["P<UTOERIKSSON<<ANNA<MARIA<<<<<<<<<<<<<<<<<<<", ...]

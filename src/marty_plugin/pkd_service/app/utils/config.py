@@ -37,13 +37,13 @@ def get_config() -> dict[str, Any]:
         },
         # OpenXPKI configuration with defaults
         "openxpki": {
-            "base_url": "https://localhost:8443/api/v2",
-            "username": "pkiadmin",
-            "password": "secret",
-            "realm": "11id",
+            "base_url": os.environ.get("OPENXPKI_BASE_URL", "https://localhost:8443/api/v2"),
+            "username": os.environ.get("OPENXPKI_USERNAME", ""),
+            "password": os.environ.get("OPENXPKI_PASSWORD", ""),
+            "realm": os.environ.get("OPENXPKI_REALM", "11id"),
             "connection_timeout": 30,
             "read_timeout": 60,
-            "verify_ssl": False,
+            "verify_ssl": os.environ.get("OPENXPKI_VERIFY_SSL", "true").lower() != "false",
             "local_store_path": "data/trust/openxpki_sync",
         },
     }

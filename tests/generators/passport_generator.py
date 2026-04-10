@@ -36,7 +36,7 @@ sys.path.append(str(project_root))
 
 
 # Import from Marty's codebase
-from src.marty_common.models.passport import DataGroupType
+from marty_backend_common.models.passport import DataGroupType
 from src.marty_plugin.common.crypto_bridge import compute_check_digit as _rust_compute_check_digit
 
 
@@ -117,16 +117,19 @@ class PassportGenerator:
 
         # Format optional data
         optional_data = "<<<<<<<<<<<<<<" if not optional_data else optional_data[:14].ljust(14, "<")
+        check_digit_optional = self._calculate_check_digit(optional_data)
 
         # First line of MRZ
-        line1 = f"{document_type}<{issuing_country}{surname}<<{name}"
+        line1 = f"{document_type}<{issuing_country}{name}<<{surname}"
         line1 = line1.ljust(44, "<")
 
         # Second line of MRZ
-        composite_check = f"{passport_num}{check_digit_passport}{nationality}{birth_date}{check_digit_birth}{sex}{expiry_date}{check_digit_expiry}{optional_data}"
+        # ICAO 9303 Part 3 §4.9: composite check digit covers doc_num+check,
+        # dob+check, expiry+check, optional+check. Nationality and sex are excluded.
+        composite_check = f"{passport_num}{check_digit_passport}{birth_date}{check_digit_birth}{expiry_date}{check_digit_expiry}{optional_data}{check_digit_optional}"
         check_digit_all = self._calculate_check_digit(composite_check)
 
-        line2 = f"{passport_num}{check_digit_passport}{nationality}{birth_date}{check_digit_birth}{sex}{expiry_date}{check_digit_expiry}{optional_data}{check_digit_all}"
+        line2 = f"{passport_num}{check_digit_passport}{nationality}{birth_date}{check_digit_birth}{sex}{expiry_date}{check_digit_expiry}{optional_data}{check_digit_optional}{check_digit_all}"
 
         return line1 + line2
 

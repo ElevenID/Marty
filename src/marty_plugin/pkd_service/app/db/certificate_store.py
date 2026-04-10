@@ -8,12 +8,23 @@ certificates from the database for the PKD Mirror Service.
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures
 import logging
 from typing import Any
 
 from app.db.database import DatabaseManager
 from app.models.pkd_models import CertificateStatus
 from app.utils.pkd_payloads import parse_certificate_payload, parse_crl_payload
+
+
+def _run_async(coro):
+    """Run an async coroutine from sync code, handling nested event loops."""
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(coro)
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+        return pool.submit(asyncio.run, coro).result()
 
 
 class CertificateStore:
@@ -52,7 +63,7 @@ class CertificateStore:
 
             stored = 0
             for cert in certificates:
-                asyncio.run(self._store_certificate(cert, "CSCA"))
+                _run_async(self._store_certificate(cert, "CSCA"))
                 stored += 1
 
             self.logger.info("Stored %s CSCA certificates", stored)
@@ -81,7 +92,7 @@ class CertificateStore:
 
             stored = 0
             for cert in certificates:
-                asyncio.run(self._store_certificate(cert, "DSC"))
+                _run_async(self._store_certificate(cert, "DSC"))
                 stored += 1
 
             self.logger.info("Stored %s DSC certificates", stored)
@@ -109,7 +120,7 @@ class CertificateStore:
                 return False
 
             for crl in crls:
-                asyncio.run(self._store_crl(crl))
+                _run_async(self._store_crl(crl))
 
             self._update_certificate_status_from_crls(crls)
             self.logger.info("Stored %s CRLs", len(crls))
@@ -219,7 +230,7 @@ class CertificateStore:
         for serial in serials:
             for cert_type in ("CSCA", "DSC"):
                 try:
-                    asyncio.run(
+                    _run_async(
                         DatabaseManager.update_certificate_status_by_serial(
                             serial_number=serial,
                             cert_type=cert_type,
@@ -242,7 +253,7 @@ class CertificateStore:
             List of certificate data dictionaries
         """
         # Run async get in a synchronous context
-        return asyncio.run(DatabaseManager.get_certificates("CSCA", country_code))
+        return _run_async(DatabaseManager.get_certificates("CSCA", country_code))
 
     def get_dsc_certificates(self, country_code: str | None = None) -> list[dict[str, Any]]:
         """
@@ -255,7 +266,7 @@ class CertificateStore:
             List of certificate data dictionaries
         """
         # Run async get in a synchronous context
-        return asyncio.run(DatabaseManager.get_certificates("DSC", country_code))
+        return _run_async(DatabaseManager.get_certificates("DSC", country_code))
 
     def get_crls(self, issuer: str | None = None) -> dict[str, Any] | None:
         """
@@ -268,4 +279,4 @@ class CertificateStore:
             CRL data dictionary or None if not found
         """
         # Run async get in a synchronous context
-        return asyncio.run(DatabaseManager.get_crl(issuer))
+        return _run_async(DatabaseManager.get_crl(issuer))

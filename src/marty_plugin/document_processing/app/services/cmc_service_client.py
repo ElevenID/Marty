@@ -8,6 +8,7 @@ allowing the FastAPI document processing service to interact with CMC operations
 from __future__ import annotations
 
 import logging
+import os
 from typing import Any
 
 import grpc
@@ -51,7 +52,7 @@ class CMCServiceClient:
         """
         try:
             # Import here to handle potential grpc import issues gracefully
-            from marty_plugin.proto import cmc_engine_pb2, cmc_engine_pb2_grpc
+            from marty_plugin.proto.v1 import cmc_engine_pb2, cmc_engine_pb2_grpc
 
             async with grpc.aio.insecure_channel(self.address) as channel:
                 stub = cmc_engine_pb2_grpc.CMCEngineStub(channel)
@@ -113,7 +114,7 @@ class CMCServiceClient:
             CMCServiceError: If CMC signing fails
         """
         try:
-            from marty_plugin.proto import cmc_engine_pb2, cmc_engine_pb2_grpc
+            from marty_plugin.proto.v1 import cmc_engine_pb2, cmc_engine_pb2_grpc
 
             async with grpc.aio.insecure_channel(self.address) as channel:
                 stub = cmc_engine_pb2_grpc.CMCEngineStub(channel)
@@ -164,7 +165,7 @@ class CMCServiceClient:
             CMCServiceError: If CMC verification fails
         """
         try:
-            from marty_plugin.proto import cmc_engine_pb2, cmc_engine_pb2_grpc
+            from marty_plugin.proto.v1 import cmc_engine_pb2, cmc_engine_pb2_grpc
 
             async with grpc.aio.insecure_channel(self.address) as channel:
                 stub = cmc_engine_pb2_grpc.CMCEngineStub(channel)
@@ -245,7 +246,7 @@ class CMCServiceClient:
             CMCServiceError: If background check operation fails
         """
         try:
-            from marty_plugin.proto import cmc_engine_pb2, cmc_engine_pb2_grpc
+            from marty_plugin.proto.v1 import cmc_engine_pb2, cmc_engine_pb2_grpc
 
             async with grpc.aio.insecure_channel(self.address) as channel:
                 stub = cmc_engine_pb2_grpc.CMCEngineStub(channel)
@@ -298,7 +299,7 @@ class CMCServiceClient:
             CMCServiceError: If visa-free status update fails
         """
         try:
-            from marty_plugin.proto import cmc_engine_pb2, cmc_engine_pb2_grpc
+            from marty_plugin.proto.v1 import cmc_engine_pb2, cmc_engine_pb2_grpc
 
             async with grpc.aio.insecure_channel(self.address) as channel:
                 stub = cmc_engine_pb2_grpc.CMCEngineStub(channel)
@@ -387,8 +388,7 @@ def get_cmc_service_client() -> CMCServiceClient:
     Returns:
         CMC service client
     """
-    # In a production environment, these would come from configuration
-    host = "localhost"  # Could be from environment variable
-    port = 8088  # CMC engine service port
+    host = os.environ.get("CMC_ENGINE_HOST", "localhost")
+    port = int(os.environ.get("CMC_ENGINE_PORT", "8088"))
 
     return CMCServiceClient(host=host, port=port)

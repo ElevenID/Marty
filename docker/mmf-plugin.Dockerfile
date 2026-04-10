@@ -3,7 +3,7 @@
 # Optimized for both development and production deployment in Kubernetes
 
 # Build stage
-FROM python:3.11-slim as builder
+FROM python:3.11-slim AS builder
 
 # Set build arguments
 ARG BUILD_ENV=production
@@ -44,7 +44,7 @@ COPY config/ ./config/
 RUN uv pip install -e .
 
 # Production stage
-FROM python:3.11-slim as production
+FROM python:3.11-slim AS production
 
 # Set runtime arguments
 ARG PLUGIN_VERSION=latest
@@ -89,6 +89,13 @@ RUN mkdir -p /app/data /app/logs /app/tmp \
 # Set working directory
 WORKDIR /app
 
+# License entrypoint
+COPY docker/license-entrypoint.sh /usr/local/bin/license-entrypoint.sh
+RUN chmod +x /usr/local/bin/license-entrypoint.sh
+
+# Create license key mount point
+RUN mkdir -p /etc/marty && chown -R marty:marty /etc/marty
+
 # Switch to non-root user
 USER marty
 
@@ -98,7 +105,8 @@ ENV PYTHONPATH="/app/src:$PYTHONPATH" \
     PYTHONDONTWRITEBYTECODE=1 \
     MMF_PLUGIN_NAME="marty" \
     MMF_PLUGIN_TYPE="trust-pki" \
-    MARTY_ENV="production"
+    MARTY_ENV="production" \
+    MARTY_PRODUCT_ID="mmf-plugin"
 
 # Health check for plugin
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
@@ -109,10 +117,11 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
 EXPOSE 8080 9090 8081
 
 # Default command runs the plugin in MMF mode
+ENTRYPOINT ["/usr/local/bin/license-entrypoint.sh"]
 CMD ["python", "-m", "src.mmf_plugin.main"]
 
 # Development stage (for local Kind development)
-FROM production as development
+FROM production AS development
 
 # Switch back to root for development tools
 USER root

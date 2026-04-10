@@ -252,5 +252,6 @@ class AamvaTrustProfile:
         try:
             jurisdictions = self._rust_registry.supported_jurisdictions()
             return issuer_id in jurisdictions
-        except Exception:
+        except Exception as e:
+            logger.error("AAMVA trust check failed for issuer %s: %s", issuer_id, e)
             return False

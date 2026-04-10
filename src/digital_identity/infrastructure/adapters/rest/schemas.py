@@ -9,7 +9,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 # ---------------------------------------------------------
@@ -1060,8 +1060,8 @@ class OrganizationResponse(BaseModel):
     owner_id: str
     join_code: str | None = None
     status: str
-    created_at: str
-    updated_at: str
+    created_at: str | datetime
+    updated_at: str | datetime
 
 
 # ---------------------------------------------------------
@@ -1187,13 +1187,24 @@ class WebhookCreate(BaseModel):
 
     organization_id: str
     name: str = Field(..., min_length=1, max_length=128)
-    endpoint_url: str = Field(..., description="HTTPS endpoint URL")
+    endpoint_url: str = Field(..., max_length=2048, description="HTTPS endpoint URL")
     events: list[str] = Field(..., min_length=1)
     description: str | None = Field(default=None, max_length=512)
     enabled: bool = True
     api_version: str | None = None
     filter: dict[str, Any] | None = None
     delivery_config: dict[str, Any] | None = None
+
+    @field_validator("endpoint_url")
+    @classmethod
+    def validate_endpoint_url(cls, v: str) -> str:
+        from urllib.parse import urlparse
+        parsed = urlparse(v)
+        if parsed.scheme != "https":
+            raise ValueError("Webhook endpoint_url must use HTTPS")
+        if not parsed.netloc:
+            raise ValueError("Webhook endpoint_url must have a valid host")
+        return v
 
 
 class WebhookUpdate(BaseModel):

@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "marty-common"
+name = "marty-backend-common"
 version = "0.1.0"
 description = "Marty Common - Shared infrastructure for Marty digital identity services"
 authors = [
@@ -94,14 +94,21 @@ test = [
     "factory-boy>=3.3.0",
 ]
 
+# Cloud KMS providers
+cloud = [
+    "azure-identity>=1.25.0",
+    "azure-keyvault-keys>=4.10.0",
+    "google-cloud-kms>=2.24.0",
+]
+
 [tool.hatch.build.targets.wheel]
-packages = ["marty_common"]
+packages = ["marty_backend_common"]
 
 [tool.hatch.build.targets.sdist]
-include = ["marty_common/**"]
+include = ["marty_backend_common/**"]
 
 [tool.hatch.version]
-path = "marty_common/__init__.py"
+path = "marty_backend_common/__init__.py"
 
 [tool.ruff]
 line-length = 120

@@ -34,7 +34,7 @@ class Settings(BaseSettings):
     SECRET_KEY: str = os.getenv("PKD_SECRET_KEY", "")
 
     # CORS configuration
-    CORS_ORIGINS: list[str] = ["*"]
+    CORS_ORIGINS: list[str] = os.getenv("CORS_ALLOWED_ORIGINS", "http://localhost:3000").split(",")
 
     # Database configuration
     DATABASE_URL: str | None = os.getenv("PKD_DATABASE_URL")

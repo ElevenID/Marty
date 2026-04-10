@@ -21,7 +21,7 @@ from app.utils.certificate_validator import CertificateValidator
 from app.utils.http_client import HttpClient
 from app.utils.pkd_payloads import parse_certificate_payload
 # Use Rust crypto_bridge for certificate operations
-from marty_common.crypto_bridge import Certificate
+from marty_backend_common.crypto_bridge import Certificate
 
 
 class PKDMirrorService:

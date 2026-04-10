@@ -184,7 +184,6 @@ async def get_flow_service(
         execution_repository=execution_repository,
         event_publisher=get_event_publisher(),
         step_registry=get_step_registry(),
-        approval_strategy=get_approval_strategy(),
     )
 
 

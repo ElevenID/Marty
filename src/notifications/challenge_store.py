@@ -61,7 +61,10 @@ class ChallengeStore:
         
         try:
             import redis.asyncio as redis
-            self._redis = redis.from_url(self.config.redis_url)
+            pool = redis.ConnectionPool.from_url(
+                self.config.redis_url, max_connections=20
+            )
+            self._redis = redis.Redis(connection_pool=pool)
             return self._redis
         except ImportError:
             raise RuntimeError(

@@ -176,3 +176,9 @@ tests/e2e/videos/
 
 # Local build tracking
 .last-build-sha
+
+# Stale repo copies (use the standalone repos instead)
+marty-verifier/
+
+# Dev license keys (generated, never commit)
+docker/dev-license/

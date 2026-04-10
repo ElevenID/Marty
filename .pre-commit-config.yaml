@@ -25,7 +25,7 @@ repos:
 
       - id: logging-validation
         name: Logging Configuration Validation
-        entry: bash -c 'cd src && python -c "from marty_common.logging.structured_logging import setup_logging_for_service; setup_logging_for_service(\"test\"); print(\"✓ Logging validation passed\")"'
+        entry: bash -c 'cd src && python -c "from marty_backend_common.logging.structured_logging import setup_logging_for_service; setup_logging_for_service(\"test\"); print(\"✓ Logging validation passed\")"'
         language: system
         files: ^src/marty_common/logging/.*\.py$
         pass_filenames: false

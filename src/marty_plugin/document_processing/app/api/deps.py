@@ -31,7 +31,8 @@ async def verify_api_key(api_key: str | None = Security(api_key_header)) -> bool
     if settings.ENVIRONMENT == "development" and api_key == "test_api_key":
         return True
 
-    if settings.API_KEY and api_key != settings.API_KEY:
+    import hmac as _hmac
+    if settings.API_KEY and not _hmac.compare_digest(api_key, settings.API_KEY):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid API Key")
 
     return True

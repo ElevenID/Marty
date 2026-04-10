@@ -65,8 +65,14 @@ async def create_user(admin_conn: Connection, username: str, password: str) -> N
         print(f"  User {username} already exists")
         return
 
-    # Create user
-    await admin_conn.execute(f"CREATE USER \"{username}\" WITH PASSWORD '{password}'")
+    # Create user — asyncpg's execute() does not support parameterised DDL
+    # for identifiers, so we validate the username to prevent injection.
+    import re
+    if not re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*$', username):
+        raise ValueError(f"Invalid username: {username!r}")
+    await admin_conn.execute(
+        f'CREATE USER "{username}" WITH PASSWORD $1', password
+    )
     print(f"  Created user: {username}")
 
 

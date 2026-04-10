@@ -21,19 +21,19 @@ from app.models.doc_models_clean import (
 )
 from app.services.mrz_service import MRZProcessingService
 from cryptography.hazmat.primitives import serialization
-from marty_common.infrastructure.key_vault import (
+from marty_backend_common.infrastructure.key_vault import (
     FileKeyVaultClient,
     KeyVaultConfig,
     build_key_vault_client,
 )
-from marty_common.services.certificate_validation import CertificateValidationService
-from marty_common.verification.trust_list_manager import (
+from marty_backend_common.services.certificate_validation import CertificateValidationService
+from marty_backend_common.verification.trust_list_manager import (
     PKDClient,
     TrustListCache,
     TrustListManager,
     TrustPolicy,
 )
-from marty_common.vc.sd_jwt import (
+from marty_backend_common.vc.sd_jwt import (
     SdJwtConfig,
     SdJwtIssuanceInput,
     SdJwtIssuer,
@@ -67,11 +67,21 @@ class PreTravelVerificationService:
     @staticmethod
     def _ensure_key_vault(config: KeyVaultConfig) -> FileKeyVaultClient:
         kv = build_key_vault_client(config)
-        # Ensure signing key exists
+        # Ensure signing key exists — deferred to first use via _run_async
+        # to avoid RuntimeError when called inside a running event loop.
         try:
             import asyncio
+            import concurrent.futures
 
-            asyncio.run(kv.ensure_key("pretravel-signer", "ecdsa-p256"))  # type: ignore[attr-defined]
+            def _run_async(coro):
+                try:
+                    asyncio.get_running_loop()
+                except RuntimeError:
+                    return asyncio.run(coro)
+                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                    return pool.submit(asyncio.run, coro).result()
+
+            _run_async(kv.ensure_key("pretravel-signer", "ecdsa-p256"))  # type: ignore[attr-defined]
         except Exception:  # pragma: no cover - defensive
             logger.exception("Failed to ensure signing key, continuing with existing state")
         return kv  # type: ignore[return-value]
@@ -162,12 +172,12 @@ class PreTravelVerificationService:
         if request.issuance_type.lower() == "sd-jwt":
             credential = await self._issue_sd_jwt(request, mrz)
         else:
-            # mdoc placeholder until full pipeline is wired
-            credential = TokenizedCredential(
-                format="mdoc",
-                token="mdoc-placeholder",
-                disclosures=None,
-                presentation_definition=self._build_presentation_definition(request),
+            # mdoc issuance not yet implemented — reject rather than return
+            # a non-functional placeholder that could be mistaken for a real credential.
+            from fastapi import HTTPException, status as http_status
+            raise HTTPException(
+                status_code=http_status.HTTP_501_NOT_IMPLEMENTED,
+                detail="mdoc issuance is not yet supported. Use issuance_type='sd-jwt'.",
             )
 
         return PreTravelVerificationResult(

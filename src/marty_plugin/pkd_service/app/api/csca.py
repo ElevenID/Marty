@@ -9,8 +9,10 @@ from typing import Any
 
 from app.controllers.csca_manager import CscaManager
 from app.models.pkd_models import MasterListResponse, MasterListUploadResponse, VerificationResult
-from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi.responses import Response
+
+from app.api.deps import verify_api_key
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/v1/csca", tags=["CSCA"])
@@ -45,8 +47,8 @@ async def get_master_list(country: str | None = None):
     try:
         return await csca_manager.get_master_list(country)
     except Exception as e:
-        logger.exception(f"Error retrieving master list: {e}")
-        raise HTTPException(status_code=500, detail=f"Error retrieving master list: {e!s}")
+        logger.exception("Error retrieving master list")
+        raise HTTPException(status_code=500, detail="Error retrieving master list")
 
 
 @router.get("/masterlist/binary", response_class=Response)
@@ -70,12 +72,15 @@ async def get_master_list_binary(country: str | None = None):
             },
         )
     except Exception as e:
-        logger.exception(f"Error retrieving binary master list: {e}")
-        raise HTTPException(status_code=500, detail=f"Error retrieving binary master list: {e!s}")
+        logger.exception("Error retrieving binary master list")
+        raise HTTPException(status_code=500, detail="Error retrieving binary master list")
 
 
 @router.post("/masterlist", response_model=MasterListUploadResponse)
-async def upload_master_list(file: UploadFile = File(...)):
+async def upload_master_list(
+    file: UploadFile = File(...),
+    _: bool = Depends(verify_api_key),
+):
     """
     Upload an ASN.1 encoded CSCA Master List.
 
@@ -86,15 +91,22 @@ async def upload_master_list(file: UploadFile = File(...)):
         Upload response with status
     """
     try:
-        contents = await file.read()
+        contents = await file.read(20 * 1024 * 1024 + 1)
+        if len(contents) > 20 * 1024 * 1024:
+            raise HTTPException(status_code=413, detail="Upload exceeds 20 MB limit")
         return await csca_manager.upload_master_list(contents)
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.exception(f"Error uploading master list: {e}")
-        raise HTTPException(status_code=500, detail=f"Error uploading master list: {e!s}")
+        logger.exception("Error uploading master list")
+        raise HTTPException(status_code=500, detail="Error uploading master list")
 
 
 @router.post("/sync", response_model=dict[str, Any])
-async def trigger_synchronization(source_id: str | None = None):
+async def trigger_synchronization(
+    source_id: str | None = None,
+    _: bool = Depends(verify_api_key),
+):
     """
     Trigger synchronization with trusted sources.
 
@@ -107,12 +119,15 @@ async def trigger_synchronization(source_id: str | None = None):
     try:
         return await csca_manager.trigger_sync(source_id)
     except Exception as e:
-        logger.exception(f"Error triggering synchronization: {e}")
-        raise HTTPException(status_code=500, detail=f"Error triggering synchronization: {e!s}")
+        logger.exception("Error triggering synchronization")
+        raise HTTPException(status_code=500, detail="Error triggering synchronization")
 
 
 @router.post("/verify", response_model=VerificationResult)
-async def verify_certificate(file: UploadFile = File(...)):
+async def verify_certificate(
+    file: UploadFile = File(...),
+    _: bool = Depends(verify_api_key),
+):
     """
     Verify a certificate against the local trust store.
 
@@ -123,11 +138,15 @@ async def verify_certificate(file: UploadFile = File(...)):
         Verification result with status and details
     """
     try:
-        certificate_data = await file.read()
+        certificate_data = await file.read(10 * 1024 * 1024 + 1)
+        if len(certificate_data) > 10 * 1024 * 1024:
+            raise HTTPException(status_code=413, detail="Upload exceeds 10 MB limit")
         return await csca_manager.verify_certificate(certificate_data)
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.exception(f"Error verifying certificate: {e}")
-        raise HTTPException(status_code=500, detail=f"Error verifying certificate: {e!s}")
+        logger.exception("Error verifying certificate")
+        raise HTTPException(status_code=500, detail="Error verifying certificate")
 
 
 @router.get("/check-expiry", response_model=dict[str, Any])
@@ -141,9 +160,9 @@ async def check_expiring_certificates():
     try:
         return await csca_manager.check_for_expiring_certificates()
     except Exception as e:
-        logger.exception(f"Error checking for expiring certificates: {e}")
+        logger.exception("Error checking for expiring certificates")
         raise HTTPException(
-            status_code=500, detail=f"Error checking for expiring certificates: {e!s}"
+            status_code=500, detail="Error checking for expiring certificates"
         )
 
 
@@ -170,8 +189,8 @@ async def get_csca_status():
             },
         }
     except Exception as e:
-        logger.exception(f"Error getting CSCA status: {e}")
-        raise HTTPException(status_code=500, detail=f"Error getting CSCA status: {e!s}")
+        logger.exception("Error getting CSCA status")
+        raise HTTPException(status_code=500, detail="Error getting CSCA status")
 
 
 @router.get("/health", response_model=dict[str, str])

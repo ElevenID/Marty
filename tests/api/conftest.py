@@ -52,7 +52,6 @@ async def test_db_engine():
     @event.listens_for(engine.sync_engine, "connect")
     def set_sqlite_pragma(dbapi_conn, connection_record):
         cursor = dbapi_conn.cursor()
-        # Temporarily disable foreign keys for test setup
         cursor.execute("PRAGMA foreign_keys=OFF")
         cursor.close()
     
@@ -64,10 +63,14 @@ async def test_db_engine():
         await conn.run_sync(SubscriptionBase.metadata.create_all)
         await conn.run_sync(IdentityBase.metadata.create_all)
     
-    # Re-enable foreign keys after tables are created
-    async with engine.connect() as conn:
-        await conn.execute(text("PRAGMA foreign_keys=ON"))
-        await conn.commit()
+    # Remove the FK-disabling listener and add one that enables FK checks
+    event.remove(engine.sync_engine, "connect", set_sqlite_pragma)
+    
+    @event.listens_for(engine.sync_engine, "connect")
+    def enable_fk_pragma(dbapi_conn, connection_record):
+        cursor = dbapi_conn.cursor()
+        cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.close()
     
     yield engine
     
@@ -222,6 +225,10 @@ async def api_client(test_db_session, mock_organization, authenticated_user_cont
     except ImportError as e:
         # Digital identity module may not be fully configured
         pass
+    
+    # Persist mock organization so FK constraints are satisfied
+    test_db_session.add(mock_organization)
+    await test_db_session.commit()
     
     # Override dependencies
     async def override_get_db():

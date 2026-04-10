@@ -287,7 +287,7 @@ class ConsentManager:
                             namespace_approved = [
                                 elements[i] for i in indices if 0 <= i < len(elements)
                             ]
-                    except:
+                    except (ValueError, IndexError):
                         print("Invalid selection, skipping namespace")
                         continue
                 else:

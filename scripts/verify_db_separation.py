@@ -7,8 +7,15 @@ by creating simple test tables in each database.
 """
 
 import asyncio
+import re
 
 import asyncpg
+
+
+def _validate_identifier(name: str) -> None:
+    """Validate that a name is a safe SQL identifier."""
+    if not re.match(r"^[a-zA-Z_][a-zA-Z0-9_]*$", name):
+        raise ValueError(f"Invalid SQL identifier: {name!r}")
 
 # Test database configuration
 DB_CONFIG = {"host": "localhost", "port": 5432, "user": "dev_user", "password": "dev_password"}
@@ -30,6 +37,8 @@ async def create_test_schema(database_name: str) -> bool:
 
         # Create a simple test table to verify schema creation works
         service_name = database_name.replace("marty_", "")
+        _validate_identifier(service_name)
+        
         await conn.execute(
             f"""
             CREATE TABLE IF NOT EXISTS {service_name}_test (

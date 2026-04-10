@@ -33,7 +33,7 @@ from cryptography.hazmat.primitives.asymmetric import ec, rsa
 from cryptography.hazmat.primitives.serialization import pkcs12
 
 # Import Rust bindings for key generation (required)
-from marty_common.crypto_bridge import (
+from marty_backend_common.crypto_bridge import (
     generate_key as rust_generate_key,
     rsa_generate as rust_rsa_generate,
     ecdsa_p256_generate as rust_ecdsa_p256_generate,
@@ -125,6 +125,24 @@ class KeyManagementService:
     DEFAULT_RSA_KEY_SIZE = 2048
     DEFAULT_EC_CURVE = "secp256r1"
 
+    # Allowed characters in key IDs to prevent path traversal.
+    # Only alphanumeric, hyphen, underscore, and dot (no slashes, no ..).
+    _KEY_ID_RE = __import__("re").compile(r"^[a-zA-Z0-9._-]{1,255}$")
+
+    def _safe_key_path(self, key_id: str, extension: str) -> str:
+        """Return a validated path inside the key store for *key_id*.
+
+        Raises ``ValueError`` if key_id contains path-traversal
+        characters (``/``, ``..``) or fails the allowlist regex.
+        """
+        if not self._KEY_ID_RE.match(key_id) or ".." in key_id:
+            raise ValueError(f"Invalid key_id: contains disallowed characters: {key_id!r}")
+        full = os.path.realpath(os.path.join(self.key_store_path, f"{key_id}{extension}"))
+        store_real = os.path.realpath(self.key_store_path)
+        if not full.startswith(store_real + os.sep) and full != store_real:
+            raise ValueError(f"Path traversal blocked for key_id={key_id!r}")
+        return full
+
     def __init__(
         self,
         key_store_path: str | None = None,
@@ -207,7 +225,7 @@ class KeyManagementService:
             key_info["hsm_key_handle"] = hsm_result["key_handle"]
 
             # For HSM keys, we only store the public key locally
-            public_key_path = os.path.join(self.key_store_path, f"{key_id}.pub")
+            public_key_path = self._safe_key_path(key_id, ".pub")
             with open(public_key_path, "w") as f:
                 f.write(hsm_result["public_key_pem"])
 
@@ -237,12 +255,12 @@ class KeyManagementService:
                 raise ValueError(msg)
 
             # Save the private key
-            private_key_path = os.path.join(self.key_store_path, f"{key_id}.key")
+            private_key_path = self._safe_key_path(key_id, ".key")
             with open(private_key_path, "wb") as f:
                 f.write(private_key_pem)
 
             # Save the public key
-            public_key_path = os.path.join(self.key_store_path, f"{key_id}.pub")
+            public_key_path = self._safe_key_path(key_id, ".pub")
             with open(public_key_path, "wb") as f:
                 f.write(public_key_pem)
 
@@ -267,7 +285,7 @@ class KeyManagementService:
         Raises:
             KeyNotFoundException: If the key does not exist
         """
-        key_info_path = os.path.join(self.key_store_path, f"{key_id}.json")
+        key_info_path = self._safe_key_path(key_id, ".json")
         if not os.path.exists(key_info_path):
             msg = f"Key with ID {key_id} not found"
             raise KeyNotFoundException(msg)
@@ -315,7 +333,7 @@ class KeyManagementService:
             key_id: Identifier of the key
             key_info: Dictionary containing key information
         """
-        key_info_path = os.path.join(self.key_store_path, f"{key_id}.json")
+        key_info_path = self._safe_key_path(key_id, ".json")
         with open(key_info_path, "w") as f:
             json.dump(key_info, f, indent=2)
 
@@ -383,7 +401,7 @@ class KeyManagementService:
             return self.hsm_service.get_key(key_info["hsm_key_handle"])
 
         # For software keys, load from file
-        private_key_path = os.path.join(self.key_store_path, f"{key_id}.key")
+        private_key_path = self._safe_key_path(key_id, ".key")
         if not os.path.exists(private_key_path):
             msg = f"Private key file for {key_id} not found"
             raise KeyNotFoundException(msg)
@@ -404,7 +422,7 @@ class KeyManagementService:
         Raises:
             KeyNotFoundException: If the key does not exist
         """
-        public_key_path = os.path.join(self.key_store_path, f"{key_id}.pub")
+        public_key_path = self._safe_key_path(key_id, ".pub")
         if not os.path.exists(public_key_path):
             msg = f"Public key file for {key_id} not found"
             raise KeyNotFoundException(msg)
@@ -463,7 +481,7 @@ class KeyManagementService:
         # This method would be implemented to retrieve a certificate
         # associated with the key. For this example, we return None
         # as it's expected to be mocked in tests.
-        cert_path = os.path.join(self.key_store_path, f"{key_id}.cert")
+        cert_path = self._safe_key_path(key_id, ".cert")
         if os.path.exists(cert_path):
             with open(cert_path, "rb") as f:
                 cert_data = f.read()

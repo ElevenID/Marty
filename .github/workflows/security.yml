@@ -1,7 +1,5 @@
 name: Security Scanning and Hardening
 
-# TEMPORARILY DISABLED - CI checks turned off while fixing tests
-# To re-enable, uncomment the push/pull_request/schedule triggers below
 on:
   workflow_dispatch:
     inputs:
@@ -13,13 +11,13 @@ on:
         options:
           - full
           - dependencies
-  # push:
-  #   branches: [ main, develop ]
-  # pull_request:
-  #   branches: [ main, develop ]
-  # schedule:
-  #   # Run nightly security scans
-  #   - cron: '0 2 * * *'
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+  schedule:
+    # Run nightly security scans
+    - cron: '0 2 * * *'
           - code
           - secrets
           - containers
@@ -36,7 +34,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
@@ -80,7 +78,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
@@ -130,7 +128,7 @@ jobs:
           fetch-depth: 0  # Full history for comprehensive scanning
 
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
@@ -280,7 +278,7 @@ jobs:
           path: reports/security/
 
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 

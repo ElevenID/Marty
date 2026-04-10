@@ -12,7 +12,7 @@ from pathlib import Path
 # Add src to Python path
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from marty_common.validation import FeatureValidator, QualityMetricsAnalyzer
+from marty_backend_common.validation import FeatureValidator, QualityMetricsAnalyzer
 
 
 def get_phase_1_crypto_specs() -> dict:

@@ -37,9 +37,9 @@ from cryptography.hazmat.primitives import serialization
 # Add src to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from marty_common.config import load_config
-from marty_common.database import get_database_manager
-from marty_common.infrastructure import ObjectStorageClient, build_key_vault_client
+from marty_backend_common.config import load_config
+from marty_backend_common.database import get_database_manager
+from marty_backend_common.infrastructure import ObjectStorageClient, build_key_vault_client
 
 logger = logging.getLogger(__name__)
 

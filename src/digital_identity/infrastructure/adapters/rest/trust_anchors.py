@@ -215,18 +215,18 @@ async def validate_certificate_chain(
         # TODO: Implement chain validation using Rust bindings
         logger.info(f"Validating chain for profile {profile_id} with {len(data.certificates)} certificates")
         
-        return ChainValidationResponse(
-            is_valid=False,
-            trust_anchor_used=None,
-            validation_time=datetime.now(timezone.utc),
-            errors=["Chain validation not yet implemented"],
+        raise HTTPException(
+            status_code=status.HTTP_501_NOT_IMPLEMENTED,
+            detail="Certificate chain validation not yet implemented",
         )
     
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Chain validation failed: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e),
+            detail="Chain validation failed",
         )
 
 
@@ -261,7 +261,7 @@ async def activate_trust_profile(
         logger.error(f"Profile activation failed: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e),
+            detail="Profile activation failed",
         )
 
 
@@ -297,5 +297,5 @@ async def check_profile_health(
         logger.error(f"Health check failed: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e),
+            detail="Health check failed",
         )

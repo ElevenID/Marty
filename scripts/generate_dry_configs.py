@@ -14,8 +14,8 @@ project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
 try:
-    from src.marty_common.config.dry_env_generator import EnvironmentConfigGenerator
-    from src.marty_common.service_registry import ServiceRegistry
+    from marty_backend_common.config.dry_env_generator import EnvironmentConfigGenerator
+    from marty_backend_common.service_registry import ServiceRegistry
 except ImportError as e:
     print(f"Import error: {e}")
     print("Make sure you're running from the project root directory")

@@ -17,14 +17,14 @@ from pathlib import Path
 # Add the src directory to Python path for imports
 sys.path.insert(0, str(Path(__file__).parent / "src"))
 
-from marty_common.crypto.evidence_signing import (
+from marty_backend_common.crypto.evidence_signing import (
     EvidenceSigner,
     EvidenceType,
     EvidenceVerifier,
     VerificationOutcome,
 )
-from marty_common.crypto.kms_provider import KMSProvider, create_kms_manager
-from marty_common.crypto.role_separation import (
+from marty_backend_common.crypto.kms_provider import KMSProvider, create_kms_manager
+from marty_backend_common.crypto.role_separation import (
     CryptoRole,
     KeyPurpose,
     RoleBoundaryViolation,
@@ -58,7 +58,7 @@ async def demonstrate_role_separation():
     print(f"Evidence Key ID: {evidence_key.full_key_id}")
 
     # Demonstrate role boundary enforcement
-    from marty_common.crypto.role_separation import RoleSeparationEnforcer
+    from marty_backend_common.crypto.role_separation import RoleSeparationEnforcer
 
     enforcer = RoleSeparationEnforcer()
 

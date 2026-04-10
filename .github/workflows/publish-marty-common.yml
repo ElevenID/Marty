@@ -36,7 +36,7 @@ jobs:
         if: github.event_name == 'workflow_dispatch'
         working-directory: packages/marty-common
         run: |
-          sed -i "s/__version__ = .*/__version__ = \"${{ github.event.inputs.version }}\"/" marty_common/__init__.py
+          sed -i "s/__version__ = .*/__version__ = \"${{ github.event.inputs.version }}\"/" marty_backend_common/__init__.py
           
       - name: Build package
         working-directory: packages/marty-common
@@ -68,6 +68,6 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ github.event.release.upload_url }}
-          asset_path: ./marty_common-*.whl
+          asset_path: ./marty_backend_common-*.whl
           asset_name: marty_common-${{ github.event.release.tag_name }}-py3-none-any.whl
           asset_content_type: application/zip

@@ -40,6 +40,96 @@
         "timestamp": "2025-09-29T03:23:30.456283+00:00",
         "event_type": "expiry_warning",
         "days_remaining": -271
+      },
+      {
+        "timestamp": "2026-04-08T00:32:19.227415+00:00",
+        "event_type": "expiry_warning",
+        "days_remaining": -462
+      },
+      {
+        "timestamp": "2026-04-08T00:32:48.676721+00:00",
+        "event_type": "expiry_warning",
+        "days_remaining": -462
+      },
+      {
+        "timestamp": "2026-04-08T00:33:16.629041+00:00",
+        "event_type": "expiry_warning",
+        "days_remaining": -462
+      },
+      {
+        "timestamp": "2026-04-08T00:34:24.621962+00:00",
+        "event_type": "expiry_warning",
+        "days_remaining": -462
+      },
+      {
+        "timestamp": "2026-04-08T00:34:53.865418+00:00",
+        "event_type": "expiry_warning",
+        "days_remaining": -462
+      },
+      {
+        "timestamp": "2026-04-08T05:23:36.287257+00:00",
+        "event_type": "expiry_warning",
+        "days_remaining": -462
+      },
+      {
+        "timestamp": "2026-04-08T05:24:06.219917+00:00",
+        "event_type": "expiry_warning",
+        "days_remaining": -462
+      },
+      {
+        "timestamp": "2026-04-08T08:42:28.003636+00:00",
+        "event_type": "expiry_warning",
+        "days_remaining": -462
+      },
+      {
+        "timestamp": "2026-04-08T10:08:05.808419+00:00",
+        "event_type": "expiry_warning",
+        "days_remaining": -462
+      },
+      {
+        "timestamp": "2026-04-08T14:42:22.777705+00:00",
+        "event_type": "expiry_warning",
+        "days_remaining": -462
+      },
+      {
+        "timestamp": "2026-04-08T14:59:05.910641+00:00",
+        "event_type": "expiry_warning",
+        "days_remaining": -462
+      },
+      {
+        "timestamp": "2026-04-08T15:10:22.883726+00:00",
+        "event_type": "expiry_warning",
+        "days_remaining": -462
+      },
+      {
+        "timestamp": "2026-04-08T17:59:41.999579+00:00",
+        "event_type": "expiry_warning",
+        "days_remaining": -462
+      },
+      {
+        "timestamp": "2026-04-08T19:20:48.615529+00:00",
+        "event_type": "expiry_warning",
+        "days_remaining": -462
+      },
+      {
+        "timestamp": "2026-04-08T19:42:20.460958+00:00",
+        "event_type": "expiry_warning",
+        "days_remaining": -462
+      },
+      {
+        "timestamp": "2026-04-08T19:42:54.940057+00:00",
+        "event_type": "expiry_warning",
+        "days_remaining": -462
+      },
+      {
+        "timestamp": "2026-04-08T19:47:17.607446+00:00",
+        "event_type": "expiry_warning",
+        "days_remaining": -462
+      },
+      {
+        "timestamp": "2026-04-08T19:47:36.322669+00:00",
+        "event_type": "expiry_warning",
+        "days_remaining": -462
       }
     ],
     "test-cert-123": [
@@ -80,6 +170,96 @@
       },
       {
         "timestamp": "2025-09-29T03:23:30.458337+00:00",
+        "event_type": "expiry_warning",
+        "days_remaining": 30
+      },
+      {
+        "timestamp": "2026-04-08T00:32:19.271343+00:00",
+        "event_type": "expiry_warning",
+        "days_remaining": 30
+      },
+      {
+        "timestamp": "2026-04-08T00:32:48.678312+00:00",
+        "event_type": "expiry_warning",
+        "days_remaining": 30
+      },
+      {
+        "timestamp": "2026-04-08T00:33:16.638307+00:00",
+        "event_type": "expiry_warning",
+        "days_remaining": 30
+      },
+      {
+        "timestamp": "2026-04-08T00:34:24.623211+00:00",
+        "event_type": "expiry_warning",
+        "days_remaining": 30
+      },
+      {
+        "timestamp": "2026-04-08T00:34:53.866607+00:00",
+        "event_type": "expiry_warning",
+        "days_remaining": 30
+      },
+      {
+        "timestamp": "2026-04-08T05:23:36.347465+00:00",
+        "event_type": "expiry_warning",
+        "days_remaining": 30
+      },
+      {
+        "timestamp": "2026-04-08T05:24:06.221178+00:00",
+        "event_type": "expiry_warning",
+        "days_remaining": 30
+      },
+      {
+        "timestamp": "2026-04-08T08:42:28.051284+00:00",
+        "event_type": "expiry_warning",
+        "days_remaining": 30
+      },
+      {
+        "timestamp": "2026-04-08T10:08:05.856139+00:00",
+        "event_type": "expiry_warning",
+        "days_remaining": 30
+      },
+      {
+        "timestamp": "2026-04-08T14:42:22.816433+00:00",
+        "event_type": "expiry_warning",
+        "days_remaining": 30
+      },
+      {
+        "timestamp": "2026-04-08T14:59:05.938995+00:00",
+        "event_type": "expiry_warning",
+        "days_remaining": 30
+      },
+      {
+        "timestamp": "2026-04-08T15:10:22.921481+00:00",
+        "event_type": "expiry_warning",
+        "days_remaining": 30
+      },
+      {
+        "timestamp": "2026-04-08T17:59:42.057463+00:00",
+        "event_type": "expiry_warning",
+        "days_remaining": 30
+      },
+      {
+        "timestamp": "2026-04-08T19:20:48.664269+00:00",
+        "event_type": "expiry_warning",
+        "days_remaining": 30
+      },
+      {
+        "timestamp": "2026-04-08T19:42:20.497164+00:00",
+        "event_type": "expiry_warning",
+        "days_remaining": 30
+      },
+      {
+        "timestamp": "2026-04-08T19:42:54.941592+00:00",
+        "event_type": "expiry_warning",
+        "days_remaining": 30
+      },
+      {
+        "timestamp": "2026-04-08T19:47:17.637533+00:00",
+        "event_type": "expiry_warning",
+        "days_remaining": 30
+      },
+      {
+        "timestamp": "2026-04-08T19:47:36.324104+00:00",
         "event_type": "expiry_warning",
         "days_remaining": 30
       }
@@ -136,6 +316,132 @@
       },
       {
         "timestamp": "2025-09-29T03:23:30.464232+00:00",
+        "event_type": "rotated",
+        "new_certificate_id": "new_cert_id",
+        "validity_days": 1095,
+        "reused_key": false
+      },
+      {
+        "timestamp": "2026-04-08T00:32:19.276733+00:00",
+        "event_type": "rotated",
+        "new_certificate_id": "new_cert_id",
+        "validity_days": 1095,
+        "reused_key": false
+      },
+      {
+        "timestamp": "2026-04-08T00:32:48.684183+00:00",
+        "event_type": "rotated",
+        "new_certificate_id": "new_cert_id",
+        "validity_days": 1095,
+        "reused_key": false
+      },
+      {
+        "timestamp": "2026-04-08T00:33:16.647060+00:00",
+        "event_type": "rotated",
+        "new_certificate_id": "new_cert_id",
+        "validity_days": 1095,
+        "reused_key": false
+      },
+      {
+        "timestamp": "2026-04-08T00:34:24.628634+00:00",
+        "event_type": "rotated",
+        "new_certificate_id": "new_cert_id",
+        "validity_days": 1095,
+        "reused_key": false
+      },
+      {
+        "timestamp": "2026-04-08T00:34:53.885321+00:00",
+        "event_type": "rotated",
+        "new_certificate_id": "new_cert_id",
+        "validity_days": 1095,
+        "reused_key": false
+      },
+      {
+        "timestamp": "2026-04-08T05:23:36.352457+00:00",
+        "event_type": "rotated",
+        "new_certificate_id": "new_cert_id",
+        "validity_days": 1095,
+        "reused_key": false
+      },
+      {
+        "timestamp": "2026-04-08T05:24:06.226351+00:00",
+        "event_type": "rotated",
+        "new_certificate_id": "new_cert_id",
+        "validity_days": 1095,
+        "reused_key": false
+      },
+      {
+        "timestamp": "2026-04-08T08:42:28.056139+00:00",
+        "event_type": "rotated",
+        "new_certificate_id": "new_cert_id",
+        "validity_days": 1095,
+        "reused_key": false
+      },
+      {
+        "timestamp": "2026-04-08T10:08:05.861434+00:00",
+        "event_type": "rotated",
+        "new_certificate_id": "new_cert_id",
+        "validity_days": 1095,
+        "reused_key": false
+      },
+      {
+        "timestamp": "2026-04-08T14:42:22.823474+00:00",
+        "event_type": "rotated",
+        "new_certificate_id": "new_cert_id",
+        "validity_days": 1095,
+        "reused_key": false
+      },
+      {
+        "timestamp": "2026-04-08T14:59:05.951723+00:00",
+        "event_type": "rotated",
+        "new_certificate_id": "new_cert_id",
+        "validity_days": 1095,
+        "reused_key": false
+      },
+      {
+        "timestamp": "2026-04-08T15:10:22.926712+00:00",
+        "event_type": "rotated",
+        "new_certificate_id": "new_cert_id",
+        "validity_days": 1095,
+        "reused_key": false
+      },
+      {
+        "timestamp": "2026-04-08T17:59:42.219761+00:00",
+        "event_type": "rotated",
+        "new_certificate_id": "new_cert_id",
+        "validity_days": 1095,
+        "reused_key": false
+      },
+      {
+        "timestamp": "2026-04-08T19:20:48.669750+00:00",
+        "event_type": "rotated",
+        "new_certificate_id": "new_cert_id",
+        "validity_days": 1095,
+        "reused_key": false
+      },
+      {
+        "timestamp": "2026-04-08T19:42:20.505996+00:00",
+        "event_type": "rotated",
+        "new_certificate_id": "new_cert_id",
+        "validity_days": 1095,
+        "reused_key": false
+      },
+      {
+        "timestamp": "2026-04-08T19:42:54.948737+00:00",
+        "event_type": "rotated",
+        "new_certificate_id": "new_cert_id",
+        "validity_days": 1095,
+        "reused_key": false
+      },
+      {
+        "timestamp": "2026-04-08T19:47:17.643349+00:00",
+        "event_type": "rotated",
+        "new_certificate_id": "new_cert_id",
+        "validity_days": 1095,
+        "reused_key": false
+      },
+      {
+        "timestamp": "2026-04-08T19:47:36.340820+00:00",
         "event_type": "rotated",
         "new_certificate_id": "new_cert_id",
         "validity_days": 1095,
@@ -305,6 +611,384 @@
     },
     {
       "timestamp": "2025-09-29T03:23:30.472357+00:00",
+      "type": "email",
+      "recipients": [
+        "test@example.com"
+      ],
+      "subject": "Test Notification",
+      "status": "success"
+    },
+    {
+      "timestamp": "2026-04-08T00:32:19.272419+00:00",
+      "type": "email",
+      "recipients": [
+        "admin@example.com"
+      ],
+      "subject": "Certificate Expiring",
+      "status": "success",
+      "details": {
+        "certificate_id": "test-cert-123"
+      }
+    },
+    {
+      "timestamp": "2026-04-08T00:32:19.278997+00:00",
+      "type": "email",
+      "recipients": [
+        "test@example.com"
+      ],
+      "subject": "Test Notification",
+      "status": "success"
+    },
+    {
+      "timestamp": "2026-04-08T00:32:48.679270+00:00",
+      "type": "email",
+      "recipients": [
+        "admin@example.com"
+      ],
+      "subject": "Certificate Expiring",
+      "status": "success",
+      "details": {
+        "certificate_id": "test-cert-123"
+      }
+    },
+    {
+      "timestamp": "2026-04-08T00:32:48.686609+00:00",
+      "type": "email",
+      "recipients": [
+        "test@example.com"
+      ],
+      "subject": "Test Notification",
+      "status": "success"
+    },
+    {
+      "timestamp": "2026-04-08T00:33:16.641225+00:00",
+      "type": "email",
+      "recipients": [
+        "admin@example.com"
+      ],
+      "subject": "Certificate Expiring",
+      "status": "success",
+      "details": {
+        "certificate_id": "test-cert-123"
+      }
+    },
+    {
+      "timestamp": "2026-04-08T00:33:16.652428+00:00",
+      "type": "email",
+      "recipients": [
+        "test@example.com"
+      ],
+      "subject": "Test Notification",
+      "status": "success"
+    },
+    {
+      "timestamp": "2026-04-08T00:34:24.624044+00:00",
+      "type": "email",
+      "recipients": [
+        "admin@example.com"
+      ],
+      "subject": "Certificate Expiring",
+      "status": "success",
+      "details": {
+        "certificate_id": "test-cert-123"
+      }
+    },
+    {
+      "timestamp": "2026-04-08T00:34:24.678392+00:00",
+      "type": "email",
+      "recipients": [
+        "test@example.com"
+      ],
+      "subject": "Test Notification",
+      "status": "success"
+    },
+    {
+      "timestamp": "2026-04-08T00:34:53.879433+00:00",
+      "type": "email",
+      "recipients": [
+        "admin@example.com"
+      ],
+      "subject": "Certificate Expiring",
+      "status": "success",
+      "details": {
+        "certificate_id": "test-cert-123"
+      }
+    },
+    {
+      "timestamp": "2026-04-08T00:34:53.888696+00:00",
+      "type": "email",
+      "recipients": [
+        "test@example.com"
+      ],
+      "subject": "Test Notification",
+      "status": "success"
+    },
+    {
+      "timestamp": "2026-04-08T05:23:36.348607+00:00",
+      "type": "email",
+      "recipients": [
+        "admin@example.com"
+      ],
+      "subject": "Certificate Expiring",
+      "status": "success",
+      "details": {
+        "certificate_id": "test-cert-123"
+      }
+    },
+    {
+      "timestamp": "2026-04-08T05:23:36.355378+00:00",
+      "type": "email",
+      "recipients": [
+        "test@example.com"
+      ],
+      "subject": "Test Notification",
+      "status": "success"
+    },
+    {
+      "timestamp": "2026-04-08T05:24:06.222053+00:00",
+      "type": "email",
+      "recipients": [
+        "admin@example.com"
+      ],
+      "subject": "Certificate Expiring",
+      "status": "success",
+      "details": {
+        "certificate_id": "test-cert-123"
+      }
+    },
+    {
+      "timestamp": "2026-04-08T05:24:06.245867+00:00",
+      "type": "email",
+      "recipients": [
+        "test@example.com"
+      ],
+      "subject": "Test Notification",
+      "status": "success"
+    },
+    {
+      "timestamp": "2026-04-08T08:42:28.052305+00:00",
+      "type": "email",
+      "recipients": [
+        "admin@example.com"
+      ],
+      "subject": "Certificate Expiring",
+      "status": "success",
+      "details": {
+        "certificate_id": "test-cert-123"
+      }
+    },
+    {
+      "timestamp": "2026-04-08T08:42:28.058875+00:00",
+      "type": "email",
+      "recipients": [
+        "test@example.com"
+      ],
+      "subject": "Test Notification",
+      "status": "success"
+    },
+    {
+      "timestamp": "2026-04-08T10:08:05.857752+00:00",
+      "type": "email",
+      "recipients": [
+        "admin@example.com"
+      ],
+      "subject": "Certificate Expiring",
+      "status": "success",
+      "details": {
+        "certificate_id": "test-cert-123"
+      }
+    },
+    {
+      "timestamp": "2026-04-08T10:08:05.865031+00:00",
+      "type": "email",
+      "recipients": [
+        "test@example.com"
+      ],
+      "subject": "Test Notification",
+      "status": "success"
+    },
+    {
+      "timestamp": "2026-04-08T14:42:22.819090+00:00",
+      "type": "email",
+      "recipients": [
+        "admin@example.com"
+      ],
+      "subject": "Certificate Expiring",
+      "status": "success",
+      "details": {
+        "certificate_id": "test-cert-123"
+      }
+    },
+    {
+      "timestamp": "2026-04-08T14:42:22.826809+00:00",
+      "type": "email",
+      "recipients": [
+        "test@example.com"
+      ],
+      "subject": "Test Notification",
+      "status": "success"
+    },
+    {
+      "timestamp": "2026-04-08T14:59:05.946285+00:00",
+      "type": "email",
+      "recipients": [
+        "admin@example.com"
+      ],
+      "subject": "Certificate Expiring",
+      "status": "success",
+      "details": {
+        "certificate_id": "test-cert-123"
+      }
+    },
+    {
+      "timestamp": "2026-04-08T14:59:05.954247+00:00",
+      "type": "email",
+      "recipients": [
+        "test@example.com"
+      ],
+      "subject": "Test Notification",
+      "status": "success"
+    },
+    {
+      "timestamp": "2026-04-08T15:10:22.922638+00:00",
+      "type": "email",
+      "recipients": [
+        "admin@example.com"
+      ],
+      "subject": "Certificate Expiring",
+      "status": "success",
+      "details": {
+        "certificate_id": "test-cert-123"
+      }
+    },
+    {
+      "timestamp": "2026-04-08T15:10:22.929116+00:00",
+      "type": "email",
+      "recipients": [
+        "test@example.com"
+      ],
+      "subject": "Test Notification",
+      "status": "success"
+    },
+    {
+      "timestamp": "2026-04-08T17:59:42.095918+00:00",
+      "type": "email",
+      "recipients": [
+        "admin@example.com"
+      ],
+      "subject": "Certificate Expiring",
+      "status": "success",
+      "details": {
+        "certificate_id": "test-cert-123"
+      }
+    },
+    {
+      "timestamp": "2026-04-08T17:59:42.223572+00:00",
+      "type": "email",
+      "recipients": [
+        "test@example.com"
+      ],
+      "subject": "Test Notification",
+      "status": "success"
+    },
+    {
+      "timestamp": "2026-04-08T19:20:48.665329+00:00",
+      "type": "email",
+      "recipients": [
+        "admin@example.com"
+      ],
+      "subject": "Certificate Expiring",
+      "status": "success",
+      "details": {
+        "certificate_id": "test-cert-123"
+      }
+    },
+    {
+      "timestamp": "2026-04-08T19:20:48.672485+00:00",
+      "type": "email",
+      "recipients": [
+        "test@example.com"
+      ],
+      "subject": "Test Notification",
+      "status": "success"
+    },
+    {
+      "timestamp": "2026-04-08T19:42:20.499655+00:00",
+      "type": "email",
+      "recipients": [
+        "admin@example.com"
+      ],
+      "subject": "Certificate Expiring",
+      "status": "success",
+      "details": {
+        "certificate_id": "test-cert-123"
+      }
+    },
+    {
+      "timestamp": "2026-04-08T19:42:20.508703+00:00",
+      "type": "email",
+      "recipients": [
+        "test@example.com"
+      ],
+      "subject": "Test Notification",
+      "status": "success"
+    },
+    {
+      "timestamp": "2026-04-08T19:42:54.942998+00:00",
+      "type": "email",
+      "recipients": [
+        "admin@example.com"
+      ],
+      "subject": "Certificate Expiring",
+      "status": "success",
+      "details": {
+        "certificate_id": "test-cert-123"
+      }
+    },
+    {
+      "timestamp": "2026-04-08T19:42:54.952711+00:00",
+      "type": "email",
+      "recipients": [
+        "test@example.com"
+      ],
+      "subject": "Test Notification",
+      "status": "success"
+    },
+    {
+      "timestamp": "2026-04-08T19:47:17.638852+00:00",
+      "type": "email",
+      "recipients": [
+        "admin@example.com"
+      ],
+      "subject": "Certificate Expiring",
+      "status": "success",
+      "details": {
+        "certificate_id": "test-cert-123"
+      }
+    },
+    {
+      "timestamp": "2026-04-08T19:47:17.646801+00:00",
+      "type": "email",
+      "recipients": [
+        "test@example.com"
+      ],
+      "subject": "Test Notification",
+      "status": "success"
+    },
+    {
+      "timestamp": "2026-04-08T19:47:36.325295+00:00",
+      "type": "email",
+      "recipients": [
+        "admin@example.com"
+      ],
+      "subject": "Certificate Expiring",
+      "status": "success",
+      "details": {
+        "certificate_id": "test-cert-123"
+      }
+    },
+    {
+      "timestamp": "2026-04-08T19:47:36.343627+00:00",
       "type": "email",
       "recipients": [
         "test@example.com"

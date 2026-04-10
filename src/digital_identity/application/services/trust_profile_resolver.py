@@ -204,6 +204,9 @@ class TrustProfileResolver:
         fw_validation = framework.validation_ruleset or {}
         fw_revocation = fw_validation.get("revocation", {})
         fw_time = fw_validation.get("time", {})
+        fw_check_mode = fw_revocation.get("check_mode") or fw_revocation.get("mode", "HARD_FAIL")
+        if isinstance(fw_check_mode, str):
+            fw_check_mode = fw_check_mode.upper()
         
         # Use org policy if set, otherwise build from framework defaults
         if org_profile.revocation_policy:
@@ -211,7 +214,7 @@ class TrustProfileResolver:
         else:
             # Build from framework defaults
             revocation_policy = RevocationPolicy(
-                check_mode=RevocationCheckMode(fw_revocation.get("check_mode") or fw_revocation.get("mode", "HARD_FAIL")),
+                check_mode=RevocationCheckMode(fw_check_mode),
                 cache_ttl_seconds=int(fw_revocation.get("cache_ttl_seconds", 300)),
             )
         

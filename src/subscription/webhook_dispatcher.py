@@ -193,8 +193,8 @@ class WebhookDispatcher:
                 )
 
             if not success and retry_count < self.max_retries:
-                # Exponential backoff: 1s, 2s, 4s
-                await asyncio.sleep(2**retry_count)
+                # Exponential backoff: 1s, 2s, 4s, ... capped at 60s
+                await asyncio.sleep(min(2**retry_count, 60))
                 retry_count += 1
 
         end_time = datetime.now(timezone.utc)

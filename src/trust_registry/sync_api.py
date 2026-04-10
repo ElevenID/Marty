@@ -104,10 +104,13 @@ class RevocationListResponse(BaseModel):
     etag: str
 
 
-# Dependency for database session
+# Dependency for database session — must be overridden at app startup
 async def get_db() -> AsyncSession:
-    """Get database session - to be overridden by app."""
-    raise NotImplementedError("Database dependency not configured")
+    """Get database session — override via app.dependency_overrides[get_db]."""
+    raise NotImplementedError(
+        "get_db() dependency not configured. "
+        "Set app.dependency_overrides[get_db] in your application startup."
+    )
 
 
 @dataclass
@@ -429,7 +432,10 @@ async def delta_sync(
     "/revocation/{credential_type}/{list_id}",
     response_model=RevocationListResponse,
     summary="Get Revocation Status List",
-    description="Get credential revocation status list.",
+    description="Get credential revocation status list. "
+    "This endpoint is intentionally public per W3C Bitstring Status List v1.0 "
+    "and IETF Token Status List (draft-14). Rate limiting should be applied "
+    "at the infrastructure layer (reverse proxy / CDN).",
 )
 async def get_revocation_list(
     credential_type: str,

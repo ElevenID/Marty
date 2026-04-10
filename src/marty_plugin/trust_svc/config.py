@@ -20,10 +20,16 @@ class DatabaseConfig:
     port: int = int(os.getenv("TRUST_DB_PORT", "5432"))
     database: str = os.getenv("TRUST_DB_NAME", "marty_trust")
     username: str = os.getenv("TRUST_DB_USER", "trust_service")
-    password: str = os.getenv("TRUST_DB_PASSWORD", "change_me")
+    password: str = os.getenv("TRUST_DB_PASSWORD", "")
     schema: str = "trust_svc"
     pool_size: int = int(os.getenv("TRUST_DB_POOL_SIZE", "10"))
     max_overflow: int = int(os.getenv("TRUST_DB_MAX_OVERFLOW", "20"))
+
+    def __post_init__(self):
+        if not self.password:
+            raise ValueError(
+                "TRUST_DB_PASSWORD environment variable is required"
+            )
 
     @property
     def connection_url(self) -> str:

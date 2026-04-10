@@ -7,10 +7,10 @@ import pytest
 project_root = Path(__file__).resolve().parents[3]
 sys.path.append(str(project_root))
 
-from src.marty_common.models.asn1_structures import parse_dg15_content
+from marty_backend_common.models.asn1_structures import parse_dg15_content
 
 # Import from Marty's codebase
-from src.marty_common.models.passport import DataGroup, DataGroupType
+from marty_backend_common.models.passport import DataGroup, DataGroupType
 
 
 @pytest.mark.depends(

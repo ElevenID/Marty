@@ -14,7 +14,7 @@ from typing import Any, Optional
 
 import grpc
 
-from marty_plugin.proto import (
+from marty_plugin.proto.v1 import (
     document_signer_pb2,  # type: ignore
     mdoc_engine_pb2,  # type: ignore
     mdoc_engine_pb2_grpc,  # type: ignore
@@ -88,7 +88,7 @@ class MDocEngineServicer(mdoc_engine_pb2_grpc.MDocEngineServicer):  # type: igno
         self._mdoc_store[mdoc_id] = mdoc_resp
 
         return mdoc_engine_pb2.CreateMDocResponse(  # type: ignore
-            mdoc_id=mdoc_id, status="SUCCESS", error_message=""
+            mdoc_id=mdoc_id, status="SUCCESS"
         )
 
     async def GetMDoc(self, request: Any, context: grpc.ServicerContext) -> Any:
@@ -212,16 +212,18 @@ class MDocEngineServicer(mdoc_engine_pb2_grpc.MDocEngineServicer):  # type: igno
         }
         try:
             new_sig = mdoc_engine_pb2.SignatureInfo(**sig_kwargs)  # type: ignore[arg-type]
-        except Exception:
+        except Exception as exc:
             # Final fallback: build minimal then assign attributes where possible
+            import logging as _logging
+            _logging.getLogger(__name__).warning("SignatureInfo kwargs construction failed: %s", exc)
             new_sig = mdoc_engine_pb2.SignatureInfo()  # type: ignore
             try:  # attribute assignment best-effort
                 new_sig.signature_date = signature_date  # type: ignore
                 new_sig.signer_id = signer_id  # type: ignore
                 new_sig.signature = raw_signature  # type: ignore
                 new_sig.is_valid = True  # type: ignore
-            except Exception:
-                pass
+            except Exception as exc2:
+                _logging.getLogger(__name__).warning("SignatureInfo attribute assignment failed: %s", exc2)
         mdoc.signature_info.CopyFrom(new_sig)
         mdoc.status = "ACTIVE"
 

@@ -2,15 +2,510 @@
 Test configuration for Marty test suite.
 """
 
+import importlib.abc
+import importlib.machinery
 import os
+import sys
 import tempfile
+import types
+from abc import ABCMeta
 from pathlib import Path
-from unittest.mock import Mock
+from unittest.mock import MagicMock, Mock
 
 import pytest
 
+# ---------------------------------------------------------------------------
+# marty_plugin.common stub (must be installed BEFORE any transitive imports)
+#
+# Several modules in the codebase depend on marty_plugin.common.* which is
+# native/Rust code not available in the pure-Python test env.  We install a
+# meta-path finder here so *every* test directory benefits from it.
+# ---------------------------------------------------------------------------
+
+
+class _StubModule(types.ModuleType):
+    """Module stub that returns MagicMock for any missing attribute."""
+
+    _CLASS_NAMES = {"SODParsingError", "ServiceConfig", "BaseService"}
+
+    # Real implementations for functions that can't be mocked
+    _ICAO_WEIGHTS = [7, 3, 1]
+
+    @staticmethod
+    def _compute_check_digit(data: str) -> str:
+        """ICAO 9303 check digit (weights 7-3-1)."""
+        total = 0
+        for i, ch in enumerate(str(data)):
+            if ch == '<':
+                val = 0
+            elif ch.isdigit():
+                val = int(ch)
+            elif ch.isalpha():
+                val = ord(ch.upper()) - 55
+            else:
+                val = 0
+            total += val * _StubModule._ICAO_WEIGHTS[i % 3]
+        return str(total % 10)
+
+    @staticmethod
+    def _validate_check_digit(data: str, check_digit: str) -> bool:
+        """Validate an ICAO 9303 check digit."""
+        return _StubModule._compute_check_digit(data) == str(check_digit)
+
+    def __getattr__(self, name):
+        if name == "compute_check_digit":
+            return self._compute_check_digit
+        if name == "validate_check_digit":
+            return self._validate_check_digit
+        if name in self._CLASS_NAMES:
+            if "Error" in name:
+                cls = type(name, (Exception,), {})
+            elif name == "BaseService":
+                cls = ABCMeta(name, (object,), {})
+            else:
+                cls = type(name, (object,), {})
+            setattr(self, name, cls)
+            return cls
+        mock = MagicMock()
+        setattr(self, name, mock)
+        return mock
+
+
+def _make_stub(name: str) -> "_StubModule":
+    mod = _StubModule(name)
+    mod.__path__ = []
+    mod.__package__ = name
+    return mod
+
+
+class _MartyPluginCommonFinder(importlib.abc.MetaPathFinder, importlib.abc.Loader):
+    """Catch-all finder for any ``marty_plugin.common.*`` import (with or without src. prefix)."""
+
+    _PREFIXES = ("marty_plugin.common", "src.marty_plugin.common")
+
+    def find_spec(self, fullname, path, target=None):
+        for prefix in self._PREFIXES:
+            if fullname == prefix or fullname.startswith(prefix + "."):
+                return importlib.machinery.ModuleSpec(fullname, self)
+        return None
+
+    def create_module(self, spec):
+        return _make_stub(spec.name)
+
+    def exec_module(self, module):
+        pass
+
+
+if not any(isinstance(f, _MartyPluginCommonFinder) for f in sys.meta_path):
+    sys.meta_path.insert(0, _MartyPluginCommonFinder())
+
+_COMMON_STUBS = [
+    "marty_plugin.common",
+    "marty_plugin.common.crypto",
+    "marty_plugin.common.crypto.data_group_hasher",
+    "marty_plugin.common.crypto.sod_parser",
+    "marty_plugin.common.crypto.certificate_validator",
+    "marty_plugin.common.crypto.vds_nc_keys",
+    "marty_plugin.common.crypto_bridge",
+    "marty_plugin.common.crypto_role",
+    "marty_plugin.common.config_manager",
+    "marty_plugin.common.models",
+    "marty_plugin.common.models.asn1_structures",
+    "marty_plugin.common.infrastructure",
+    "marty_plugin.common.infrastructure.trust_models",
+    "marty_plugin.common.security",
+    "marty_plugin.common.security.encryption",
+]
+for _name in _COMMON_STUBS:
+    if _name not in sys.modules:
+        sys.modules[_name] = _make_stub(_name)
+
+_common_parent = sys.modules.get("marty_plugin.common")
+if _common_parent is not None:
+    for _name in _COMMON_STUBS:
+        if not _name.startswith("marty_plugin.common."):
+            continue
+        _child_path = _name.removeprefix("marty_plugin.common.")
+        if "." not in _child_path:
+            setattr(_common_parent, _child_path, sys.modules[_name])
+
+if "marty_plugin" in sys.modules:
+    sys.modules["marty_plugin"].common = sys.modules["marty_plugin.common"]
+
+# ---------------------------------------------------------------------------
+# Wire pure-Python models into marty_plugin.common stubs so that production
+# code importing from marty_plugin.common.models.* gets the real classes
+# instead of MagicMock.
+# ---------------------------------------------------------------------------
+
+# Passport models (Gender, MRZData, etc.)
+_passport_stub_name = "marty_plugin.common.models.passport"
+if _passport_stub_name not in sys.modules:
+    sys.modules[_passport_stub_name] = _make_stub(_passport_stub_name)
 try:
-    from src.marty_common.models.passport import Gender, MRZData
+    from marty_backend_common.models import passport as _real_passport
+    _p_stub = sys.modules[_passport_stub_name]
+    for _attr in dir(_real_passport):
+        if not _attr.startswith("_"):
+            setattr(_p_stub, _attr, getattr(_real_passport, _attr))
+except ImportError:
+    pass
+
+# MRZ validation models
+_mrz_val_stub_name = "marty_plugin.common.models.mrz_validation"
+if _mrz_val_stub_name not in sys.modules:
+    sys.modules[_mrz_val_stub_name] = _make_stub(_mrz_val_stub_name)
+try:
+    from marty_backend_common.models import mrz_validation as _real_mrz_val
+    _m_stub = sys.modules[_mrz_val_stub_name]
+    for _attr in dir(_real_mrz_val):
+        if not _attr.startswith("_"):
+            setattr(_m_stub, _attr, getattr(_real_mrz_val, _attr))
+except ImportError:
+    pass
+
+# Exceptions — inject the real MartyServiceException so isinstance/except works
+_exc_stub_name = "marty_plugin.common.exceptions"
+if _exc_stub_name not in sys.modules:
+    sys.modules[_exc_stub_name] = _make_stub(_exc_stub_name)
+try:
+    from marty_backend_common.exceptions import MartyServiceException as _MSE
+    sys.modules[_exc_stub_name].MartyServiceException = _MSE
+except ImportError:
+    pass
+
+# crypto_bridge — add sha256 real implementation and Certificate class
+_crypto_bridge_stub = sys.modules.get("marty_plugin.common.crypto_bridge")
+if _crypto_bridge_stub is not None:
+    import hashlib as _hashlib
+    _crypto_bridge_stub.sha256 = lambda data: _hashlib.sha256(data).digest()
+
+    # Certificate must be a real type (not MagicMock) so isinstance() works
+    from cryptography import x509 as _x509
+
+    class _CertificateBridge:
+        """Stub for Rust crypto_bridge.Certificate — wraps cryptography x509.Certificate."""
+        def __init__(self, crypto_cert=None):
+            self._cert = crypto_cert
+
+        def to_cryptography(self):
+            return self._cert
+
+        @classmethod
+        def from_der(cls, der_bytes: bytes):
+            cert = _x509.load_der_x509_certificate(der_bytes)
+            return cls(cert)
+
+        def __getattr__(self, name):
+            # Delegate any unresolved attribute to the wrapped certificate
+            if name.startswith("_"):
+                raise AttributeError(name)
+            if self._cert is not None:
+                return getattr(self._cert, name)
+            raise AttributeError(f"No certificate loaded, cannot access '{name}'")
+
+    _crypto_bridge_stub.Certificate = _CertificateBridge
+
+    # Exception types used in verifier
+    class _ExtensionNotFound(Exception):
+        pass
+    _crypto_bridge_stub.ExtensionNotFound = _ExtensionNotFound
+    _crypto_bridge_stub.SubjectAlternativeName = _x509.SubjectAlternativeName
+    _crypto_bridge_stub.DNSName = _x509.DNSName
+    _crypto_bridge_stub.UniformResourceIdentifier = _x509.UniformResourceIdentifier
+
+    # 3DES-CBC encrypt/decrypt — pure-Python fallback via cryptography library
+    from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+
+    def _tdes_cbc_encrypt(key: bytes, data: bytes, iv: bytes) -> bytes:
+        cipher = Cipher(algorithms.TripleDES(key), modes.CBC(iv))
+        enc = cipher.encryptor()
+        return enc.update(data) + enc.finalize()
+
+    def _tdes_cbc_decrypt(key: bytes, data: bytes, iv: bytes) -> bytes:
+        cipher = Cipher(algorithms.TripleDES(key), modes.CBC(iv))
+        dec = cipher.decryptor()
+        return dec.update(data) + dec.finalize()
+
+    _crypto_bridge_stub.tdes_cbc_encrypt = _tdes_cbc_encrypt
+    _crypto_bridge_stub.tdes_cbc_decrypt = _tdes_cbc_decrypt
+
+    # P-256 key generation and ECDH — pure-Python fallback
+    from cryptography.hazmat.primitives.asymmetric import ec as _ec, padding as _padding
+    from cryptography.hazmat.primitives import hashes as _hashes, serialization as _ser
+
+    def _p256_generate():
+        private_key = _ec.generate_private_key(_ec.SECP256R1())
+        public_bytes = private_key.public_key().public_bytes(
+            _ser.Encoding.X962, _ser.PublicFormat.UncompressedPoint
+        )
+        # Return (private_key_object, public_key_bytes)
+        return private_key, public_bytes
+
+    def _p256_agree(private_key, peer_public_bytes: bytes) -> bytes:
+        peer_public = _ec.EllipticCurvePublicKey.from_encoded_point(
+            _ec.SECP256R1(), peer_public_bytes
+        )
+        return private_key.exchange(_ec.ECDH(), peer_public)
+
+    def _ecdsa_p256_generate():
+        private_key = _ec.generate_private_key(_ec.SECP256R1())
+        public_bytes = private_key.public_key().public_bytes(
+            _ser.Encoding.X962, _ser.PublicFormat.UncompressedPoint
+        )
+        return private_key, public_bytes
+
+    def _ecdsa_p384_generate():
+        private_key = _ec.generate_private_key(_ec.SECP384R1())
+        public_bytes = private_key.public_key().public_bytes(
+            _ser.Encoding.X962, _ser.PublicFormat.UncompressedPoint
+        )
+        return private_key, public_bytes
+
+    def _raw_private_key_to_pkcs8(private_key, key_type: str) -> bytes:
+        if hasattr(private_key, "private_bytes"):
+            return private_key.private_bytes(
+                _ser.Encoding.DER,
+                _ser.PrivateFormat.PKCS8,
+                _ser.NoEncryption(),
+            )
+        raise TypeError(f"Unsupported private key object for {key_type}")
+
+    def _raw_public_key_to_spki(public_key, key_type: str) -> bytes:
+        if hasattr(public_key, "public_bytes"):
+            return public_key.public_bytes(
+                _ser.Encoding.DER,
+                _ser.PublicFormat.SubjectPublicKeyInfo,
+            )
+        if isinstance(public_key, bytes):
+            curve = _ec.SECP256R1() if key_type == "P256" else _ec.SECP384R1()
+            key = _ec.EllipticCurvePublicKey.from_encoded_point(curve, public_key)
+            return key.public_bytes(
+                _ser.Encoding.DER,
+                _ser.PublicFormat.SubjectPublicKeyInfo,
+            )
+        raise TypeError(f"Unsupported public key object for {key_type}")
+
+    def _pkcs8_to_raw_private_key(der_bytes: bytes):
+        key = _ser.load_der_private_key(der_bytes, password=None)
+        if hasattr(key, "curve"):
+            curve_name = "P384" if isinstance(key.curve, _ec.SECP384R1) else "P256"
+            return key, curve_name
+        return key, "RSA"
+
+    def _spki_to_raw_public_key(der_bytes: bytes):
+        key = _ser.load_der_public_key(der_bytes)
+        if hasattr(key, "curve"):
+            curve_name = "P384" if isinstance(key.curve, _ec.SECP384R1) else "P256"
+            return key, curve_name
+        return key, "RSA"
+
+    _crypto_bridge_stub.p256_generate = _p256_generate
+    _crypto_bridge_stub.p256_agree = _p256_agree
+    _crypto_bridge_stub.ecdsa_p256_generate = _ecdsa_p256_generate
+    _crypto_bridge_stub.ecdsa_p384_generate = _ecdsa_p384_generate
+    _crypto_bridge_stub.raw_private_key_to_pkcs8 = _raw_private_key_to_pkcs8
+    _crypto_bridge_stub.raw_public_key_to_spki = _raw_public_key_to_spki
+    _crypto_bridge_stub.pkcs8_to_raw_private_key = _pkcs8_to_raw_private_key
+    _crypto_bridge_stub.spki_to_raw_public_key = _spki_to_raw_public_key
+
+    # Encoding enum — wire real serialization.Encoding so public_bytes() works
+    _crypto_bridge_stub.Encoding = _ser.Encoding
+
+    # RSA key generation and key PEM helpers — pure-Python fallback
+    from cryptography.hazmat.primitives.asymmetric import rsa as _rsa
+
+    def _rsa_generate(key_size: int = 2048):
+        k = _rsa.generate_private_key(public_exponent=65537, key_size=key_size)
+        priv = k.private_bytes(_ser.Encoding.DER, _ser.PrivateFormat.PKCS8, _ser.NoEncryption())
+        pub = k.public_key().public_bytes(_ser.Encoding.DER, _ser.PublicFormat.SubjectPublicKeyInfo)
+        return priv, pub
+
+    def _save_private_key_pem(der_bytes: bytes) -> str:
+        k = _ser.load_der_private_key(der_bytes, password=None)
+        return k.private_bytes(_ser.Encoding.PEM, _ser.PrivateFormat.PKCS8, _ser.NoEncryption()).decode()
+
+    def _load_private_key_pem(pem: str) -> bytes:
+        k = _ser.load_pem_private_key(pem.encode(), password=None)
+        return k.private_bytes(_ser.Encoding.DER, _ser.PrivateFormat.PKCS8, _ser.NoEncryption())
+
+    def _extract_public_key(priv_der: bytes) -> bytes:
+        k = _ser.load_der_private_key(priv_der, password=None)
+        return k.public_key().public_bytes(_ser.Encoding.DER, _ser.PublicFormat.SubjectPublicKeyInfo)
+
+    def _save_public_key_pem(pub_der: bytes) -> str:
+        k = _ser.load_der_public_key(pub_der)
+        return k.public_bytes(_ser.Encoding.PEM, _ser.PublicFormat.SubjectPublicKeyInfo).decode()
+
+    def _load_public_key_pem(pem: str) -> bytes:
+        k = _ser.load_pem_public_key(pem.encode())
+        return k.public_bytes(_ser.Encoding.DER, _ser.PublicFormat.SubjectPublicKeyInfo)
+
+    def _detect_private_key_type(der_bytes: bytes) -> str:
+        k = _ser.load_der_private_key(der_bytes, password=None)
+        if isinstance(k, _rsa.RSAPrivateKey):
+            return "RSA"
+        if isinstance(k, _ec.EllipticCurvePrivateKey):
+            if isinstance(k.curve, _ec.SECP384R1):
+                return "P-384"
+            if isinstance(k.curve, _ec.SECP256R1):
+                return "P-256"
+        raise ValueError("Unsupported private key type")
+
+    def _detect_public_key_type(der_bytes: bytes) -> str:
+        k = _ser.load_der_public_key(der_bytes)
+        if isinstance(k, _rsa.RSAPublicKey):
+            return "RSA"
+        if isinstance(k, _ec.EllipticCurvePublicKey):
+            if isinstance(k.curve, _ec.SECP384R1):
+                return "P-384"
+            if isinstance(k.curve, _ec.SECP256R1):
+                return "P-256"
+        raise ValueError("Unsupported public key type")
+
+    def _rsa_pkcs1_sha256_sign(priv_der: bytes, data: bytes) -> bytes:
+        k = _ser.load_der_private_key(priv_der, password=None)
+        return k.sign(data, _padding.PKCS1v15(), _hashes.SHA256())
+
+    def _rsa_pkcs1_sha384_sign(priv_der: bytes, data: bytes) -> bytes:
+        k = _ser.load_der_private_key(priv_der, password=None)
+        return k.sign(data, _padding.PKCS1v15(), _hashes.SHA384())
+
+    def _rsa_pkcs1_sha512_sign(priv_der: bytes, data: bytes) -> bytes:
+        k = _ser.load_der_private_key(priv_der, password=None)
+        return k.sign(data, _padding.PKCS1v15(), _hashes.SHA512())
+
+    def _rsa_pkcs1_sha256_verify(pub_der: bytes, data: bytes, signature: bytes) -> bool:
+        k = _ser.load_der_public_key(pub_der)
+        try:
+            k.verify(signature, data, _padding.PKCS1v15(), _hashes.SHA256())
+            return True
+        except Exception:
+            return False
+
+    def _rsa_pkcs1_sha384_verify(pub_der: bytes, data: bytes, signature: bytes) -> bool:
+        k = _ser.load_der_public_key(pub_der)
+        try:
+            k.verify(signature, data, _padding.PKCS1v15(), _hashes.SHA384())
+            return True
+        except Exception:
+            return False
+
+    def _rsa_pkcs1_sha512_verify(pub_der: bytes, data: bytes, signature: bytes) -> bool:
+        k = _ser.load_der_public_key(pub_der)
+        try:
+            k.verify(signature, data, _padding.PKCS1v15(), _hashes.SHA512())
+            return True
+        except Exception:
+            return False
+
+    def _ecdsa_p256_sign(private_key, data: bytes) -> bytes:
+        return private_key.sign(data, _ec.ECDSA(_hashes.SHA256()))
+
+    def _ecdsa_p384_sign(private_key, data: bytes) -> bytes:
+        return private_key.sign(data, _ec.ECDSA(_hashes.SHA384()))
+
+    def _ecdsa_p256_verify(public_key, data: bytes, signature: bytes) -> bool:
+        try:
+            public_key.verify(signature, data, _ec.ECDSA(_hashes.SHA256()))
+            return True
+        except Exception:
+            return False
+
+    def _ecdsa_p384_verify(public_key, data: bytes, signature: bytes) -> bool:
+        try:
+            public_key.verify(signature, data, _ec.ECDSA(_hashes.SHA384()))
+            return True
+        except Exception:
+            return False
+
+    _crypto_bridge_stub.rsa_generate = _rsa_generate
+    _crypto_bridge_stub.save_private_key_pem = _save_private_key_pem
+    _crypto_bridge_stub.load_private_key_pem = _load_private_key_pem
+    _crypto_bridge_stub.extract_public_key = _extract_public_key
+    _crypto_bridge_stub.save_public_key_pem = _save_public_key_pem
+    _crypto_bridge_stub.load_public_key_pem = _load_public_key_pem
+    _crypto_bridge_stub.detect_private_key_type = _detect_private_key_type
+    _crypto_bridge_stub.detect_public_key_type = _detect_public_key_type
+    _crypto_bridge_stub.rsa_pkcs1_sha256_sign = _rsa_pkcs1_sha256_sign
+    _crypto_bridge_stub.rsa_pkcs1_sha384_sign = _rsa_pkcs1_sha384_sign
+    _crypto_bridge_stub.rsa_pkcs1_sha512_sign = _rsa_pkcs1_sha512_sign
+    _crypto_bridge_stub.rsa_pkcs1_sha256_verify = _rsa_pkcs1_sha256_verify
+    _crypto_bridge_stub.rsa_pkcs1_sha384_verify = _rsa_pkcs1_sha384_verify
+    _crypto_bridge_stub.rsa_pkcs1_sha512_verify = _rsa_pkcs1_sha512_verify
+    _crypto_bridge_stub.ecdsa_p256_sign = _ecdsa_p256_sign
+    _crypto_bridge_stub.ecdsa_p384_sign = _ecdsa_p384_sign
+    _crypto_bridge_stub.ecdsa_p256_verify = _ecdsa_p256_verify
+    _crypto_bridge_stub.ecdsa_p384_verify = _ecdsa_p384_verify
+
+# ASN.1 structures — wire real classes so sod_signer/sod_parser work
+_asn1_stub_name = "marty_plugin.common.models.asn1_structures"
+if _asn1_stub_name not in sys.modules:
+    sys.modules[_asn1_stub_name] = _make_stub(_asn1_stub_name)
+try:
+    from marty_backend_common.models import asn1_structures as _real_asn1
+    _a_stub = sys.modules[_asn1_stub_name]
+    for _attr in dir(_real_asn1):
+        if not _attr.startswith("_"):
+            setattr(_a_stub, _attr, getattr(_real_asn1, _attr))
+except ImportError:
+    pass
+
+# crypto.certificate_validator — wire real classes (CertificateChainValidator, etc.)
+_cv_stub_name = "marty_plugin.common.crypto.certificate_validator"
+if _cv_stub_name not in sys.modules:
+    sys.modules[_cv_stub_name] = _make_stub(_cv_stub_name)
+try:
+    from marty_backend_common.crypto import certificate_validator as _real_cv
+    _cv_stub = sys.modules[_cv_stub_name]
+    for _attr in dir(_real_cv):
+        if not _attr.startswith("_"):
+            setattr(_cv_stub, _attr, getattr(_real_cv, _attr))
+except ImportError:
+    pass
+
+# crypto.data_group_hasher — stub verify_passport_data_groups to return success
+_dgh_stub_name = "marty_plugin.common.crypto.data_group_hasher"
+if _dgh_stub_name not in sys.modules:
+    sys.modules[_dgh_stub_name] = _make_stub(_dgh_stub_name)
+_dgh_stub = sys.modules[_dgh_stub_name]
+
+
+def _stub_verify_passport_data_groups(sod_data, dg_dict):
+    """Stub that returns a successful verification result."""
+    return (True, [], {"data_groups_verified": len(dg_dict), "hash_algorithm": "SHA-256"})
+
+
+_dgh_stub.verify_passport_data_groups = _stub_verify_passport_data_groups
+
+# MRZ utils — wire real MRZFormatter so generate_td1_mrz / generate_td3_mrz work
+_mrz_utils_stub_name = "marty_plugin.common.utils.mrz_utils"
+for _n in ("marty_plugin.common.utils", _mrz_utils_stub_name):
+    if _n not in sys.modules:
+        sys.modules[_n] = _make_stub(_n)
+try:
+    from marty_backend_common.utils import mrz_utils as _real_mrz_utils
+    _mu_stub = sys.modules[_mrz_utils_stub_name]
+    for _attr in dir(_real_mrz_utils):
+        if not _attr.startswith("_"):
+            setattr(_mu_stub, _attr, getattr(_real_mrz_utils, _attr))
+except ImportError:
+    pass
+
+# VC / SD-JWT — wire real b64url_encode into the stub
+for _n in ("marty_plugin.common.vc", "marty_plugin.common.vc.sd_jwt"):
+    if _n not in sys.modules:
+        sys.modules[_n] = _make_stub(_n)
+try:
+    from marty_backend_common.utils.base64_utils import b64url_encode as _b64url
+    sys.modules["marty_plugin.common.vc.sd_jwt"]._b64url_encode = _b64url
+except ImportError:
+    pass
+
+# ---------------------------------------------------------------------------
+
+try:
+    from marty_backend_common.models.passport import Gender, MRZData
 except ModuleNotFoundError:  # pragma: no cover - fallback for minimal test environments
     Gender = Mock()
     MRZData = Mock()

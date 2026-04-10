@@ -8,8 +8,8 @@ project_root = Path(__file__).resolve().parents[3]
 sys.path.append(str(project_root))
 
 # Import from Marty's codebase
-from src.marty_common.models.passport import Gender, MRZData
-from src.marty_common.utils.mrz_utils import MRZException, MRZFormatter, MRZParser
+from marty_backend_common.models.passport import Gender, MRZData
+from marty_backend_common.utils.mrz_utils import MRZException, MRZFormatter, MRZParser
 
 
 def test_mrz_data_model():

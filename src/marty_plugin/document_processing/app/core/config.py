@@ -34,7 +34,7 @@ class Settings(BaseSettings):
     SECRET_KEY: str = os.getenv("SECRET_KEY", "")
 
     # CORS configuration
-    CORS_ORIGINS: list[str] = ["*"]
+    CORS_ORIGINS: list[str] = os.getenv("CORS_ALLOWED_ORIGINS", "http://localhost:3000").split(",")
 
     # License configuration (for mock license info)
     LICENSE_ID: str = "4d43a2af-e321-496c-9a4e-5a8f3d26df0e"

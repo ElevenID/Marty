@@ -1,0 +1,6 @@
+{
+  "algorithm": "ES256",
+  "kid": "key-2024-001",
+  "message": "bWVzc2FnZV90b192ZXJpZnk=",
+  "signature": "c2lnbmF0dXJlX2J5dGVz"
+}

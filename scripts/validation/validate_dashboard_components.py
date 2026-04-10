@@ -9,9 +9,12 @@ This script validates dashboard and UI components:
 - API integration points
 """
 
+import logging
 import sys
 from pathlib import Path
 from typing import List
+
+logger = logging.getLogger(__name__)
 
 
 def check_dashboard_structure() -> list[str]:
@@ -144,6 +147,7 @@ def check_api_integration() -> list[str]:
                     break
 
             except Exception:
+                logger.warning("Failed to read config %s", config_file, exc_info=True)
                 continue
 
         # Also check JavaScript/TypeScript files for API calls
@@ -165,9 +169,8 @@ def check_api_integration() -> list[str]:
                         break
 
                 except Exception:
+                    logger.warning("Failed to read JS/TS file %s", js_file, exc_info=True)
                     continue
-
-        if config_files and not has_api_config:
             issues.append(f"{ui_dir}: Missing API integration configuration")
 
     return issues

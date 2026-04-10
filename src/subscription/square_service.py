@@ -21,15 +21,19 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from .models import Organization, Subscription, SubscriptionStatus, UsageRecord
 
+TYPE_CHECKING = False
+if TYPE_CHECKING:
+    from src.licensing.subscription_bridge import SubscriptionLicenseBridge
+
 logger = logging.getLogger(__name__)
 
 
 class SquarePlan(str, Enum):
-    """Available subscription plans."""
-    FREE = "free"
-    STARTER = "starter"
-    PROFESSIONAL = "professional"
-    ENTERPRISE = "enterprise"
+    """Available subscription plans (canonical tier names)."""
+    SANDBOX = "sandbox"
+    PROGRAM = "program"
+    INSTITUTION = "institution"
+    SYSTEM = "system"
 
 
 @dataclass
@@ -41,40 +45,50 @@ class PlanLimits:
     ip_allowlist_entries: int
     priority_support: bool
     custom_branding: bool
+    can_use_service_key_vault: bool  # Can use service provider's key vault
+    requires_remote_signing: bool  # Must use remote signing with own keys
 
 
 PLAN_LIMITS: dict[SquarePlan, PlanLimits] = {
-    SquarePlan.FREE: PlanLimits(
+    SquarePlan.SANDBOX: PlanLimits(
         api_calls_per_month=1000,
         webhook_endpoints=1,
         api_keys=2,
         ip_allowlist_entries=5,
         priority_support=False,
         custom_branding=False,
+        can_use_service_key_vault=True,
+        requires_remote_signing=False,
     ),
-    SquarePlan.STARTER: PlanLimits(
+    SquarePlan.PROGRAM: PlanLimits(
         api_calls_per_month=50000,
         webhook_endpoints=5,
         api_keys=10,
         ip_allowlist_entries=20,
         priority_support=False,
         custom_branding=False,
+        can_use_service_key_vault=False,
+        requires_remote_signing=True,
     ),
-    SquarePlan.PROFESSIONAL: PlanLimits(
+    SquarePlan.INSTITUTION: PlanLimits(
         api_calls_per_month=500000,
         webhook_endpoints=20,
         api_keys=50,
         ip_allowlist_entries=100,
         priority_support=True,
         custom_branding=True,
+        can_use_service_key_vault=False,
+        requires_remote_signing=True,
     ),
-    SquarePlan.ENTERPRISE: PlanLimits(
+    SquarePlan.SYSTEM: PlanLimits(
         api_calls_per_month=-1,  # Unlimited
         webhook_endpoints=-1,
         api_keys=-1,
         ip_allowlist_entries=-1,
         priority_support=True,
         custom_branding=True,
+        can_use_service_key_vault=False,
+        requires_remote_signing=True,
     ),
 }
 
@@ -105,10 +119,16 @@ class SquareService:
     - Syncing subscription status with local database
     """
     
-    def __init__(self, config: SquareConfig, db_session: AsyncSession):
+    def __init__(
+        self,
+        config: SquareConfig,
+        db_session: AsyncSession,
+        license_bridge: Optional["SubscriptionLicenseBridge"] = None,
+    ):
         self.config = config
         self.db = db_session
         self._client: Optional[httpx.AsyncClient] = None
+        self._license_bridge = license_bridge
         
         # Map Square plan IDs to our plans (configured externally)
         self._plan_catalog_ids: dict[SquarePlan, str] = {}
@@ -192,7 +212,7 @@ class SquareService:
         Returns:
             The created Subscription record
         """
-        if plan != SquarePlan.FREE and not card_id:
+        if plan != SquarePlan.SANDBOX and not card_id:
             raise SquareError("Payment method required for paid plans")
         
         client = await self._get_client()
@@ -202,13 +222,13 @@ class SquareService:
             raise SquareError("Organization must have a Square customer ID")
         
         catalog_id = self._plan_catalog_ids.get(plan)
-        if not catalog_id and plan != SquarePlan.FREE:
+        if not catalog_id and plan != SquarePlan.SANDBOX:
             raise SquareError(f"No catalog ID configured for plan: {plan}")
         
         square_subscription_id = None
         
-        # Create subscription in Square (skip for free plan)
-        if plan != SquarePlan.FREE and catalog_id:
+        # Create subscription in Square (skip for sandbox plan)
+        if plan != SquarePlan.SANDBOX and catalog_id:
             response = await client.post(
                 "/subscriptions",
                 json={
@@ -244,6 +264,17 @@ class SquareService:
         self.db.add(subscription)
         await self.db.commit()
         await self.db.refresh(subscription)
+        
+        # Issue license for the new subscription
+        if self._license_bridge:
+            try:
+                await self._license_bridge.on_subscription_created(
+                    org_id=organization.id,
+                    org_name=organization.name,
+                    square_plan=plan.value,
+                )
+            except Exception:
+                logger.exception("Failed to issue license for org %s", organization.id)
         
         logger.info(f"Created subscription {subscription.id} for org {organization.slug}")
         return subscription
@@ -286,6 +317,16 @@ class SquareService:
         subscription.status = SubscriptionStatus.CANCELED if immediately else SubscriptionStatus.PAST_DUE
         await self.db.commit()
         
+        # Revoke licenses on immediate cancellation
+        if immediately and self._license_bridge:
+            try:
+                await self._license_bridge.on_subscription_canceled(
+                    org_id=subscription.organization_id,
+                    reason="Subscription canceled",
+                )
+            except Exception:
+                logger.exception("Failed to revoke licenses for subscription %s", subscription.id)
+        
         logger.info(f"Canceled subscription {subscription.id}")
     
     async def upgrade_subscription(
@@ -301,7 +342,7 @@ class SquareService:
         client = await self._get_client()
         
         catalog_id = self._plan_catalog_ids.get(new_plan)
-        if not catalog_id and new_plan != SquarePlan.FREE:
+        if not catalog_id and new_plan != SquarePlan.SANDBOX:
             raise SquareError(f"No catalog ID configured for plan: {new_plan}")
         
         if subscription.square_subscription_id and catalog_id:
@@ -320,8 +361,21 @@ class SquareService:
         # Update local limits
         limits = PLAN_LIMITS[new_plan]
         subscription.plan = new_plan.value
-        subscription.api_calls_limit = limits.api_calls_limit
+        subscription.api_calls_limit = limits.api_calls_per_month
         await self.db.commit()
+        
+        # Reissue license with new tier entitlements
+        if self._license_bridge:
+            try:
+                org = await self.db.get(Organization, subscription.organization_id)
+                if org:
+                    await self._license_bridge.on_subscription_upgraded(
+                        org_id=org.id,
+                        org_name=org.name,
+                        new_square_plan=new_plan.value,
+                    )
+            except Exception:
+                logger.exception("Failed to reissue license for subscription %s", subscription.id)
         
         logger.info(f"Upgraded subscription {subscription.id} to {new_plan.value}")
         return subscription
@@ -452,8 +506,40 @@ class SquareService:
     
     async def _handle_subscription_created(self, data: dict[str, Any]) -> None:
         """Handle subscription.created webhook."""
-        # Usually already handled by create_subscription, but sync just in case
-        pass
+        # Usually already handled by create_subscription.
+        # If the subscription was created externally (e.g. Square dashboard),
+        # ensure a license exists.
+        subscription_data = data.get("subscription", {})
+        square_id = subscription_data.get("id")
+        if not square_id or not self._license_bridge:
+            return
+
+        result = await self.db.execute(
+            select(Subscription).where(Subscription.square_subscription_id == square_id)
+        )
+        subscription = result.scalar_one_or_none()
+        if not subscription:
+            return
+
+        # Check if org already has a license
+        existing = await self._license_bridge._issuer.get_org_license(
+            subscription.organization_id
+        )
+        if existing:
+            return  # Already issued
+
+        org = await self.db.get(Organization, subscription.organization_id)
+        if org:
+            try:
+                await self._license_bridge.on_subscription_created(
+                    org_id=org.id,
+                    org_name=org.name,
+                    square_plan=subscription.plan,
+                )
+            except Exception:
+                logger.exception(
+                    "Failed to issue license from webhook for org %s", org.id
+                )
     
     async def _handle_subscription_updated(self, data: dict[str, Any]) -> None:
         """Handle subscription.updated webhook."""
@@ -497,6 +583,18 @@ class SquareService:
         if subscription:
             subscription.status = SubscriptionStatus.CANCELED
             await self.db.commit()
+
+            if self._license_bridge:
+                try:
+                    await self._license_bridge.on_subscription_canceled(
+                        org_id=subscription.organization_id,
+                        reason="Subscription canceled via webhook",
+                    )
+                except Exception:
+                    logger.exception(
+                        "Failed to revoke licenses from webhook for org %s",
+                        subscription.organization_id,
+                    )
     
     async def _handle_payment_success(self, data: dict[str, Any]) -> None:
         """Handle invoice.payment_made webhook."""
@@ -517,6 +615,22 @@ class SquareService:
             subscription.status = SubscriptionStatus.ACTIVE
             subscription.current_period_start = datetime.now(timezone.utc)
             await self.db.commit()
+
+            # Refresh license for the new billing period
+            if self._license_bridge:
+                try:
+                    org = await self.db.get(Organization, subscription.organization_id)
+                    if org:
+                        await self._license_bridge.on_payment_success(
+                            org_id=org.id,
+                            org_name=org.name,
+                            square_plan=subscription.plan,
+                        )
+                except Exception:
+                    logger.exception(
+                        "Failed to refresh license from payment webhook for org %s",
+                        subscription.organization_id,
+                    )
             
             logger.info(f"Payment received for subscription {subscription.id}")
     
@@ -536,6 +650,18 @@ class SquareService:
         if subscription:
             subscription.status = SubscriptionStatus.PAST_DUE
             await self.db.commit()
+
+            # Don't revoke — license grace period handles the gap
+            if self._license_bridge:
+                try:
+                    await self._license_bridge.on_payment_failed(
+                        org_id=subscription.organization_id,
+                    )
+                except Exception:
+                    logger.exception(
+                        "Failed to handle payment failure for org %s",
+                        subscription.organization_id,
+                    )
             
             logger.warning(f"Payment failed for subscription {subscription.id}")
 

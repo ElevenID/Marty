@@ -9,7 +9,7 @@ from datetime import datetime
 from typing import Annotated, Any
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
 
 from digital_identity.application.services.credential_issuance_service import (
@@ -45,7 +45,7 @@ class IssueCredentialResponse(BaseModel):
     """Response from credential issuance."""
 
     credential_id: str = Field(..., description="Issued credential ID")
-    credential: dict[str, Any] = Field(..., description="The actual credential (returned once)")
+    credential: str | dict[str, Any] = Field(..., description="The actual credential (returned once)")
     credential_hash: str = Field(..., description="SHA-256 hash for audit")
     status_list_entries: list[dict[str, Any]] = Field(
         default_factory=list, description="Status list entry references"
@@ -68,6 +68,7 @@ class VerifyCredentialResponse(BaseModel):
     verified_claims: dict[str, Any] | None = Field(None, description="Verified claims")
     errors: list[str] = Field(default_factory=list, description="Validation errors")
     verification_timestamp: datetime = Field(..., description="Verification timestamp")
+    checks: dict[str, Any] | None = Field(None, description="Detailed verification checks")
 
 
 class RevokeCredentialRequest(BaseModel):
@@ -106,6 +107,7 @@ class CredentialMetadata(BaseModel):
     """Metadata about an issued credential (no actual credential data)."""
 
     id: str
+    credential_id: str | None = None
     credential_template_id: str
     organization_id: str
     flow_execution_id: str | None
@@ -150,12 +152,17 @@ async def get_credential_repository() -> IssuedCredentialRepository:
 
 
 async def get_organization_id(
-    # TODO: Add authentication/authorization dependency
+    x_organization_id: str | None = Header(None),
+    x_user_domain: str | None = Header(None),
 ) -> str:
-    """Extract organization ID from authenticated request."""
-    # TODO: Implement from auth context
-    # For now, return a default org ID for testing
-    return "default-org-id"
+    """Extract organization ID from gateway-injected headers."""
+    org_id = x_organization_id or x_user_domain
+    if not org_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Organization context missing. Request must include X-Organization-Id or X-User-Domain header.",
+        )
+    return org_id
 
 
 # ============================================================================
@@ -245,6 +252,7 @@ async def verify_credential(
             verified_claims=result.get("verified_claims"),
             errors=result.get("errors", []),
             verification_timestamp=datetime.utcnow(),
+            checks=result.get("checks"),
         )
 
     except ValueError as e:
@@ -274,9 +282,10 @@ async def get_credential_metadata(
 ) -> CredentialMetadata:
     """Get credential metadata by ID."""
     try:
-        issued_credential = await credential_repo.get_by_id(
-            credential_id, organization_id=organization_id
-        )
+        # Try by credential_id first (urn:uuid:...), fall back to internal id
+        issued_credential = await credential_repo.get_by_credential_id(credential_id)
+        if not issued_credential:
+            issued_credential = await credential_repo.get(credential_id)
 
         if not issued_credential:
             raise HTTPException(
@@ -285,15 +294,16 @@ async def get_credential_metadata(
 
         return CredentialMetadata(
             id=str(issued_credential.id),
+            credential_id=issued_credential.credential_id,
             credential_template_id=str(issued_credential.credential_template_id),
             organization_id=str(issued_credential.organization_id),
             flow_execution_id=str(issued_credential.flow_execution_id)
             if issued_credential.flow_execution_id
             else None,
             credential_hash=issued_credential.credential_hash,
-            status=issued_credential.status,
+            status=issued_credential.status.value if hasattr(issued_credential.status, 'value') else issued_credential.status,
             issued_at=issued_credential.issued_at,
-            expires_at=issued_credential.expires_at,
+            expires_at=issued_credential.valid_until,
             revoked_at=issued_credential.revoked_at,
         )
 
@@ -438,13 +448,14 @@ async def list_credentials(
         return [
             CredentialMetadata(
                 id=str(cred.id),
+                credential_id=cred.credential_id,
                 credential_template_id=str(cred.credential_template_id),
                 organization_id=str(cred.organization_id),
                 flow_execution_id=str(cred.flow_execution_id) if cred.flow_execution_id else None,
                 credential_hash=cred.credential_hash,
                 status=cred.status,
                 issued_at=cred.issued_at,
-                expires_at=cred.expires_at,
+                expires_at=cred.valid_until,
                 revoked_at=cred.revoked_at,
             )
             for cred in credentials

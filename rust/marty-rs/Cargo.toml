@@ -1,0 +1,37 @@
+[package]
+name = "_marty_rs"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+name = "_marty_rs"
+crate-type = ["cdylib"]
+
+[dependencies]
+# Python bindings
+pyo3 = { workspace = true }
+
+# SSI
+ssi-status = { workspace = true }
+
+# W3C VC / Bitstring Status List
+flate2 = { workspace = true }
+base64 = { workspace = true }
+
+# Serialization
+serde = { workspace = true }
+serde_json = { workspace = true }
+ciborium = { workspace = true }
+
+# Crypto
+p256 = { workspace = true }
+ecdsa = { workspace = true }
+elliptic-curve = { workspace = true }
+sha2 = { workspace = true }
+signature = { workspace = true }
+
+# Utils
+uuid = { workspace = true }
+chrono = { workspace = true }
+thiserror = { workspace = true }

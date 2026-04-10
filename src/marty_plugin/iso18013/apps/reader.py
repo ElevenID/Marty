@@ -464,7 +464,7 @@ class ISO18013ReaderApp:
                     )
                     verification_result["verified_data"]["age"] = age
                     verification_result["verified_data"]["age_verified"] = age >= 18
-                except:
+                except (ValueError, TypeError, AttributeError):
                     verification_result["warnings"].append(
                         "Could not calculate age from birth_date"
                     )
