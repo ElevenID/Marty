@@ -176,3 +176,8 @@ tests/e2e/videos/
 
 # Local build tracking
 .last-build-sha
+
+# Auto-generated lockfiles that cause merge conflicts (short-term fix)
+rust/Cargo.lock
+marty-verifier/Cargo.lock
+marty-verifier/ui/pnpm-lock.yaml
