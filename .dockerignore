@@ -57,3 +57,22 @@ marty-microservices-framework/.git/
 marty-microservices-framework/.mypy_cache/
 marty-microservices-framework/.ruff_cache/
 marty-microservices-framework/htmlcov/
+
+# Rust build artifacts (can be hundreds of MB)
+rust/target/
+marty-verifier/target/
+marty-verifier/ui/node_modules/
+
+# CI/CD and infra config (not needed in image)
+.github/
+k8s/
+
+# Reports and docs
+reports/
+docs/
+*.md
+!README.md
+
+# Lock files (auto-generated, not needed in build context)
+*.lock
+!uv.lock
