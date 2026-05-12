@@ -283,7 +283,7 @@ class TrustProfileResolver:
             return False
         
         # Check allowlist if it exists
-        if profile.issuer_allowlist:
+        if profile.issuer_allowlist is not None:
             return issuer_id in profile.issuer_allowlist
         
         # No filtering → allow

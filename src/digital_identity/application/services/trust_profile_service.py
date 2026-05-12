@@ -82,6 +82,14 @@ class TrustProfileService:
         existing = await self._repository.get_by_name(name)
         if existing:
             raise ValueError(f"Trust Profile with name '{name}' already exists")
+
+        _UNSET = object()
+        explicit_allowed_issuers = kwargs.pop("allowed_issuers", _UNSET)
+        effective_allowed_issuers = (
+            explicit_allowed_issuers
+            if explicit_allowed_issuers is not _UNSET
+            else ([] if not trust_sources else None)
+        )
         
         # Convert profile_type to enum if it's a string
         if isinstance(profile_type, str):
@@ -103,6 +111,7 @@ class TrustProfileService:
             profile_type=profile_type,
             description=description,
             trust_sources=trust_sources or [],
+            allowed_issuers=effective_allowed_issuers,
             allowed_algorithms=algorithms,
             supported_formats=formats,
             **kwargs,
