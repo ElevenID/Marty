@@ -26,6 +26,8 @@ MANIFEST
 # Virtual environments
 .env
 .env.tunnel
+.env.demo
+.env.microsoft
 .venv
 env/
 venv/

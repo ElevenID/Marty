@@ -516,4 +516,4 @@ For more documentation, see the [docs/](docs/) directory which contains 50+ addi
 
 ## License
 
-This project is provided under an Educational Use Only license for learning and portfolio demonstration. Commercial or production use is not permitted. See the LICENSE file for full terms.
+This project is licensed under the [GNU Affero General Public License v3.0](LICENSE) (AGPL-3.0-only).

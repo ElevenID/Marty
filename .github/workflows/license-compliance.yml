@@ -1,0 +1,132 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+name: License Compliance
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 6 * * 1'  # Weekly on Monday at 6 AM UTC
+  push:
+    branches: [main]
+    paths:
+      - 'pyproject.toml'
+      - 'LICENSE'
+      - 'README.md'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'pyproject.toml'
+      - 'LICENSE'
+      - 'README.md'
+
+jobs:
+  metadata-consistency:
+    name: License Metadata Consistency
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Check license metadata consistency
+        run: |
+          python - <<'EOF'
+          import sys
+          try:
+              import tomllib
+          except ImportError:
+              import tomli as tomllib
+
+          fail = False
+
+          with open("pyproject.toml", "rb") as f:
+              data = tomllib.load(f)
+
+          proj = data.get("project", {})
+          license_val = proj.get("license", {})
+
+          # Support both {text = "..."} and {file = "..."} forms
+          if isinstance(license_val, dict):
+              license_text = license_val.get("text", license_val.get("file", ""))
+          else:
+              license_text = str(license_val)
+
+          if "AGPL-3.0" not in license_text:
+              print(f"FAIL: pyproject.toml license = {license_text!r}, expected AGPL-3.0-only")
+              fail = True
+          else:
+              print(f"OK: pyproject.toml license = {license_text!r}")
+
+          import os
+          if not os.path.exists("LICENSE"):
+              print("FAIL: LICENSE file is missing")
+              fail = True
+          else:
+              print("OK: LICENSE present")
+
+          with open("README.md") as f:
+              readme = f.read()
+          if "## License" not in readme:
+              print("FAIL: README.md is missing a ## License section")
+              fail = True
+          else:
+              print("OK: README.md has ## License section")
+
+          sys.exit(1 if fail else 0)
+          EOF
+
+  dependency-license-inventory:
+    name: Dependency License Inventory
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v3
+        with:
+          version: "latest"
+
+      - name: Set up Python 3.11
+        run: uv python install 3.11
+
+      - name: Install project dependencies
+        run: uv sync --all-extras
+
+      - name: Generate dependency license inventory
+        run: |
+          uv pip install pip-licenses
+          uv run pip-licenses --format=json > dependency-licenses.json
+
+      - name: Upload license inventory
+        uses: actions/upload-artifact@v4
+        with:
+          name: dependency-licenses
+          path: dependency-licenses.json
+
+  sbom:
+    name: Generate SBOM
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v3
+        with:
+          version: "latest"
+
+      - name: Set up Python 3.11
+        run: uv python install 3.11
+
+      - name: Install project dependencies
+        run: uv sync --all-extras
+
+      - name: Install cyclonedx-bom
+        run: uv pip install cyclonedx-bom
+
+      - name: Generate CycloneDX SBOM
+        run: uv run cyclonedx-py environment "$(uv python find)" --of json --output-file sbom.cdx.json
+
+      - name: Upload SBOM artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom
+          path: sbom.cdx.json

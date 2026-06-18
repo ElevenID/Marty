@@ -9,7 +9,7 @@ version = "1.0.0"
 description = "Marty Trust PKI Plugin for MMF - Enterprise-grade PKI and trust services for secure digital identity document management (eMRTD, mDL, DTC) with ICAO compliance"
 readme = "README.md"
 requires-python = ">=3.11"
-license = {text = "Proprietary"}
+license = {text = "AGPL-3.0-only"}
 dependencies = [
     # Core plugin dependencies
     "pydantic>=2.4.2",
