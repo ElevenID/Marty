@@ -1,5 +1,5 @@
 # Additional dependencies for Cedar Policy Engine integration
-watchdog>=3.0.0  # For hot-reload file watching
+watchdog>=6.0.0  # For hot-reload file watching
 PyYAML>=6.0      # For YAML rule pack parsing
 
 # Note: Cedar policy Python bindings
@@ -7,4 +7,4 @@ PyYAML>=6.0      # For YAML rule pack parsing
 # For now, we're using a compatible interface that can be replaced with the real library
 
 # Development dependencies for Cedar integration
-jsonschema>=4.0.0  # For rule pack schema validation
+jsonschema>=4.26.0  # For rule pack schema validation
