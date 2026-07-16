@@ -84,7 +84,7 @@
     - `get_ux_config()` - Get UX settings
     - `get_active_policy_id()` - Priority: lane default > profile default
     - `get_offline_cache_ttl_hours()` - Get cache TTL
-    - `is_biometric_required()` - Check biometric setting
+    - `is_operator_biometric_authentication_required()` - Check operator biometric setting
     - `should_audit_all_events()` - Check audit setting
     - `snapshot()` - Get serializable config snapshot
   - Unit tests included

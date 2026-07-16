@@ -57,8 +57,13 @@ class TestPresentationPolicyIntegration:
             trust_profile_id=tp.id,
             holder_binding=HolderBindingConfig(
                 required=True,
-                binding_methods=[HolderBindingMethod.BIOMETRIC],
-                nonce_required=False,
+                binding_methods=[HolderBindingMethod.DEVICE_KEY],
+                proof_profiles=["OID4VP_VERIFIABLE_PRESENTATION"],
+                proof_freshness={
+                    "challenge_required": True,
+                    "audience_binding_required": True,
+                    "replay_detection_required": True,
+                },
             ),
             freshness_requirements={
                 "max_age_seconds": 86400,

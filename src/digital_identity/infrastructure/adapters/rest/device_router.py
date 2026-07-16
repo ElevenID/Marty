@@ -118,7 +118,7 @@ async def get_device_config(
                 "rollout_ring": deployment_profile.update_policy.rollout_ring,
             },
             "offline_cache_ttl_hours": deployment_profile.offline_cache_ttl_hours,
-            "biometric_required": deployment_profile.biometric_required,
+            "operator_biometric_authentication_required": deployment_profile.operator_biometric_authentication_required,
             "audit_all_events": deployment_profile.audit_all_events,
         }
         

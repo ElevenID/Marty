@@ -715,7 +715,7 @@ class DeploymentProfileRepository:
             existing.ux_config = ux_data
             existing.update_policy = update_data
             existing.offline_cache_ttl_hours = entity.offline_cache_ttl_hours
-            existing.biometric_required = entity.biometric_required
+            existing.biometric_required = entity.operator_biometric_authentication_required
             existing.audit_all_events = entity.audit_all_events
             existing.organization_id = getattr(entity, 'organization_id', None)
             existing.lanes = self._serialize_lanes(entity.lanes)
@@ -735,7 +735,7 @@ class DeploymentProfileRepository:
                 ux_config=ux_data,
                 update_policy=update_data,
                 offline_cache_ttl_hours=entity.offline_cache_ttl_hours,
-                biometric_required=entity.biometric_required,
+                biometric_required=entity.operator_biometric_authentication_required,
                 audit_all_events=entity.audit_all_events,
                 organization_id=getattr(entity, 'organization_id', None),
                 lanes=self._serialize_lanes(entity.lanes),
@@ -808,7 +808,7 @@ class DeploymentProfileRepository:
             ux_config=self._deserialize_ux_config(model.ux_config),
             update_policy=self._deserialize_update_policy(model.update_policy),
             offline_cache_ttl_hours=model.offline_cache_ttl_hours,
-            biometric_required=model.biometric_required,
+            operator_biometric_authentication_required=model.biometric_required,
             audit_all_events=model.audit_all_events,
             organization_id=getattr(model, 'organization_id', None),
             lanes=self._deserialize_lanes(getattr(model, 'lanes', []) or []),

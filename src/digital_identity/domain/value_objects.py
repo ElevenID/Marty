@@ -264,17 +264,11 @@ class PrivacyPosture:
 # =============================================================================
 
 class HolderBindingMethod(str, Enum):
-    """Methods for binding a presentation to a holder.
-    
-    Spec binding_methods: NONCE, DEVICE_KEY, SESSION_BINDING.
-    Gateway extends with BIOMETRIC, NONE.
-    """
-    
-    NONCE = "NONCE"                     # Nonce-based challenge-response
+    """Control mechanisms that bind a presentation to its holder."""
+
+    CREDENTIAL_KEY = "CREDENTIAL_KEY"   # Key bound to the credential
     DEVICE_KEY = "DEVICE_KEY"           # Key bound to device
     SESSION_BINDING = "SESSION_BINDING" # Session-level binding
-    BIOMETRIC = "BIOMETRIC"             # Biometric verification (gateway extension)
-    NONE = "NONE"                       # No holder binding (gateway extension)
     
     def __str__(self) -> str:
         return self.value
@@ -282,46 +276,58 @@ class HolderBindingMethod(str, Enum):
 
 @dataclass(frozen=True)
 class HolderBindingConfig:
-    """Structured holder-binding configuration matching spec shape.
-
-    Spec shape: {required: bool, binding_methods: [str], nonce_required: bool}
-    """
+    """Holder control, wire proof, and proof-freshness requirements."""
 
     required: bool = False
-    binding_methods: list[HolderBindingMethod] = field(
-        default_factory=lambda: [HolderBindingMethod.NONCE]
-    )
-    nonce_required: bool = False
+    binding_methods: list[HolderBindingMethod] = field(default_factory=list)
+    proof_profiles: list[str] = field(default_factory=list)
+    proof_freshness: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
+        if not self.required:
+            return {"required": False}
         return {
-            "required": self.required,
+            "required": True,
             "binding_methods": [m.value for m in self.binding_methods],
-            "nonce_required": self.nonce_required,
+            "proof_profiles": self.proof_profiles,
+            "proof_freshness": self.proof_freshness,
         }
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> HolderBindingConfig:
-        methods = [
-            HolderBindingMethod(m) for m in data.get("binding_methods", ["NONCE"])
+        required = bool(data.get("required", False))
+        raw_methods = [
+            "SESSION_BINDING" if method == "NONCE" else method
+            for method in data.get("binding_methods", [])
+            if method != "BIOMETRIC"
         ]
+        methods = [HolderBindingMethod(method) for method in raw_methods]
+        if required and not methods:
+            methods = [HolderBindingMethod.DEVICE_KEY]
         return cls(
-            required=data.get("required", False),
+            required=required,
             binding_methods=methods,
-            nonce_required=data.get("nonce_required", False),
+            proof_profiles=list(data.get("proof_profiles") or (
+                ["OID4VP_VERIFIABLE_PRESENTATION"] if required else []
+            )),
+            proof_freshness=dict(data.get("proof_freshness") or (
+                {
+                    "challenge_required": True,
+                    "audience_binding_required": True,
+                    "replay_detection_required": True,
+                } if required else {}
+            )),
         )
 
     @classmethod
     def from_legacy(cls, value: str) -> HolderBindingConfig:
-        """Convert a legacy single-enum string (e.g. 'NONCE') to config."""
-        method = HolderBindingMethod(value)
-        if method == HolderBindingMethod.NONE:
-            return cls(required=False, binding_methods=[], nonce_required=False)
-        return cls(
-            required=True,
-            binding_methods=[method],
-            nonce_required=(method == HolderBindingMethod.NONCE),
-        )
+        """Convert an old single-enum value to the canonical structure."""
+        if value == "NONE":
+            return cls(required=False)
+        method = "SESSION_BINDING" if value == "NONCE" else value
+        if method == "BIOMETRIC":
+            method = "DEVICE_KEY"
+        return cls.from_dict({"required": True, "binding_methods": [method]})
 
 
 class CredentialRankingStrategy(str, Enum):

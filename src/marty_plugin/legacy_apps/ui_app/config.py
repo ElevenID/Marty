@@ -42,6 +42,7 @@ class UiSettings(BaseSettings):
     theme: Literal["light", "dark"] = Field(default="light", alias="UI_THEME")
     public_base_url: str | None = Field(default=None, alias="UI_PUBLIC_BASE_URL")
     credential_issuer: str = Field(default="https://issuer.local", alias="UI_CREDENTIAL_ISSUER")
+    legacy_oid4vci_enabled: bool = Field(default=False, alias="UI_LEGACY_OID4VCI_ENABLED")
 
 
 @lru_cache
