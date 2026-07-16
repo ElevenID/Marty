@@ -1088,7 +1088,7 @@ def _deployment_profile_to_response(profile) -> DeploymentProfileResponse:
             for lane in (profile.lanes or [])
         ],
         offline_cache_ttl_hours=profile.offline_cache_ttl_hours,
-        biometric_required=profile.biometric_required,
+        operator_biometric_authentication_required=profile.operator_biometric_authentication_required,
         audit_all_events=profile.audit_all_events,
         metadata=profile.metadata,
         created_at=profile.created_at,

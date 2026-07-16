@@ -76,7 +76,7 @@ curl -X POST "http://localhost:8000/v1/identity/deployment-profiles" \
       "rollout_percentage": 100
     },
     "offline_cache_ttl_hours": 24,
-    "biometric_required": false,
+    "operator_biometric_authentication_required": false,
     "audit_all_events": true
   }'
 
@@ -314,7 +314,7 @@ Map old configuration to new profile fields:
 # New: deployment_profile.offline_cache_ttl_hours = 48
 
 # Old: MARTY_REQUIRE_BIOMETRIC=true
-# New: deployment_profile.biometric_required = true
+# New: deployment_profile.operator_biometric_authentication_required = true
 ```
 
 ### Config File → DeploymentProfile

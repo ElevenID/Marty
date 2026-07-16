@@ -53,7 +53,7 @@ class PresentationPolicyService:
         description: str | None = None,
         required_claims: list[dict[str, Any]] | None = None,
         accepted_credential_types: list[str] | None = None,
-        holder_binding: str | dict[str, Any] = "NONCE",
+        holder_binding: str | dict[str, Any] | HolderBindingConfig | None = None,
         trust_profile_id: str | None = None,
         freshness_requirements: dict[str, Any] | None = None,
         **kwargs: Any,
@@ -71,7 +71,9 @@ class PresentationPolicyService:
                 claims.append(RequiredClaim(**claim_data))
         
         # Resolve holder_binding (accept dict, string, or HolderBindingConfig)
-        if isinstance(holder_binding, HolderBindingConfig):
+        if holder_binding is None:
+            hb_config = HolderBindingConfig()
+        elif isinstance(holder_binding, HolderBindingConfig):
             hb_config = holder_binding
         elif isinstance(holder_binding, dict):
             hb_config = HolderBindingConfig.from_dict(holder_binding)
@@ -148,6 +150,15 @@ class PresentationPolicyService:
         
         # Apply updates
         for key, value in updates.items():
+            if key == "holder_binding" and value is not None:
+                if isinstance(value, HolderBindingConfig):
+                    pass
+                elif isinstance(value, dict):
+                    value = HolderBindingConfig.from_dict(value)
+                elif isinstance(value, HolderBindingMethod):
+                    value = HolderBindingConfig.from_legacy(value.value)
+                else:
+                    value = HolderBindingConfig.from_legacy(str(value))
             if hasattr(policy, key):
                 old_value = getattr(policy, key)
                 if old_value != value:

@@ -85,6 +85,18 @@ def create_app(settings: UiSettings | None = None) -> FastAPI:
             status_code = status.HTTP_501_NOT_IMPLEMENTED
         raise HTTPException(status_code=status_code, detail=detail)
 
+    def require_legacy_oid4vci() -> None:
+        """Keep the draft-era issuer API isolated unless explicitly enabled."""
+        if not settings.legacy_oid4vci_enabled:
+            raise HTTPException(
+                status_code=status.HTTP_410_GONE,
+                detail=(
+                    "Legacy OID4VCI routes are disabled because they implement a draft-era "
+                    "nonce and proof flow. Use the Marty Final OID4VCI issuer service instead, "
+                    "or set UI_LEGACY_OID4VCI_ENABLED=true only for compatibility testing."
+                ),
+            )
+
     @app.get("/favicon.ico", include_in_schema=False)
     async def favicon():
         """Favicon endpoint to prevent 404 errors."""
@@ -1277,7 +1289,11 @@ def create_app(settings: UiSettings | None = None) -> FastAPI:
         )
 
     # OIDC4VCI Routes
-    @app.get("/oidc4vci/.well-known/openid-credential-issuer")
+    @app.get(
+        "/oidc4vci/.well-known/openid-credential-issuer",
+        deprecated=True,
+        dependencies=[Depends(require_legacy_oid4vci)],
+    )
     async def credential_issuer_metadata() -> dict[str, Any]:
         """Expose minimal metadata for OIDC4VCI wallets."""
 
@@ -1298,7 +1314,11 @@ def create_app(settings: UiSettings | None = None) -> FastAPI:
             },
         }
 
-    @app.post("/oidc4vci/credential-offers")
+    @app.post(
+        "/oidc4vci/credential-offers",
+        deprecated=True,
+        dependencies=[Depends(require_legacy_oid4vci)],
+    )
     async def create_credential_offer_endpoint(
         payload: CredentialOfferCreate,
         factory: GrpcClientFactory = Depends(get_factory),
@@ -1325,7 +1345,11 @@ def create_app(settings: UiSettings | None = None) -> FastAPI:
             "expires_in": response.expires_in,
         }
 
-    @app.get("/oidc4vci/credential-offers/{offer_id}")
+    @app.get(
+        "/oidc4vci/credential-offers/{offer_id}",
+        deprecated=True,
+        dependencies=[Depends(require_legacy_oid4vci)],
+    )
     async def get_credential_offer_endpoint(
         offer_id: str,
         factory: GrpcClientFactory = Depends(get_factory),
@@ -1344,7 +1368,11 @@ def create_app(settings: UiSettings | None = None) -> FastAPI:
             "expires_in": response.expires_in,
         }
 
-    @app.post("/oidc4vci/token")
+    @app.post(
+        "/oidc4vci/token",
+        deprecated=True,
+        dependencies=[Depends(require_legacy_oid4vci)],
+    )
     async def redeem_pre_authorized_code(
         factory: GrpcClientFactory = Depends(get_factory),
         grant_type: str = Form(...),
@@ -1378,7 +1406,11 @@ def create_app(settings: UiSettings | None = None) -> FastAPI:
             "offer_id": response.offer_id,
         }
 
-    @app.post("/oidc4vci/credential")
+    @app.post(
+        "/oidc4vci/credential",
+        deprecated=True,
+        dependencies=[Depends(require_legacy_oid4vci)],
+    )
     async def issue_sd_jwt_credential(
         payload: CredentialIssuanceRequest = Body(...),
         factory: GrpcClientFactory = Depends(get_factory),

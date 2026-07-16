@@ -9,7 +9,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import AliasChoices, BaseModel, Field, model_validator
 
 
 # ---------------------------------------------------------
@@ -248,7 +248,7 @@ class PresentationPolicyCreate(BaseModel):
     purpose: str = Field(..., description="Purpose statement shown to user")
     accepted_credential_types: list[str] = Field(..., description="Accepted credential types")
     required_claims: list[RequiredClaimSchema] = Field(default_factory=list, description="Required claims")
-    holder_binding: dict[str, Any] = Field(default_factory=lambda: {"required": False}, description="Holder binding config: {required, binding_methods, nonce_required}")
+    holder_binding: dict[str, Any] = Field(default_factory=lambda: {"required": False}, description="Holder binding config with control methods, proof profiles, and proof freshness")
     trust_profile_id: str | None = None
     allowed_issuers: list[str] = Field(default_factory=list, description="Explicit issuer DID/certificate allowlist")
     freshness_requirements: FreshnessRequirementsSchema | None = None
@@ -380,6 +380,16 @@ class LaneResponse(BaseModel):
 
 class DeploymentProfileCreate(BaseModel):
     """Schema for creating a Deployment Profile."""
+
+    @model_validator(mode="before")
+    @classmethod
+    def reject_mixed_biometric_aliases(cls, data: Any) -> Any:
+        if isinstance(data, dict) and {
+            "operator_biometric_authentication_required",
+            "biometric_required",
+        } <= data.keys():
+            raise ValueError("use only operator_biometric_authentication_required")
+        return data
     
     organization_id: str = Field(..., description="Organization UUID this profile belongs to")
     name: str = Field(..., min_length=1, max_length=128, description="Profile name")
@@ -392,13 +402,27 @@ class DeploymentProfileCreate(BaseModel):
     ux_config: UXConfigSchema | None = None
     update_policy: UpdatePolicySchema | None = None
     offline_cache_ttl_hours: int = Field(default=24, ge=1, description="Offline cache TTL")
-    biometric_required: bool = Field(default=False, description="Require biometric auth")
+    operator_biometric_authentication_required: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("operator_biometric_authentication_required", "biometric_required"),
+        description="Require biometric authentication for the deployment operator",
+    )
     audit_all_events: bool = Field(default=True, description="Audit all events")
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class DeploymentProfileUpdate(BaseModel):
     """Schema for updating a Deployment Profile."""
+
+    @model_validator(mode="before")
+    @classmethod
+    def reject_mixed_biometric_aliases(cls, data: Any) -> Any:
+        if isinstance(data, dict) and {
+            "operator_biometric_authentication_required",
+            "biometric_required",
+        } <= data.keys():
+            raise ValueError("use only operator_biometric_authentication_required")
+        return data
     
     name: str | None = None
     description: str | None = None
@@ -410,7 +434,10 @@ class DeploymentProfileUpdate(BaseModel):
     ux_config: UXConfigSchema | None = None
     update_policy: UpdatePolicySchema | None = None
     offline_cache_ttl_hours: int | None = None
-    biometric_required: bool | None = None
+    operator_biometric_authentication_required: bool | None = Field(
+        default=None,
+        validation_alias=AliasChoices("operator_biometric_authentication_required", "biometric_required"),
+    )
     audit_all_events: bool | None = None
     metadata: dict[str, Any] | None = None
 
@@ -430,7 +457,7 @@ class DeploymentProfileResponse(BaseModel):
     ux_config: dict[str, Any]
     update_policy: dict[str, Any]
     offline_cache_ttl_hours: int
-    biometric_required: bool
+    operator_biometric_authentication_required: bool
     audit_all_events: bool
     lanes: list[dict[str, Any]] = []
     metadata: dict[str, Any]

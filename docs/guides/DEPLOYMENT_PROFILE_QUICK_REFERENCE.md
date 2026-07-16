@@ -18,7 +18,7 @@ POST /v1/identity/deployment-profiles
   "ux_config": {"theme": "light", "locale": "en"},
   "update_policy": {"rollout_percentage": 100},
   "offline_cache_ttl_hours": 24,
-  "biometric_required": false,
+  "operator_biometric_authentication_required": false,
   "audit_all_events": true
 }
 
@@ -108,7 +108,7 @@ profile = await deployment_profile_service.create(
     ux_config=UXConfig(theme="dark", locale="en"),
     update_policy=UpdatePolicy(rollout_percentage=10),
     offline_cache_ttl_hours=48,
-    biometric_required=True,
+    operator_biometric_authentication_required=True,
     audit_all_events=True,
 )
 

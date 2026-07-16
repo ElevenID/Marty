@@ -1252,7 +1252,7 @@ class DeploymentProfile(Entity):
         ux_config: User experience configuration
         update_policy: Software update policy
         offline_cache_ttl_hours: Hours to cache trust data offline
-        biometric_required: Require biometric verification
+        operator_biometric_authentication_required: Require operator biometric authentication
         audit_all_events: Log all verification events
         lanes: Child lanes for device grouping
         metadata: Additional configuration
@@ -1283,7 +1283,7 @@ class DeploymentProfile(Entity):
     
     # Operational settings
     offline_cache_ttl_hours: int = 24
-    biometric_required: bool = False
+    operator_biometric_authentication_required: bool = False
     audit_all_events: bool = True
     
     # Lanes
