@@ -1,0 +1,21 @@
+name: CodeQL
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "17 3 * * 2"
+
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    uses: ElevenID/.github/.github/workflows/codeql.yml@8e3c9bac4b2aa7b1c49494cbf950c53b4ff55f3a
+    with:
+      languages: '["python"]'
+    permissions:
+      contents: read
+      security-events: write
+      packages: read

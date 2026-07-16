@@ -108,7 +108,7 @@ def generate_openapi_spec(
         # Add additional metadata
         openapi_spec["info"]["contact"] = {
             "name": "Marty Platform Team",
-            "url": "https://github.com/burdettadam/Marty",
+            "url": "https://github.com/ElevenID/Marty",
         }
 
         openapi_spec["info"]["license"] = {
@@ -192,7 +192,7 @@ def create_combined_spec(specs: dict[str, dict[str, Any]]) -> dict[str, Any]:
             "version": "1.0.0",
             "contact": {
                 "name": "Marty Platform Team",
-                "url": "https://github.com/burdettadam/Marty",
+                "url": "https://github.com/ElevenID/Marty",
             },
             "license": {"name": "Proprietary"},
         },

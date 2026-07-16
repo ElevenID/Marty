@@ -2,7 +2,7 @@
 
 **Educational Implementation of Secure Digital Identity Document Management**
 
-> ⚠️ **EDUCATIONAL USE ONLY** - This project is developed for learning ICAO standards and portfolio demonstration purposes. Not intended for production use.
+> This overview is informational; deployment support and security expectations are documented separately.
 
 ## Project Context
 

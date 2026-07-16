@@ -512,7 +512,7 @@ def expired_mdoc_data() -> dict[str, Any]:
 # Utility Fixtures
 # =============================================================================
 
-@pytest.fixture
+@pytest.fixture(scope="session")
 def base_url() -> str:
     """Base URL for API testing."""
     return "http://localhost:8000"

@@ -294,7 +294,7 @@ Request: {
 POST /api/v1/mdl/online/presentation
 Request: {
   "presentation_submission": {...},
-  "vp_token": "eyJ0eXAiOiJKV1QiLCJhbGciOiJFUzI1NiJ9..."
+  "vp_token": "<base64url-encoded-vp-token>"
 }
 ```
 
@@ -583,8 +583,8 @@ The Marty implementation includes several extensions beyond the base ISO 18013 s
 
 ### Implementation Repositories
 
-- [Marty ISO 18013 Implementation](https://github.com/your-org/marty/tree/main/src/iso18013)
-- [ISO 18013-5 Test Vectors](https://github.com/your-org/marty/tree/main/src/iso18013/testing)
+- [Marty ISO 18013 Implementation](https://github.com/ElevenID/Marty/tree/main/src/iso18013)
+- [ISO 18013-5 Test Vectors](https://github.com/ElevenID/Marty/tree/main/src/iso18013/testing)
 
 ---
 

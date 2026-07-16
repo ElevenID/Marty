@@ -18,15 +18,11 @@ from .services import (
     CSCAService
 )
 
-# Rust bindings are required - let ImportError propagate naturally
-from . import _marty_rs
-
 __all__ = [
     "MartyPlugin",
     "MartyTrustPKIConfig",
     "TrustAnchorService",
     "PKDService",
     "DocumentSignerService",
-    "CSCAService",
-    "_marty_rs"
+    "CSCAService"
 ]

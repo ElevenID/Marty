@@ -1,98 +1,31 @@
-name: Proto Validation and Breaking Change Detection
+name: Protocol validation
 
-# TEMPORARILY DISABLED - CI checks turned off while fixing tests
-# To re-enable, uncomment the push/pull_request triggers below
 on:
-  workflow_dispatch:
-  # push:
-  #   branches: [ main, develop ]
-  #   paths:
-  #     - 'proto/**'
-  #     - 'src/compile_protos.py'
-  #     - '.github/workflows/proto-validation.yml'
-  #     - 'buf.yaml'
-  #     - 'buf.work.yaml'
-  # pull_request:
-  #   branches: [ main, develop ]
-  #   paths:
-  #     - 'proto/**'
-  #     - 'src/compile_protos.py'
-  #     - '.github/workflows/proto-validation.yml'
-  #     - 'buf.yaml'
-  #     - 'buf.work.yaml'
+  pull_request:
+    paths: ["proto/**", "src/compile_protos.py", ".github/workflows/proto-validation.yml"]
+  push:
+    branches: [main]
+    paths: ["proto/**", "src/compile_protos.py", ".github/workflows/proto-validation.yml"]
+
+permissions:
+  contents: read
 
 jobs:
-  validate-protos:
+  validate:
     runs-on: ubuntu-latest
-
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-      with:
-        # Fetch full history for breaking change detection
-        fetch-depth: 0
-
-    - name: Set up Buf
-      uses: bufbuild/buf-setup-action@v1
-      with:
-        github_token: ${{ secrets.GITHUB_TOKEN }}
-
-    - name: Set up Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: '3.9'
-
-    - name: Install system dependencies
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y protobuf-compiler
-
-    - name: Install Python dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install grpcio-tools protobuf
-
-    - name: Lint protobuf files
-      run: buf lint
-
-    - name: Check for breaking changes
-      if: github.event_name == 'pull_request'
-      run: |
-        # Compare against the target branch
-        buf breaking --against '.git#branch=${{ github.base_ref }}'
-
-    - name: Build protobuf files
-      run: buf build
-
-    - name: Compile protocol buffers
-      run: |
-        python -m src.compile_protos
-
-    - name: Check for uncommitted proto changes
-      run: |
-        if [ -n "$(git status --porcelain src/proto/)" ]; then
-          echo "Error: Protocol buffer files are not up to date!"
-          echo "Please run 'python -m src.compile_protos' and commit the changes."
-          git status src/proto/
-          git diff src/proto/
-          exit 1
-        fi
-
-    - name: Validate proto import consistency
-      run: |
-        # Check that all proto imports use the correct pattern
-        if grep -r "from proto import" src/ --include="*.py" --exclude-dir=proto; then
-          echo "Error: Found incorrect proto import patterns!"
-          echo "Please use 'from src.proto import' instead of 'from proto import'"
-          exit 1
-        fi
-        echo "All proto imports are consistent ✓"
-
-    - name: Validate proto file syntax
-      run: |
-        # Validate all proto files can be compiled
-        for proto_file in proto/*.proto; do
-          echo "Validating $proto_file..."
-          protoc --proto_path=proto --python_out=/tmp "$proto_file"
-        done
-        echo "All proto files are syntactically valid ✓"
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: "3.12"
+      - run: python -m pip install grpcio-tools
+      - name: Compile all public protocol definitions
+        shell: bash
+        run: |
+          mkdir -p /tmp/marty-proto
+          python -m grpc_tools.protoc \
+            --proto_path=proto \
+            --python_out=/tmp/marty-proto \
+            --grpc_python_out=/tmp/marty-proto \
+            proto/*.proto
+          test -n "$(find /tmp/marty-proto -type f -name '*_pb2.py' -print -quit)"

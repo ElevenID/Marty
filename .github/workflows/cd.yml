@@ -1,293 +1,122 @@
-name: Marty CD (DISABLED - Use Local Builds)
+name: Release Marty
 
-# ZERO-COST STRATEGY: All builds happen locally
-# This workflow is disabled to eliminate GitHub Actions costs
-# See docs/LOCAL_BUILD_SETUP.md for local build instructions
-#
-# To re-enable automated CD (not recommended):
-#   1. Uncomment the 'push' trigger below
-#   2. Budget for ~$26-53/month in GitHub Actions costs
 on:
-  workflow_dispatch:
-  # push:
-  #   tags:
-  #     - 'v*'
+  push:
+    tags: ["v*"]
 
 concurrency:
-  group: cd-${{ github.ref }}
+  group: release-${{ github.ref }}
   cancel-in-progress: false
 
+permissions:
+  contents: read
+
+env:
+  IMAGE: ghcr.io/elevenid/marty
+
 jobs:
-  build_and_publish_containers:
-    name: Build & Publish Containers
+  release:
     runs-on: ubuntu-latest
+    environment: release
     permissions:
-      contents: read
+      contents: write
       packages: write
-      id-token: write   # required for cosign keyless signing
-    strategy:
-      matrix:
-        svc:
-          - { name: "csca-service", dockerfile: "docker/csca-service.Dockerfile" }
-          - { name: "document-signer", dockerfile: "docker/document-signer.Dockerfile" }
-          - { name: "dtc-engine", dockerfile: "docker/dtc-engine.Dockerfile" }
-          - { name: "inspection-system", dockerfile: "docker/inspection-system.Dockerfile" }
-          - { name: "mdl-engine", dockerfile: "docker/mdl-engine.Dockerfile" }
-          - { name: "mdoc-engine", dockerfile: "docker/mdoc-engine.Dockerfile" }
-          - { name: "passport-engine", dockerfile: "docker/passport-engine.Dockerfile" }
-          - { name: "pkd-service", dockerfile: "docker/pkd-service.Dockerfile" }
-          - { name: "trust-anchor", dockerfile: "docker/trust-anchor.Dockerfile" }
-          - { name: "ui-app", dockerfile: "docker/ui-app.Dockerfile" }
-
+      id-token: write
+      attestations: write
     steps:
-      - name: Checkout
-        uses: actions/checkout@v3
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v3
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+      - name: Validate release version
+        id: version
+        shell: bash
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          actual="$(python -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")"
+          test "$actual" = "$version"
+          echo "value=$version" >> "$GITHUB_OUTPUT"
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Install Cosign
-        uses: sigstore/cosign-installer@v3
-
-      - name: Extract version from tag
-        id: tag
-        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT"
-
-      - name: Build and push ${{ matrix.svc.name }}
-        id: build
-        uses: docker/build-push-action@v4
+          password: ${{ github.token }}
+      - name: Build and publish Marty image
+        id: image
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8
         with:
           context: .
-          file: ${{ matrix.svc.dockerfile }}
+          file: docker/mmf-plugin.Dockerfile
+          target: production
           push: true
           platforms: linux/amd64,linux/arm64
-          provenance: true
-          tags: |
-            ghcr.io/${{ github.repository }}/${{ matrix.svc.name }}:latest
-            ghcr.io/${{ github.repository }}/${{ matrix.svc.name }}:${{ steps.tag.outputs.VERSION }}
-          cache-from: type=gha,scope=${{ github.repository }}
-          cache-to: type=gha,mode=max,scope=${{ github.repository }}
-
-      - name: Generate SBOM for ${{ matrix.svc.name }}
-        uses: anchore/sbom-action@v0
+          tags: ${{ env.IMAGE }}:${{ steps.version.outputs.value }}
+          build-args: |
+            VERSION=${{ steps.version.outputs.value }}
+            VCS_REF=${{ github.sha }}
+            MARTY_MSF_VERSION=1.0.0
+          provenance: mode=max
+          sbom: true
+      - uses: actions/attest-build-provenance@43d14bc2b83dec42d39ecae14e916627a18bb661
         with:
-          image: ghcr.io/${{ github.repository }}/${{ matrix.svc.name }}:${{ steps.tag.outputs.VERSION }}
-          output-file: ./sbom-${{ matrix.svc.name }}-${{ steps.tag.outputs.VERSION }}.spdx.json
-          format: spdx-json
-
-      - name: Upload SBOM artifact for ${{ matrix.svc.name }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: sbom-${{ matrix.svc.name }}-${{ steps.tag.outputs.VERSION }}
-          path: ./sbom-${{ matrix.svc.name }}-${{ steps.tag.outputs.VERSION }}.spdx.json
-
-      - name: Sign image by digest (keyless)
-        env:
-          COSIGN_EXPERIMENTAL: "true"
+          subject-name: ${{ env.IMAGE }}
+          subject-digest: ${{ steps.image.outputs.digest }}
+          push-to-registry: true
+      - uses: sigstore/cosign-installer@d58896d6a1865668819e1d91763c7751a165e159
+      - name: Sign image and verify the runtime
+        shell: bash
         run: |
-          DIGEST="${{ steps.build.outputs.digest }}"
-          IMAGE="ghcr.io/${{ github.repository }}/${{ matrix.svc.name }}"
-          echo "Signing ${IMAGE}@${DIGEST}"
-          cosign sign --yes "${IMAGE}@${DIGEST}"
-
-      - name: Write digest artifact
-        run: |
-          echo "${{ matrix.svc.name }} ghcr.io/${{ github.repository }}/${{ matrix.svc.name }}@${{ steps.build.outputs.digest }}" > digest-${{ matrix.svc.name }}.txt
-
-      - name: Upload digest artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: digest-${{ matrix.svc.name }}
-          path: digest-${{ matrix.svc.name }}.txt
-
-  publish_helm_charts:
-    name: Package & Push Helm Charts (OCI)
-    runs-on: ubuntu-latest
-    needs: build_and_publish_containers
-    permissions:
-      contents: read
-      packages: write
-    strategy:
-      matrix:
-        svc:
-          - "csca-service"
-          - "document-signer"
-          - "dtc-engine"
-          - "inspection-system"
-          - "mdl-engine"
-          - "mdoc-engine"
-          - "passport-engine"
-          - "pkd-service"
-          - "trust-anchor"
-          - "ui-app"
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v3
-
-      - name: Extract version from tag
-        id: tag
-        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT"
-
-      - name: Install Helm
-        uses: azure/setup-helm@v3
-        with:
-          version: v3.12.0
-
-      - name: Configure Git (for Helm metadata)
-        run: |
-          git config user.name "$GITHUB_ACTOR"
-          git config user.email "$GITHUB_ACTOR@users.noreply.github.com"
-
-      - name: Login to GHCR (Helm OCI)
-        run: echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
-
-      # Import your GPG key to enable `helm package --sign`
-      - name: Import GPG private key (for chart signing)
-        if: ${{ secrets.HELM_GPG_PRIVATE_KEY && secrets.HELM_GPG_PASSPHRASE && secrets.HELM_GPG_KEY_ID }}
-        env:
-          HELM_GPG_PRIVATE_KEY: ${{ secrets.HELM_GPG_PRIVATE_KEY }}   # base64-encoded
-          HELM_GPG_PASSPHRASE: ${{ secrets.HELM_GPG_PASSPHRASE }}
-        run: |
-          echo "$HELM_GPG_PRIVATE_KEY" | base64 -d > /tmp/privkey.asc
-          gpg --batch --yes --passphrase "$HELM_GPG_PASSPHRASE" --import /tmp/privkey.asc
-          gpg --list-secret-keys
-
-      - name: Package and push ${{ matrix.svc }} chart
-        env:
-          VERSION: ${{ steps.tag.outputs.VERSION }}
-          HELM_GPG_PASSPHRASE: ${{ secrets.HELM_GPG_PASSPHRASE }}
-          HELM_GPG_KEY_ID: ${{ secrets.HELM_GPG_KEY_ID }}
-        run: |
-          set -euo pipefail
-          cd helm/charts/${{ matrix.svc }}
-
-          # Lint & render (basic sanity)
-          helm lint .
-          helm template . --values values.yaml >/dev/null
-
-          # Package with the tag version; sign if key is present
-          if [ -n "${HELM_GPG_KEY_ID:-}" ] && [ -n "${HELM_GPG_PASSPHRASE:-}" ]; then
-            export HELM_PROVENANCE_PASSPHRASE="$HELM_GPG_PASSPHRASE"
-            helm package . \
-              --version "$VERSION" \
-              --sign \
-              --key "$HELM_GPG_KEY_ID" \
-              --keyring ~/.gnupg/pubring.kbx
-          else
-            helm package . --version "$VERSION"
-          fi
-
-          # Push to GHCR (OCI)
-          helm push "${{ matrix.svc }}-${VERSION}.tgz" "oci://ghcr.io/${{ github.repository }}/charts"
-
-          # Move provenance file (if exists) up to workspace root for artifact upload
-          if [ -f "${{ matrix.svc }}-${VERSION}.tgz.prov" ]; then
-            cp "${{ matrix.svc }}-${VERSION}.tgz.prov" "${GITHUB_WORKSPACE}/"
-          fi
-
-      - name: Upload Helm provenance artifact for ${{ matrix.svc }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: helm-provenance-${{ matrix.svc }}-${{ steps.tag.outputs.VERSION }}
-          path: ${{ matrix.svc }}-${{ steps.tag.outputs.VERSION }}.tgz.prov
-          if-no-files-found: ignore
-
-  create_release:
-    name: Create GitHub Release
-    runs-on: ubuntu-latest
-    needs: [build_and_publish_containers, publish_helm_charts]
-    permissions:
-      contents: write
-      packages: read
-
-    steps:
-      - name: Extract version from tag
-        id: tag
-        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT"
-
-      - name: Download digest artifacts
-        uses: actions/download-artifact@v4
-        with:
-          pattern: digest-*
-          path: digests
-
-      - name: Assemble digest table
-        id: digest_table
-        run: |
-          echo "| Service | Image | Digest |" > digests_table.md
-          echo "|---------|-------|--------|" >> digests_table.md
-          for f in digests/digest-*.txt; do
-            line="$(cat "$f")"
-            svc="$(basename "$f" .txt | sed 's/^digest-//')"
-            image_ref="$(echo "$line" | awk '{print $2}')"
-            echo "| ${svc} | \`${image_ref%%@*}:${{ steps.tag.outputs.VERSION }}\` | \`${image_ref#*@}\` |" >> digests_table.md
+          cosign sign --yes "${IMAGE}@${{ steps.image.outputs.digest }}"
+          docker pull "${IMAGE}@${{ steps.image.outputs.digest }}"
+          docker run --rm -d --name marty-release -p 18080:8080 "${IMAGE}@${{ steps.image.outputs.digest }}"
+          for attempt in $(seq 1 30); do
+            curl --fail --silent http://127.0.0.1:18080/health > health.json && break
+            if [ "$attempt" = 30 ]; then docker logs marty-release; exit 1; fi
+            sleep 2
           done
-          cat digests_table.md >> "$GITHUB_OUTPUT" 2>/dev/null || true
-
-      - name: Generate release notes
-        id: release-notes
-        run: |
-          {
-            echo "## 🚀 Marty v${{ steps.tag.outputs.VERSION }} Release"
-            echo ""
-            echo "### 📦 Container Images (with digests)"
-            echo "All images are available on GHCR."
-            echo ""
-            cat digests_table.md
-            echo ""
-            echo "### 🛡️ Helm Charts (OCI)"
-            echo "Charts are published to \`oci://ghcr.io/${{ github.repository }}/charts/<chart-name>:$${{ steps.tag.outputs.VERSION }}\`"
-            echo ""
-            echo "| Chart | Version | Provenance |"
-            echo "|-------|---------|------------|"
-            for c in csca-service document-signer dtc-engine inspection-system mdl-engine mdoc-engine passport-engine pkd-service trust-anchor ui-app; do
-              echo "| ${c} | ${{ steps.tag.outputs.VERSION }} | ✅ Signed (if key configured) |"
-            done
-            echo ""
-            echo "### 🔒 Supply-chain Security"
-            echo "- ✅ Build attestation (provenance) enabled for images"
-            echo "- ✅ SBOM (SPDX) generated per image (uploaded as artifacts)"
-            echo "- ✅ Cosign keyless signing by digest"
-            echo "- ✅ Helm chart signing (if GPG key provided)"
-            echo "- ✅ Multi-arch images: linux/amd64, linux/arm64"
-            echo ""
-            echo "### 📋 Install from GHCR (Helm OCI)"
-            echo '\\`\\`\\`bash'
-            echo "# Install a chart directly from GHCR (Helm 3.8+)"
-            echo "helm install csca-service oci://ghcr.io/${{ github.repository }}/charts/csca-service \\"
-            echo "  --version ${{ steps.tag.outputs.VERSION }} \\"
-            echo "  --namespace marty --create-namespace"
-            echo '\\`\\`\\`'
-            echo ""
-            echo "### 🔍 Verification"
-            echo '\\`\\`\\`bash'
-            echo "# Pull chart with provenance and verify"
-            echo "helm pull oci://ghcr.io/${{ github.repository }}/charts/csca-service --version ${{ steps.tag.outputs.VERSION }} --prov"
-            echo "helm verify csca-service-${{ steps.tag.outputs.VERSION }}.tgz"
-            echo ""
-            echo "# Verify image signature (keyless)"
-            echo "cosign verify ghcr.io/${{ github.repository }}/csca-service@<digest-from-table>"
-            echo '\\`\\`\\`'
-          } > release_notes.md
-
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v1
+          docker stop marty-release
+      - uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610
         with:
-          tag_name: ${{ github.ref_name }}
-          name: Marty v${{ steps.tag.outputs.VERSION }}
-          body_path: release_notes.md
-          draft: false
-          prerelease: false
+          image: ${{ env.IMAGE }}@${{ steps.image.outputs.digest }}
+          format: cyclonedx-json
+          output-file: marty-sbom.cdx.json
+      - uses: azure/setup-helm@5119fcb9089d432beecbf79bb2c7915207344b78
+        with:
+          version: v3.17.3
+      - name: Package and publish the digest-pinned Helm chart
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.version.outputs.value }}
+          DIGEST: ${{ steps.image.outputs.digest }}
+          GITHUB_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          helm lint deploy/helm/marty --set "image.digest=$DIGEST"
+          helm template marty deploy/helm/marty --set "image.digest=$DIGEST" > rendered-chart.yaml
+          helm package deploy/helm/marty --version "$VERSION" --app-version "$VERSION"
+          echo "$GITHUB_TOKEN" | helm registry login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          helm push "marty-${VERSION}.tgz" oci://ghcr.io/elevenid/charts
+      - name: Sign release evidence
+        shell: bash
+        run: |
+          printf '%s  %s\n' "${{ steps.image.outputs.digest }}" "${IMAGE}" > IMAGE_DIGEST
+          for file in marty-*.tgz marty-sbom.cdx.json rendered-chart.yaml IMAGE_DIGEST health.json; do
+            cosign sign-blob --yes --bundle "${file}.sigstore.json" "$file"
+          done
+          sha256sum marty-*.tgz marty-sbom.cdx.json rendered-chart.yaml IMAGE_DIGEST health.json *.sigstore.json > SHA256SUMS
+      - uses: actions/attest-build-provenance@43d14bc2b83dec42d39ecae14e916627a18bb661
+        with:
+          subject-path: |
+            marty-*.tgz
+            marty-sbom.cdx.json
+            rendered-chart.yaml
+            IMAGE_DIGEST
+            health.json
+      - uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65
+        with:
+          generate_release_notes: true
+          files: |
+            marty-*.tgz
+            marty-sbom.cdx.json
+            rendered-chart.yaml
+            IMAGE_DIGEST
+            health.json
+            *.sigstore.json
+            SHA256SUMS

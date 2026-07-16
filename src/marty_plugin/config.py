@@ -4,18 +4,11 @@ Marty MMF Plugin Configuration
 Configuration classes for integrating Marty services with the MMF framework.
 """
 
-from pathlib import Path
 from typing import List, Optional
 from pydantic import BaseModel, Field
-import sys
-
-# Add MMF framework to path
-mmf_framework_path = Path(__file__).parent.parent.parent / "marty-microservices-framework" / "src"
-if mmf_framework_path.exists():
-    sys.path.insert(0, str(mmf_framework_path))
 
 try:
-    from framework.config.plugin_config import PluginConfigSection
+    from mmf.framework.infrastructure.plugin_config import PluginConfigSection
 except ImportError:
     # Fallback for when MMF is not available
     class PluginConfigSection(BaseModel):

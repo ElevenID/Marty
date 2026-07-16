@@ -13,7 +13,8 @@ SERVICES=(
   "trust-anchor"
 )
 
-BASE_DIR="/Users/adamburdett/Github/work/Marty/helm/charts"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+BASE_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)/helm/charts"
 
 for service in "${SERVICES[@]}"; do
   echo "Updating ${service}..."

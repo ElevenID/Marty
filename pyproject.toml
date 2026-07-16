@@ -384,11 +384,6 @@ exclude_lines = [
 
 
 
-[tool.uv]
-# UV-specific configurations - fixed format
-# TODO: Switch marty-msf to git dependency or PyPI package for production
-sources = { marty-grpc = { path = ".", editable = true }, marty-msf = { path = "../marty-microservices-framework", editable = true } }
-
 [dependency-groups]
 dev = [
     "playwright>=1.48.0",

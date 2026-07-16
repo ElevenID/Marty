@@ -1,21 +1,19 @@
 # Marty Trust PKI Plugin
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
-[![License: Educational Use Only](https://img.shields.io/badge/License-Educational%20Use%20Only-red.svg)](#license)
-[![MMF Plugin](https://img.shields.io/badge/MMF-Plugin-green.svg)](https://github.com/burdettadam/marty-microservices-framework)
-[![Zero-Cost CI](https://img.shields.io/badge/CI-Zero%20Cost-success.svg)](./docs/LOCAL_BUILD_SETUP.md)
-
-> 🏗️ **NEW: Zero-Cost CI Implementation** - All builds now happen locally and push to GHCR, eliminating GitHub Actions costs. See [Local Build Setup](./docs/LOCAL_BUILD_SETUP.md) for details.
+[![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](#license)
+[![MMF Plugin](https://img.shields.io/badge/MMF-Plugin-green.svg)](https://github.com/ElevenID/marty-microservices-framework)
+[![Open-source CI](https://img.shields.io/badge/CI-GitHub%20Actions-success.svg)](.github/workflows/ci.yml)
 
 ## Overview
 
 � **Marty Trust PKI Plugin for MMF** - Enterprise-grade PKI and trust services for secure digital identity document management
 
-🎓 **Educational Portfolio Project - ICAO Standards Learning Implementation**
-
-> ⚠️ **EDUCATIONAL USE ONLY** - This project is developed for learning ICAO standards and portfolio demonstration purposes. Not intended for production use.
-
-Marty is a comprehensive learning project that implements ICAO PKI standards for electronic passport (eMRTD) issuance and verification, mobile driving licenses (mDL), and digital travel credentials (DTC). Implemented as a plugin for the [Marty Microservices Framework (MMF)](./marty-microservices-framework/), this project demonstrates modern plugin architecture while exploring international digital identity standards.
+Marty is an open-source implementation of ICAO PKI standards for electronic
+passport (eMRTD) issuance and verification, mobile driving licenses (mDL), and
+digital travel credentials (DTC). It integrates with the
+[Marty Microservices Framework](https://github.com/ElevenID/marty-microservices-framework)
+and is released under AGPL-3.0-only.
 
 ## 🏗️ Architecture
 
@@ -42,7 +40,7 @@ Marty operates as an **MMF Plugin**, leveraging the framework's infrastructure f
 pip install marty-trust-pki-plugin
 
 # Or for development
-git clone https://github.com/burdettadam/Marty.git
+git clone https://github.com/ElevenID/Marty.git
 cd Marty
 uv install -e .
 ```
@@ -64,9 +62,11 @@ config:
 
 ## 🏗️ Building and Deployment
 
-### Zero-Cost Local Build System
+### Build and release automation
 
-Marty uses a local build system to eliminate GitHub Actions costs ($26-53/month → $0):
+Pull requests run secretless checks on standard GitHub-hosted runners. Tagged
+releases build public artifacts, publish OCI images to GHCR, and attach
+provenance and SBOM evidence. Local commands remain available for development:
 
 **Quick Start:**
 ```bash
@@ -121,24 +121,23 @@ The Marty plugin provides four core services through the MMF framework:
 - **✍️ Document Signer Service**: Digital signature creation and verification for travel documents  
 - **🏛️ CSCA Service**: Country Signing Certificate Authority management and validation
 
-## 🎯 Educational Goals
+## Project goals
 
 This project was developed to:
 
-- **Learn ICAO Standards**: Practical implementation of ICAO Doc 9303 and ISO/IEC 18013-5
-- **Plugin Architecture**: Showcase modern plugin-based microservices design
-- **Portfolio Demonstration**: Demonstrate separation of concerns between infrastructure and domain logic
-- **Standards Exploration**: Deep dive into international digital identity document specifications
-- **Security Learning**: Hands-on experience with PKI, certificate management, and cryptographic protocols
+- **Standards implementation**: ICAO Doc 9303 and ISO/IEC 18013-5 interoperability
+- **Plugin architecture**: Reusable identity services built on MMF
+- **Separation of concerns**: Public identity infrastructure with optional private extensions
+- **Security engineering**: PKI, certificate management, and cryptographic protocols
 
-## 🔑 Key Features (Educational Implementation)
+## Key features
 
-- **ICAO Compliant**: Educational implementation of ICAO Doc 9303 and ISO/IEC 18013-5 standards
-- **Plugin Architecture**: Learning-focused plugin-based design patterns with MMF framework integration
-- **Cryptographic Implementation**: Educational exploration of PKI and certificate management
-- **Multi-Document Support**: Academic study of eMRTDs, mDLs, mDocs, and Digital Travel Credentials
-- **Modern Development Practices**: Portfolio demonstration using Python 3.10+, gRPC, Docker, PostgreSQL
-- **Standards Research**: Comprehensive documentation and implementation notes
+- **ICAO implementation**: ICAO Doc 9303 and ISO/IEC 18013-5 support
+- **Plugin architecture**: MMF integration with replaceable service adapters
+- **Cryptographic implementation**: PKI and certificate-management primitives
+- **Multi-document support**: eMRTDs, mDLs, mDocs, and Digital Travel Credentials
+- **Modern development stack**: Python 3.10+, Rust, gRPC, Docker, and PostgreSQL
+- **Standards documentation**: Interoperability notes, examples, and conformance guidance
 
 ### 🚀 Recent Platform Enhancements
 
@@ -231,7 +230,7 @@ Get Marty MMF plugin running in under 5 minutes:
 
 ```bash
 # Clone the repository
-git clone https://github.com/burdettadam/Marty.git
+git clone https://github.com/ElevenID/Marty.git
 cd Marty
 
 # Set up the development environment (installs dependencies)
@@ -476,9 +475,8 @@ Plugin services are configured through MMF framework configuration in the host d
 
 ---
 
-**🌟 Educational Portfolio Project** - This implementation demonstrates modern approaches to international digital identity standards, plugin architecture, and secure certificate management in a comprehensive, well-documented MMF plugin.
-
-For questions about educational use or portfolio review, please contact the repository owner.
+Community questions and design proposals belong in GitHub Discussions. Report
+security vulnerabilities through GitHub's private vulnerability reporting.
 
 ## 📚 Documentation
 

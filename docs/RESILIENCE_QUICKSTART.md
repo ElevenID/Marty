@@ -9,7 +9,8 @@ The Marty resilience framework provides comprehensive error handling, circuit br
 Run the demonstration script to see all features in action:
 
 ```bash
-cd /Users/adamburdett/Github/work/Marty
+git clone https://github.com/ElevenID/Marty.git
+cd Marty
 python scripts/resilience_demo.py
 ```
 

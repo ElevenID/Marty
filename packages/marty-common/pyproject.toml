@@ -4,13 +4,13 @@ build-backend = "hatchling.build"
 
 [project]
 name = "marty-common"
-version = "0.1.0"
+version = "0.2.0"
 description = "Marty Common - Shared infrastructure for Marty digital identity services"
 authors = [
     {name = "Marty Team"}
 ]
 readme = "README.md"
-license = {text = "MIT"}
+license = {text = "AGPL-3.0-only"}
 requires-python = ">=3.11"
 keywords = ["marty", "digital-identity", "infrastructure", "crypto", "grpc"]
 classifiers = [
@@ -27,6 +27,8 @@ classifiers = [
 dependencies = [
     # Web framework (for error handlers)
     "fastapi>=0.104.0",
+    "httpx>=0.25.0",
+    "redis[hiredis]>=5.0.0",
     
     # Cryptography
     "cryptography>=41.0.0",

@@ -2,7 +2,7 @@
 
 **Technical documentation for learning ICAO standards through practical implementation**
 
-> ⚠️ **EDUCATIONAL USE ONLY** - This project is developed for learning ICAO standards and portfolio demonstration purposes. Not intended for production use.
+> Contributions must follow the repository security, testing, and release policies.
 
 ## Educational Context
 
@@ -30,7 +30,7 @@ Get Marty running locally in under 5 minutes:
 
 ```bash
 # Clone and setup
-git clone https://github.com/burdettadam/Marty.git
+git clone https://github.com/ElevenID/Marty.git
 cd Marty
 make setup
 docker-compose up --build
@@ -172,7 +172,7 @@ POST   /v1/trust/anchors           # Add trusted certificate
 pip install uv
 
 # Clone and setup project
-git clone https://github.com/burdettadam/Marty.git
+git clone https://github.com/ElevenID/Marty.git
 cd Marty
 
 # Install dependencies

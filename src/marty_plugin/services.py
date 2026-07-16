@@ -7,24 +7,15 @@ If required dependencies are not available, services will fail fast.
 """
 
 import logging
-import sys
 from datetime import datetime
-from pathlib import Path
 from typing import Any, Dict, Optional
 
-# Add the main Marty source to path for importing
-# marty_src_path = Path(__file__).parent.parent
-# sys.path.insert(0, str(marty_src_path))
+class PluginService:
+    """Small adapter used by Marty's service implementations."""
 
-# Import MMF Plugin framework
-try:
-    from marty_msf.framework.plugins.base import PluginService
-except ImportError:
-    # Define a basic PluginService for standalone testing
-    class PluginService:
-        def __init__(self, name: str, version: str):
-            self.name = name
-            self.version = version
+    def __init__(self, name: str, version: str):
+        self.name = name
+        self.version = version
 
 # Import real Marty services (require full dependencies)
 try:

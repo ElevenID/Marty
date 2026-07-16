@@ -321,7 +321,7 @@ class UnifiedVerificationProtocol:
 
         # Document-specific verifiers (will be initialized as needed)
         self._cmc_verifier: Optional[CMCVerificationProtocol] = None
-        # Import when available - see https://github.com/burdettadam/Marty/issues/verifiers
+        # Import when available - see https://github.com/ElevenID/Marty/issues/verifiers
         self._visa_verifier = None
         self._passport_verifier = None
         self._td2_verifier = None

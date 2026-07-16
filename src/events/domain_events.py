@@ -30,12 +30,6 @@ class DomainEventType(str, Enum):
     CSCA_ADDED = "csca.added"
     CSCA_REVOKED = "csca.revoked"
     
-    # Subscription events
-    SUBSCRIPTION_CREATED = "subscription.created"
-    SUBSCRIPTION_CANCELED = "subscription.canceled"
-    SUBSCRIPTION_UPGRADED = "subscription.upgraded"
-    SUBSCRIPTION_PAYMENT_FAILED = "subscription.payment_failed"
-    
     # API key events
     API_KEY_CREATED = "api_key.created"
     API_KEY_REVOKED = "api_key.revoked"
@@ -141,7 +135,6 @@ class DomainEvent:
             DomainEventType.CREDENTIAL_REVOKED,
             DomainEventType.DSC_REVOKED,
             DomainEventType.CSCA_REVOKED,
-            DomainEventType.SUBSCRIPTION_PAYMENT_FAILED,
             DomainEventType.API_KEY_RATE_LIMITED,
         }
         
@@ -210,24 +203,6 @@ def dsc_revoked(
             "reason": reason,
             "cascade_policy": cascade_policy,
             "affected_credentials": affected_credentials,
-            **kwargs,
-        },
-    )
-
-
-def subscription_created(
-    subscription_id: UUID,
-    organization_id: UUID,
-    plan: str,
-    **kwargs: Any,
-) -> DomainEvent:
-    """Create a subscription created event."""
-    return DomainEvent(
-        type=DomainEventType.SUBSCRIPTION_CREATED,
-        organization_id=organization_id,
-        payload={
-            "subscription_id": str(subscription_id),
-            "plan": plan,
             **kwargs,
         },
     )

@@ -2,7 +2,7 @@
 
 **Learning ICAO standards through practical code examples**
 
-> ⚠️ **EDUCATIONAL USE ONLY** - This project is developed for learning ICAO standards and portfolio demonstration purposes. Not intended for production use.
+> Review the security and support policies before operating Marty in a production environment.
 
 ## Educational Quick Start
 
@@ -12,7 +12,7 @@ This guide demonstrates ICAO standard implementations through code examples. Thi
 
 ```bash
 # Clone and start
-git clone https://github.com/burdettadam/Marty.git
+git clone https://github.com/ElevenID/Marty.git
 cd Marty
 make setup
 docker-compose up --build

@@ -1,0 +1,13 @@
+name: Publication audit
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  history-and-secrets:
+    uses: ElevenID/.github/.github/workflows/publication-audit.yml@8e3c9bac4b2aa7b1c49494cbf950c53b4ff55f3a
+    permissions:
+      contents: read

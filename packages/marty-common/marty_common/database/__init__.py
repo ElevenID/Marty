@@ -10,6 +10,12 @@ from .utilities import (
     create_transaction_manager,
     with_database_error_handling,
 )
+from ..service_database import (
+    DatabaseConfig,
+    DatabaseManager,
+    get_database_manager,
+    get_db_session,
+)
 
 __all__ = [
     "DatabaseOperations",
@@ -20,4 +26,8 @@ __all__ = [
     "create_service_database_tables",
     "create_transaction_manager",
     "with_database_error_handling",
+    "DatabaseConfig",
+    "DatabaseManager",
+    "get_database_manager",
+    "get_db_session",
 ]

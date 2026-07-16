@@ -9,6 +9,18 @@ from .rate_limiter import (
     RedisRateLimitBackend,
     create_default_rate_limiter,
 )
+from ..web_middleware import (
+    ETagMiddleware,
+    IdempotencyMiddleware,
+    RequestIdMiddleware,
+    RequestLoggingMiddleware,
+    SecurityHeadersMiddleware,
+    UserContextMiddleware,
+    get_current_user,
+    get_request_id,
+    require_authenticated,
+    require_organization,
+)
 
 __all__ = [
     "MemoryRateLimitBackend",
@@ -18,4 +30,14 @@ __all__ = [
     "RateLimiter",
     "RedisRateLimitBackend",
     "create_default_rate_limiter",
+    "ETagMiddleware",
+    "IdempotencyMiddleware",
+    "RequestIdMiddleware",
+    "RequestLoggingMiddleware",
+    "SecurityHeadersMiddleware",
+    "UserContextMiddleware",
+    "get_current_user",
+    "get_request_id",
+    "require_authenticated",
+    "require_organization",
 ]
