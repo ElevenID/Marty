@@ -1,18 +1,19 @@
 # syntax=docker/dockerfile:1.7
 
 FROM python:3.12-slim AS builder
-ARG MARTY_MSF_VERSION=1.0.0
 WORKDIR /build
+RUN apt-get update \
+    && apt-get install --yes --no-install-recommends build-essential libpcsclite-dev swig \
+    && rm -rf /var/lib/apt/lists/*
 COPY pyproject.toml README.md LICENSE ./
 COPY src ./src
 COPY proto ./proto
 RUN --mount=type=cache,target=/root/.cache/pip \
-    python -m pip wheel --no-deps --wheel-dir /wheels .
+    python -m pip wheel --wheel-dir /wheels .
 
 FROM python:3.12-slim AS production
 ARG VERSION
 ARG VCS_REF
-ARG MARTY_MSF_VERSION=1.0.0
 LABEL org.opencontainers.image.source="https://github.com/ElevenID/Marty" \
       org.opencontainers.image.title="Marty MMF plugin" \
       org.opencontainers.image.description="Open-source identity and trust services for Marty" \
@@ -20,10 +21,13 @@ LABEL org.opencontainers.image.source="https://github.com/ElevenID/Marty" \
       org.opencontainers.image.revision="${VCS_REF}" \
       org.opencontainers.image.licenses="AGPL-3.0-only"
 RUN groupadd --system --gid 10001 marty \
-    && useradd --system --uid 10001 --gid marty --home-dir /app marty
+    && useradd --system --uid 10001 --gid marty --home-dir /app marty \
+    && apt-get update \
+    && apt-get install --yes --no-install-recommends libpcsclite1 \
+    && rm -rf /var/lib/apt/lists/*
 COPY --from=builder /wheels /wheels
 RUN --mount=type=cache,target=/root/.cache/pip \
-    python -m pip install --no-cache-dir "marty-msf==${MARTY_MSF_VERSION}" /wheels/*.whl \
+    python -m pip install --no-cache-dir --no-index --find-links=/wheels marty-trust-pki-plugin \
     && rm -rf /wheels
 WORKDIR /app
 USER 10001:10001

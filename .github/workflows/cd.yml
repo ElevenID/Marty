@@ -52,7 +52,6 @@ jobs:
           build-args: |
             VERSION=${{ steps.version.outputs.value }}
             VCS_REF=${{ github.sha }}
-            MARTY_MSF_VERSION=1.0.0
           provenance: mode=max
           sbom: true
       - uses: actions/attest-build-provenance@43d14bc2b83dec42d39ecae14e916627a18bb661
@@ -97,10 +96,10 @@ jobs:
         shell: bash
         run: |
           printf '%s  %s\n' "${{ steps.image.outputs.digest }}" "${IMAGE}" > IMAGE_DIGEST
-          for file in marty-*.tgz marty-sbom.cdx.json rendered-chart.yaml IMAGE_DIGEST health.json; do
+          for file in ./marty-*.tgz marty-sbom.cdx.json rendered-chart.yaml IMAGE_DIGEST health.json; do
             cosign sign-blob --yes --bundle "${file}.sigstore.json" "$file"
           done
-          sha256sum marty-*.tgz marty-sbom.cdx.json rendered-chart.yaml IMAGE_DIGEST health.json *.sigstore.json > SHA256SUMS
+          sha256sum ./marty-*.tgz marty-sbom.cdx.json rendered-chart.yaml IMAGE_DIGEST health.json ./*.sigstore.json > SHA256SUMS
       - uses: actions/attest-build-provenance@43d14bc2b83dec42d39ecae14e916627a18bb661
         with:
           subject-path: |
