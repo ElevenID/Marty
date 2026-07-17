@@ -12,8 +12,9 @@ Usage:
 
 from __future__ import annotations
 
+import json
 import logging
-from typing import Optional
+from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -135,6 +136,30 @@ except ImportError as e:
     verify_signature = None
     hash_data = None
 
+# MRZ check digits remain available without native bindings so that parsing and
+# validation work in source-only and bootstrap installations.
+try:
+    from _marty_verification import compute_check_digit, validate_check_digit
+except ImportError:
+    _MRZ_WEIGHTS = (7, 3, 1)
+
+    def compute_check_digit(value: str) -> str:
+        total = 0
+        for index, character in enumerate(value.upper()):
+            if character.isdigit():
+                numeric_value = int(character)
+            elif "A" <= character <= "Z":
+                numeric_value = ord(character) - ord("A") + 10
+            elif character == "<":
+                numeric_value = 0
+            else:
+                raise ValueError(f"Invalid MRZ character: {character!r}")
+            total += numeric_value * _MRZ_WEIGHTS[index % len(_MRZ_WEIGHTS)]
+        return str(total % 10)
+
+    def validate_check_digit(value: str, check_digit: str) -> bool:
+        return len(check_digit) == 1 and compute_check_digit(value) == check_digit
+
 # =============================================================================
 # Credential Operations - Direct exports from marty-rs
 # =============================================================================
@@ -188,6 +213,8 @@ __all__ = [
     # Crypto operations (marty-verification)
     'verify_signature',
     'hash_data',
+    'compute_check_digit',
+    'validate_check_digit',
     # High-level Open Badge Operations
     'verify_open_badge_ob2',
     'verify_open_badge_ob3',

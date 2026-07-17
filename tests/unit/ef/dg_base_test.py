@@ -9,7 +9,7 @@ sys.path.append(str(project_root))
 
 
 # Import from Marty's codebase
-from src.marty_common.models.passport import DataGroup, DataGroupType
+from marty_common.models.passport import DataGroup, DataGroupType
 
 
 def test_dg_type():

@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
 
-from marty_plugin.common.crypto_bridge import (
+from marty_common.crypto_bridge import (
     certificate_pem_to_der,
     get_certificate_info,
 )

@@ -9,7 +9,7 @@ project_root = Path(__file__).resolve().parents[3]
 sys.path.append(str(project_root))
 
 # Import the ElementaryFile from Marty's code base
-from src.marty_common.models.asn1_structures import ElementaryFile
+from marty_common.models.asn1_structures import ElementaryFile
 
 
 def test_ef_base():

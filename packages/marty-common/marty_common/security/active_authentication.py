@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 # Use crypto_bridge for ISO 9796-2 operations (Rust implementation - required)
-from marty_plugin.common.crypto_bridge import iso9796_recover
+from marty_common.crypto_bridge import iso9796_recover
 
 if TYPE_CHECKING:
     from cryptography.hazmat.primitives.asymmetric import rsa

@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any
 
-from marty_plugin.common.crypto_bridge import validate_check_digit as _rust_validate_check_digit
+from marty_common.crypto_bridge import validate_check_digit as _rust_validate_check_digit
 
 logger = logging.getLogger(__name__)
 

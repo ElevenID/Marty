@@ -79,7 +79,7 @@ def map_exception_to_status(exc: Exception) -> tuple[grpc.StatusCode, str]:
         return CATEGORY_TO_STATUS.get(exc.category, grpc.StatusCode.INTERNAL), exc.message
     # Allow integration with existing MartyServiceException without import cycle
     try:  # pragma: no cover - best effort mapping
-        from marty_plugin.common.exceptions import MartyServiceException  # noqa: WPS433 (local import)
+        from marty_common.exceptions import MartyServiceException  # noqa: WPS433 (local import)
 
         if isinstance(exc, MartyServiceException):  # type: ignore[attr-defined]
             status = exc.status_code or grpc.StatusCode.INTERNAL  # type: ignore[attr-defined]

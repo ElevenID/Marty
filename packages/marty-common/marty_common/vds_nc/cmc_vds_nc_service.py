@@ -5,8 +5,8 @@ This module provides integration between the VDS-NC implementation and the CMC E
 
 from __future__ import annotations
 
-from marty_plugin.common.models.passport import CMCCertificate, VDSNCBarcode
-from marty_plugin.common.vds_nc.vds_nc_impl import VDSNCGenerator, VDSNCVerifier, generate_test_key_pair
+from marty_common.models.passport import CMCCertificate, VDSNCBarcode
+from marty_common.vds_nc.vds_nc_impl import VDSNCGenerator, VDSNCVerifier, generate_test_key_pair
 from shared.logging_config import get_logger
 
 logger = get_logger(__name__)

@@ -48,7 +48,7 @@ except ImportError:
     EllipticCurvePublicKey = Any
     InvalidSignature = Exception
 
-from marty_plugin.common.models.passport import CMCCertificate, VDSNCBarcode
+from marty_common.models.passport import CMCCertificate, VDSNCBarcode
 from shared.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -366,7 +366,7 @@ class VDSNCVerifier:
         Returns:
             CMC certificate object
         """
-        from marty_plugin.common.models.passport import CMCData, CMCSecurityModel, CMCTD1MRZData
+        from marty_common.models.passport import CMCData, CMCSecurityModel, CMCTD1MRZData
 
         # Create CMC data from payload
         cmc_data = CMCData(

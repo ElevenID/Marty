@@ -30,9 +30,9 @@ from typing import (
     Union,
 )
 
-from marty_plugin.common.utils.mrz_utils import MRZParser
-from marty_plugin.common.verification.cmc_verification import CMCVerificationProtocol
-from marty_plugin.common.logging_config import get_logger
+from marty_common.utils.mrz_utils import MRZParser
+from marty_common.verification.cmc_verification import CMCVerificationProtocol
+from marty_common.logging_config import get_logger
 
 logger = get_logger(__name__)
 

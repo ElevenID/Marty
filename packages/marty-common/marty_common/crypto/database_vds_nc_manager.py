@@ -22,9 +22,9 @@ from cryptography.hazmat.primitives.asymmetric.ec import (
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
-from marty_plugin.common.crypto.vds_nc_keys import KeyRole, KeyStatus, VDSNCKeyMetadata
-from marty_plugin.common.infrastructure.trust_models import KeyRotationLog, VDSNCKeyModel
-from marty_plugin.common.security.encryption import SymmetricEncryption
+from marty_common.crypto.vds_nc_keys import KeyRole, KeyStatus, VDSNCKeyMetadata
+from marty_common.infrastructure.trust_models import KeyRotationLog, VDSNCKeyModel
+from marty_common.security.encryption import SymmetricEncryption
 
 logger = logging.getLogger(__name__)
 

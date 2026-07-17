@@ -30,26 +30,26 @@ from cryptography import x509
 from cryptography.hazmat.primitives import hashes
 
 # Import crypto_bridge for certificate compatibility
-from marty_plugin.common.crypto_bridge import Certificate as CertificateBridge
+from marty_common.crypto_bridge import Certificate as CertificateBridge
 
-from marty_plugin.common.crypto.certificate_validator import (
+from marty_common.crypto.certificate_validator import (
     CertificateChainValidator,
     ChainValidationResult,
 )
-from marty_plugin.common.crypto.data_group_hasher import DataGroupHashComputer
-from marty_plugin.common.crypto.sod_parser import HashAlgorithmError, SODParsingError, SODProcessor
-from marty_plugin.common.models.asn1_structures import SOD
-from marty_plugin.common.security.active_authentication import (
+from marty_common.crypto.data_group_hasher import DataGroupHashComputer
+from marty_common.crypto.sod_parser import HashAlgorithmError, SODParsingError, SODProcessor
+from marty_common.models.asn1_structures import SOD
+from marty_common.security.active_authentication import (
     ActiveAuthenticationChallenge,
     ActiveAuthenticationProtocol,
     ActiveAuthenticationResponse,
 )
-from marty_plugin.common.security.dg15_parser import ChipAuthenticationInfo, DG15Parser
-from marty_plugin.common.security.passport_chip_session import (
+from marty_common.security.dg15_parser import ChipAuthenticationInfo, DG15Parser
+from marty_common.security.passport_chip_session import (
     PassportChipSession,
     PassportChipTransport,
 )
-from marty_plugin.common.utils.mrz_utils import MRZException, MRZParser
+from marty_common.utils.mrz_utils import MRZException, MRZParser
 
 logger = logging.getLogger(__name__)
 

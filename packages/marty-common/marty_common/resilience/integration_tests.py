@@ -11,19 +11,19 @@ from typing import Any, Dict, List
 import pytest
 
 # Import resilience components
-from marty_plugin.common.resilience import CircuitBreaker, CircuitBreakerConfig
-from marty_plugin.common.resilience.enhanced_errors import (
+from marty_common.resilience import CircuitBreaker, CircuitBreakerConfig
+from marty_common.resilience.enhanced_errors import (
     DatabaseError,
     ExternalServiceError,
     TransientError,
     ValidationError,
 )
-from marty_plugin.common.resilience.graceful_degradation import (
+from marty_common.resilience.graceful_degradation import (
     DefaultValueProvider,
     DegradationLevel,
     GracefulDegradationManager,
 )
-from marty_plugin.common.resilience.retry_enhanced import (
+from marty_common.resilience.retry_enhanced import (
     RetryConfig,
     create_retry_policy_enhanced,
     get_retry_metrics,

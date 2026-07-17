@@ -15,9 +15,9 @@ import base64
 from datetime import datetime, timezone
 from typing import Any
 
-from marty_plugin.common.models.passport import CMCCertificate, CMCSecurityModel
-from marty_plugin.common.utils.mrz_utils import parse_td1_mrz, validate_td1_check_digits
-from marty_plugin.common.vds_nc.cmc_vds_nc_service import get_vds_nc_service
+from marty_common.models.passport import CMCCertificate, CMCSecurityModel
+from marty_common.utils.mrz_utils import parse_td1_mrz, validate_td1_check_digits
+from marty_common.vds_nc.cmc_vds_nc_service import get_vds_nc_service
 from shared.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -721,7 +721,7 @@ class CMCVerificationProtocol:
 
     def _create_basic_cmc_from_mrz(self, mrz_data: dict) -> CMCCertificate:
         """Create basic CMC certificate from MRZ data for verification."""
-        from marty_plugin.common.models.passport import CMCData, CMCTD1MRZData
+        from marty_common.models.passport import CMCData, CMCTD1MRZData
 
         # This would be used for basic verification when no stored CMC is available
         # Implementation details would depend on specific requirements

@@ -13,7 +13,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from marty_plugin.common.testing.test_utilities import (
+from marty_common.testing.test_utilities import (
     CommonTestData,
     MockFactory,
     ServiceHealthChecker,

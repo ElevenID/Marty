@@ -9,8 +9,8 @@ from abc import ABC
 from pathlib import Path
 from typing import Any
 
-from marty_plugin.common.grpc_types import ServiceDependencies
-from marty_plugin.common.logging import ServiceLogger
+from marty_common.grpc_types import ServiceDependencies
+from marty_common.logging import ServiceLogger
 
 
 class BaseService(ABC):
@@ -223,7 +223,7 @@ class BaseService(ABC):
         try:
             import json
 
-            from marty_plugin.common.infrastructure import OutboxRepository
+            from marty_common.infrastructure import OutboxRepository
 
             serialized = json.dumps(payload).encode("utf-8")
 

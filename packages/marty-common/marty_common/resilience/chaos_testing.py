@@ -92,13 +92,13 @@ class ChaosInjector:
 
     async def _inject_network_failure(self, config: ChaosConfig) -> None:
         """Simulate complete network failure."""
-        from marty_plugin.common.resilience.enhanced_errors import TransientError
+        from marty_common.resilience.enhanced_errors import TransientError
 
         raise TransientError("Simulated network failure")
 
     async def _inject_service_unavailable(self, config: ChaosConfig) -> None:
         """Simulate service unavailability."""
-        from marty_plugin.common.resilience.enhanced_errors import ExternalServiceError
+        from marty_common.resilience.enhanced_errors import ExternalServiceError
 
         raise ExternalServiceError("Service temporarily unavailable", service_name="chaos_target")
 
@@ -109,7 +109,7 @@ class ChaosInjector:
 
     async def _inject_random_errors(self, config: ChaosConfig) -> None:
         """Inject random errors."""
-        from marty_plugin.common.resilience.enhanced_errors import (
+        from marty_common.resilience.enhanced_errors import (
             AuthorizationError,
             DatabaseError,
             ValidationError,
@@ -127,7 +127,7 @@ class ChaosInjector:
     async def _inject_intermittent_failures(self, config: ChaosConfig) -> None:
         """Inject intermittent failures that come and go."""
         if random.random() < config.intensity:
-            from marty_plugin.common.resilience.enhanced_errors import TransientError
+            from marty_common.resilience.enhanced_errors import TransientError
 
             raise TransientError("Intermittent failure injection")
 
@@ -168,7 +168,7 @@ class ResilienceTestSuite:
         self, operation: Callable[[], Awaitable[Any]], expected_failures: int = 5
     ) -> dict[str, Any]:
         """Test circuit breaker behavior under failure conditions."""
-        from marty_plugin.common.resilience import CircuitBreaker, CircuitBreakerConfig
+        from marty_common.resilience import CircuitBreaker, CircuitBreakerConfig
 
         # Configure circuit breaker with low threshold for testing
         config = CircuitBreakerConfig(
@@ -239,7 +239,7 @@ class ResilienceTestSuite:
         self, operation: Callable[[], Awaitable[Any]], max_retries: int = 3
     ) -> dict[str, Any]:
         """Test retry mechanism under transient failures."""
-        from marty_plugin.common.resilience.retry_enhanced import (
+        from marty_common.resilience.retry_enhanced import (
             RetryConfig,
             create_retry_policy_enhanced,
             get_retry_metrics,
@@ -306,7 +306,7 @@ class ResilienceTestSuite:
         fallback_operation: Callable[[], Awaitable[Any]],
     ) -> dict[str, Any]:
         """Test graceful degradation and fallback mechanisms."""
-        from marty_plugin.common.resilience.graceful_degradation import (
+        from marty_common.resilience.graceful_degradation import (
             DefaultValueProvider,
             DegradationLevel,
             GracefulDegradationManager,
@@ -364,12 +364,12 @@ class ResilienceTestSuite:
         self, operation: Callable[[], Awaitable[Any]]
     ) -> dict[str, Any]:
         """Comprehensive end-to-end resilience test."""
-        from marty_plugin.common.resilience import CircuitBreaker, CircuitBreakerConfig
-        from marty_plugin.common.resilience.graceful_degradation import (
+        from marty_common.resilience import CircuitBreaker, CircuitBreakerConfig
+        from marty_common.resilience.graceful_degradation import (
             DefaultValueProvider,
             GracefulDegradationManager,
         )
-        from marty_plugin.common.resilience.retry_enhanced import RetryConfig, create_retry_policy_enhanced
+        from marty_common.resilience.retry_enhanced import RetryConfig, create_retry_policy_enhanced
 
         # Set up comprehensive resilience stack
         circuit_breaker = CircuitBreaker(

@@ -26,7 +26,7 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives.asymmetric.ec import EllipticCurvePublicKey
 # Import crypto_bridge for certificate operations
-from marty_plugin.common.crypto_bridge import (
+from marty_common.crypto_bridge import (
     Certificate as CertificateBridge,
     load_pem_x509_certificate as load_pem_certificate,
 )

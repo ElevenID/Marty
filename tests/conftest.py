@@ -10,7 +10,7 @@ from unittest.mock import Mock
 import pytest
 
 try:
-    from src.marty_common.models.passport import Gender, MRZData
+    from marty_common.models.passport import Gender, MRZData
 except ModuleNotFoundError:  # pragma: no cover - fallback for minimal test environments
     Gender = Mock()
     MRZData = Mock()

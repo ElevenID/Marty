@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, TypeVar
 
-from marty_plugin.common.config_manager import ServiceConfig
+from marty_common.config_manager import ServiceConfig
 
 T = TypeVar("T")
 

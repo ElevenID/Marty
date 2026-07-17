@@ -150,7 +150,7 @@ def setup_logging(
 def _setup_grpc_logging(service_name: str, log_level: int, formatter: logging.Formatter) -> None:
     """Set up gRPC logging integration using proper dependency injection."""
     try:
-        import marty_plugin.common.grpc_logging as grpc_logging_module
+        import marty_common.grpc_logging as grpc_logging_module
 
         from .grpc_logging import GrpcLogHandler
 

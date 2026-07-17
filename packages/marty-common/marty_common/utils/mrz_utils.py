@@ -10,11 +10,11 @@ import contextlib
 import re
 from datetime import datetime
 
-from marty_plugin.common.crypto_bridge import (
+from marty_common.crypto_bridge import (
     compute_check_digit as _rust_compute_check_digit,
     validate_check_digit as _rust_validate_check_digit,
 )
-from marty_plugin.common.models.passport import Gender, MRZData
+from marty_common.models.passport import Gender, MRZData
 
 
 class MRZException(Exception):

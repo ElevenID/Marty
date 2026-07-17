@@ -16,8 +16,8 @@ import base64
 import hashlib
 from datetime import datetime, timezone
 
-from marty_plugin.common.models.passport import CMCCertificate, DataGroup, DataGroupType
-from marty_plugin.common.utils.mrz_utils import generate_td1_mrz
+from marty_common.models.passport import CMCCertificate, DataGroup, DataGroupType
+from marty_common.utils.mrz_utils import generate_td1_mrz
 from shared.logging_config import get_logger
 
 logger = get_logger(__name__)

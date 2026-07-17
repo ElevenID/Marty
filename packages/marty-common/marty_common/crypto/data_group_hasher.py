@@ -12,7 +12,7 @@ import json
 import logging
 from typing import Any
 
-from marty_plugin.common.crypto.sod_parser import SODParsingError, SODProcessor
+from marty_common.crypto.sod_parser import SODParsingError, SODProcessor
 
 logger = logging.getLogger(__name__)
 

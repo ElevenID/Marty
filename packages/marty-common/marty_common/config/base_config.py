@@ -12,7 +12,7 @@ from typing import Any
 
 import yaml
 
-from marty_plugin.common.infrastructure import (
+from marty_common.infrastructure import (
     DatabaseConfig,
     EventBusConfig,
     KeyVaultConfig,

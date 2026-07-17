@@ -10,7 +10,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 # Import from the shared test utilities
-from marty_plugin.common.testing import (
+from marty_common.testing import (
     BaseIntegrationTest,
     BaseServiceTest,
     CommonTestData,
@@ -139,7 +139,7 @@ def test_image_processing_example(test_image: str):
 @pytest.mark.asyncio
 async def test_async_utilities_example():
     """Example async test using async test utilities."""
-    from marty_plugin.common.testing.test_utilities import AsyncTestUtils
+    from marty_common.testing.test_utilities import AsyncTestUtils
 
     # Test waiting for condition
     test_condition = lambda: True  # Always true for this example

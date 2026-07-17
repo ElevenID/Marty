@@ -14,9 +14,9 @@ from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import ec, padding, rsa
 
 # Import crypto_bridge for certificate compatibility
-from marty_plugin.common.crypto_bridge import Certificate as CertificateBridge
+from marty_common.crypto_bridge import Certificate as CertificateBridge
 
-from marty_plugin.common.crypto.certificate_validator import (
+from marty_common.crypto.certificate_validator import (
     CertificateChainValidator,
     ChainValidationResult,
 )

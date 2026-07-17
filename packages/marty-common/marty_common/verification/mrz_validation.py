@@ -12,8 +12,8 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import Any
 
-from marty_plugin.common.utils.mrz_utils import MRZParser
-from marty_plugin.common.verification.document_detection import DocumentClass
+from marty_common.utils.mrz_utils import MRZParser
+from marty_common.verification.document_detection import DocumentClass
 from marty_plugin.shared.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -384,7 +384,7 @@ class MRZValidator:
 
         try:
             # Use existing MRZ parser if available
-            from marty_plugin.common.utils.mrz_utils import parse_td3_mrz
+            from marty_common.utils.mrz_utils import parse_td3_mrz
 
             parsed = parse_td3_mrz(mrz_data)
 
@@ -420,7 +420,7 @@ class MRZValidator:
 
         try:
             # Use existing MRZ parser if available
-            from marty_plugin.common.utils.mrz_utils import parse_td1_mrz
+            from marty_common.utils.mrz_utils import parse_td1_mrz
 
             parsed = parse_td1_mrz(mrz_data)
 
@@ -456,7 +456,7 @@ class MRZValidator:
 
         try:
             # Use existing MRZ parser if available
-            from marty_plugin.common.utils.mrz_utils import parse_td2_mrz
+            from marty_common.utils.mrz_utils import parse_td2_mrz
 
             parsed = parse_td2_mrz(mrz_data)
 

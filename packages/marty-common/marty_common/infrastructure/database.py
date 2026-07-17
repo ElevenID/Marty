@@ -60,14 +60,17 @@ class DatabaseManager:
 
     def create_engine(self) -> AsyncEngine:
         if self._engine is None:
-            self._engine = create_async_engine(
-                self._config.url,
-                echo=self._config.echo,
-                pool_size=self._config.pool_size,
-                max_overflow=self._config.max_overflow,
-                pool_timeout=self._config.pool_timeout,
-                future=True,
-            )
+            engine_options: dict[str, Any] = {
+                "echo": self._config.echo,
+                "future": True,
+            }
+            if not self._config.url.startswith("sqlite+"):
+                engine_options.update(
+                    pool_size=self._config.pool_size,
+                    max_overflow=self._config.max_overflow,
+                    pool_timeout=self._config.pool_timeout,
+                )
+            self._engine = create_async_engine(self._config.url, **engine_options)
         return self._engine
 
     def session_factory(self) -> async_sessionmaker[AsyncSession]:

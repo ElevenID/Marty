@@ -11,7 +11,7 @@ from typing import Any, Protocol
 import hvac
 from hvac.exceptions import VaultError
 
-from marty_plugin.common import crypto_bridge
+from marty_common import crypto_bridge
 
 
 class KeyVaultClient(Protocol):

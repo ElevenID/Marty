@@ -18,9 +18,9 @@ from smartcard.CardType import AnyCardType
 from smartcard.System import readers
 from smartcard.util import toHexString
 
-from marty_plugin.common.models.passport import MRZData
-from marty_plugin.common.rfid.secure_messaging import SecureMessaging, SessionKeys
-from marty_plugin.common.utils.mrz_utils import MRZException, MRZParser
+from marty_common.models.passport import MRZData
+from marty_common.rfid.secure_messaging import SecureMessaging, SessionKeys
+from marty_common.utils.mrz_utils import MRZException, MRZParser
 
 logger = logging.getLogger(__name__)
 

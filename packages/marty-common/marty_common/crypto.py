@@ -15,7 +15,7 @@ import secrets
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Literal
 
-from marty_plugin.common import crypto_bridge
+from marty_common import crypto_bridge
 
 if TYPE_CHECKING:
     pass

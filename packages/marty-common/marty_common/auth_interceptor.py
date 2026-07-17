@@ -19,7 +19,7 @@ import jwt
 from grpc import aio as grpc_aio
 
 # Use Rust crypto_bridge for certificate operations
-from marty_plugin.common.crypto_bridge import Certificate
+from marty_common.crypto_bridge import Certificate
 
 LOGGER = logging.getLogger(__name__)
 

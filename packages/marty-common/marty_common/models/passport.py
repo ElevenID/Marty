@@ -122,7 +122,7 @@ class MRZData(BaseModel):
 
     def generate_mrz_string(self) -> str:
         """Generate TD3 MRZ string compliant with ICAO Doc 9303."""
-        from marty_plugin.common.utils.mrz_utils import MRZFormatter
+        from marty_common.utils.mrz_utils import MRZFormatter
 
         return MRZFormatter.generate_td3_mrz(self)
 
@@ -483,7 +483,7 @@ class Passport(BaseModel):
 
             # First try to use our SOD parser for enhanced validation
             try:
-                from marty_plugin.common.crypto.sod_parser import SODProcessor
+                from marty_common.crypto.sod_parser import SODProcessor
 
                 processor = SODProcessor()
                 sod = processor.parse_sod_data(self.security_object)
@@ -511,7 +511,7 @@ class Passport(BaseModel):
 
             # Try to use the certificate validation service
             try:
-                from marty_plugin.common.services.certificate_validation import (
+                from marty_common.services.certificate_validation import (
                     validate_sod_certificate,
                 )
 
@@ -551,7 +551,7 @@ class Passport(BaseModel):
                 return False
 
             # Import the new data group hash verification service
-            from marty_plugin.common.crypto.data_group_hasher import verify_passport_data_groups
+            from marty_common.crypto.data_group_hasher import verify_passport_data_groups
 
             # Convert security_object to appropriate format
             if isinstance(self.security_object, str):
@@ -769,7 +769,7 @@ class CMCTD1MRZData(BaseModel):
         """Generate TD-1 MRZ string compliant with ICAO Doc 9303."""
         # Import here to avoid circular imports
         try:
-            from marty_plugin.common.utils.mrz_utils import MRZFormatter
+            from marty_common.utils.mrz_utils import MRZFormatter
 
             return MRZFormatter.generate_td1_mrz(self)
         except ImportError:
@@ -975,7 +975,7 @@ class VDSNCBarcode(BaseModel):
         # This would implement actual signature verification
         # using the provided public key
         try:
-            from marty_plugin.common.crypto import verify_signature
+            from marty_common.crypto import verify_signature
 
             canonical_data = self._get_canonical_data()
             return verify_signature(

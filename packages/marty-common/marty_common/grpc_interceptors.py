@@ -9,7 +9,7 @@ from collections.abc import Callable
 import grpc
 from grpc import aio as grpc_aio
 
-from marty_plugin.common.exceptions import MartyServiceException
+from marty_common.exceptions import MartyServiceException
 
 LOGGER = logging.getLogger(__name__)
 

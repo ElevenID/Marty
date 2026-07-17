@@ -38,7 +38,7 @@ from cryptography.hazmat.primitives.asymmetric import ec, padding, rsa
 from cryptography.x509 import ocsp
 
 # Import Rust bindings for chain validation (required)
-from marty_plugin.common.crypto_bridge import (
+from marty_common.crypto_bridge import (
     CertificateChainValidator as RustChainValidator,
     ValidationConfig as RustValidationConfig,
 )

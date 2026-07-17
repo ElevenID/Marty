@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from marty_plugin.common.crypto_bridge import (
+from marty_common.crypto_bridge import (
     get_certificate_info as rust_get_certificate_info,
     certificate_pem_to_der,
     is_certificate_expired,

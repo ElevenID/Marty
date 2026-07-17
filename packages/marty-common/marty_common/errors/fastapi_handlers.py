@@ -6,7 +6,7 @@ It converts exceptions into the unified ErrorResponse format and ensures consist
 error responses across all API endpoints.
 
 Usage:
-    from marty_plugin.common.errors.fastapi_handlers import register_exception_handlers
+    from marty_common.errors.fastapi_handlers import register_exception_handlers
     
     app = FastAPI()
     register_exception_handlers(app)

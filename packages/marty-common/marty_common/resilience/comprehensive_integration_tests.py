@@ -16,20 +16,20 @@ import grpc
 import pytest
 from grpc import aio as grpc_aio
 
-from marty_plugin.common.resilience import (
+from marty_common.resilience import (
     AdvancedRetryConfig,
     AdvancedRetryManager,
     BackoffStrategy,
     CircuitBreaker,
     CircuitBreakerConfig,
 )
-from marty_plugin.common.resilience.comprehensive_interceptors import (
+from marty_common.resilience.comprehensive_interceptors import (
     CompositeResilienceInterceptor,
     ResilienceClientInterceptor,
 )
-from marty_plugin.common.resilience.enhanced_interceptors import AdvancedFailureInjectionConfig
-from marty_plugin.common.resilience.error_codes import TransientBackendError
-from marty_plugin.common.resilience.monitoring import get_global_monitor
+from marty_common.resilience.enhanced_interceptors import AdvancedFailureInjectionConfig
+from marty_common.resilience.error_codes import TransientBackendError
+from marty_common.resilience.monitoring import get_global_monitor
 
 
 @dataclass

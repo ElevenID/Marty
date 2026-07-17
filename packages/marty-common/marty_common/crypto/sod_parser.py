@@ -11,7 +11,7 @@ import hashlib
 import logging
 from typing import Any, ClassVar
 
-from marty_plugin.common.models.asn1_structures import SOD, DataGroupHash, LDSSecurityObject
+from marty_common.models.asn1_structures import SOD, DataGroupHash, LDSSecurityObject
 
 logger = logging.getLogger(__name__)
 

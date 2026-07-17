@@ -36,7 +36,7 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ec, rsa
 from cryptography.x509.oid import NameOID
 # Import crypto_bridge Certificate for type compatibility
-from marty_plugin.common.crypto_bridge import Certificate as CertificateBridge
+from marty_common.crypto_bridge import Certificate as CertificateBridge
 
 logger = logging.getLogger(__name__)
 

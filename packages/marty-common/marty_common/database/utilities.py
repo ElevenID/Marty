@@ -17,8 +17,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import DeclarativeBase
 from sqlalchemy.sql import Select
 
-from marty_plugin.common.errors import ErrorHandler, MartyDatabaseError
-from marty_plugin.common.infrastructure.database import DatabaseManager
+from marty_common.errors import ErrorHandler, MartyDatabaseError
+from marty_common.infrastructure.database import DatabaseManager
 
 T = TypeVar("T")
 ModelT = TypeVar("ModelT", bound=DeclarativeBase)
@@ -404,12 +404,12 @@ def create_service_database_tables(service_name: str, base_metadata: Any, engine
         engine: SQLAlchemy engine instance
 
     Example:
-        from marty_plugin.common.database.utilities import create_service_database_tables
+        from marty_common.database.utilities import create_service_database_tables
         from marty_plugin.shared.database import Base, engine
 
         create_service_database_tables("my-service", Base.metadata, engine)
     """
-    from marty_plugin.common.logging_config import get_logger
+    from marty_common.logging_config import get_logger
 
     logger = get_logger(f"{service_name}.database")
     logger.info(f"Creating database tables for {service_name}...")

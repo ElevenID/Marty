@@ -14,11 +14,11 @@ from uuid import uuid4
 import jwt
 
 # Use Rust crypto_bridge for cryptographic operations
-from marty_plugin.common.crypto_bridge import Certificate, Encoding, sha256
+from marty_common.crypto_bridge import Certificate, Encoding, sha256
 # Keep serialization for private key loading (PyJWT needs cryptography key objects)
 from cryptography.hazmat.primitives import serialization
 
-from marty_plugin.common.infrastructure import KeyVaultClient
+from marty_common.infrastructure import KeyVaultClient
 
 
 def _b64url_encode(data: bytes) -> str:

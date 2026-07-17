@@ -6,7 +6,7 @@ marty_common configuration system to the unified MMF configuration system.
 
 Usage:
     # For services that can't be immediately migrated:
-    from marty_plugin.common.config_migration import get_modern_config_for_service
+    from marty_common.config_migration import get_modern_config_for_service
     
     # Replace legacy config manager usage:
     config = get_modern_config_for_service("trust-anchor")

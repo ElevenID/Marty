@@ -20,7 +20,7 @@ from datetime import datetime, timedelta
 from enum import Enum
 from typing import Any
 
-from marty_plugin.common.security.hsm import HSMInterface, create_hsm_service
+from marty_common.security.hsm import HSMInterface, create_hsm_service
 
 logger = logging.getLogger(__name__)
 

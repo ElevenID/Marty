@@ -17,14 +17,14 @@ import logging
 from dataclasses import dataclass
 from typing import Protocol
 
-from marty_plugin.common.rfid.apdu_commands import APDUCommand, APDUResponse, PassportAPDU
-from marty_plugin.common.rfid.secure_messaging import BACKeys, SecureMessaging, SessionKeys
-from marty_plugin.common.security.active_authentication import (
+from marty_common.rfid.apdu_commands import APDUCommand, APDUResponse, PassportAPDU
+from marty_common.rfid.secure_messaging import BACKeys, SecureMessaging, SessionKeys
+from marty_common.security.active_authentication import (
     ActiveAuthenticationChallenge,
     ActiveAuthenticationProtocol,
     ActiveAuthenticationResponse,
 )
-from marty_plugin.common.security.dg15_parser import ChipAuthenticationInfo, DG15Parser
+from marty_common.security.dg15_parser import ChipAuthenticationInfo, DG15Parser
 
 logger = logging.getLogger(__name__)
 

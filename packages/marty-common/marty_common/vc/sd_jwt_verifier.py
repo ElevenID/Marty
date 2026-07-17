@@ -14,7 +14,7 @@ from typing import Any
 import jwt
 
 # Use Rust crypto_bridge for certificate operations
-from marty_plugin.common.crypto_bridge import (
+from marty_common.crypto_bridge import (
     Certificate,
     ExtensionNotFound,
     SubjectAlternativeName,
@@ -22,8 +22,8 @@ from marty_plugin.common.crypto_bridge import (
     UniformResourceIdentifier,
 )
 
-from marty_plugin.common.crypto.certificate_validator import CertificateChainValidator
-from marty_plugin.common.vc.sd_jwt import _b64url_encode
+from marty_common.crypto.certificate_validator import CertificateChainValidator
+from marty_common.vc.sd_jwt import _b64url_encode
 
 LOGGER = logging.getLogger(__name__)
 

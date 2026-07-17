@@ -21,7 +21,7 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import Any
 
-from marty_plugin.common.utils.mrz_utils import MRZParser
+from marty_common.utils.mrz_utils import MRZParser
 from marty_plugin.shared.logging_config import get_logger
 
 logger = get_logger(__name__)

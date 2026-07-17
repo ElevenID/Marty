@@ -4,7 +4,7 @@ DEPRECATED: Legacy configuration loading utilities.
 This module is DEPRECATED. Use the unified configuration system instead:
 
     # Instead of:
-    from marty_plugin.common.config import Config
+    from marty_common.config import Config
     config = Config()
     
     # Use:
@@ -30,7 +30,7 @@ from typing import Any
 
 import yaml
 
-from marty_plugin.common.infrastructure import (
+from marty_common.infrastructure import (
     DatabaseConfig,
     EventBusConfig,
     KeyVaultConfig,

@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from typing import Any
 
 # Use Rust crypto_bridge for key operations
-from marty_plugin.common.crypto_bridge import RSAPublicKeyBridge, Encoding, PublicFormat
+from marty_common.crypto_bridge import RSAPublicKeyBridge, Encoding, PublicFormat
 from pyasn1.codec.der import decoder as der_decoder
 from pyasn1.type import namedtype, univ
 
@@ -321,7 +321,7 @@ class DG15Manager:
             ChipAuthenticationInfo if successful, None otherwise
         """
         try:
-            from marty_plugin.common.rfid.apdu_commands import PassportAPDU
+            from marty_common.rfid.apdu_commands import PassportAPDU
 
             # Create APDU handler
             passport_apdu = PassportAPDU()

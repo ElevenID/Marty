@@ -9,8 +9,8 @@ import os
 import sys
 from importlib import import_module
 
-from marty_plugin.common.config_manager import get_service_config, validate_service_config
-from marty_plugin.common.grpc_server import create_standard_server
+from marty_common.config_manager import get_service_config, validate_service_config
+from marty_common.grpc_server import create_standard_server
 
 
 def main() -> None:

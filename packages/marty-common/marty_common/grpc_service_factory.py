@@ -28,10 +28,10 @@ from grpc_health.v1 import health_pb2, health_pb2_grpc
 from grpc_health.v1.health import HealthServicer
 from grpc_reflection.v1alpha import reflection
 
-from marty_plugin.common.base_config import BaseServiceConfig, GRPCServiceConfig, create_service_config
-from marty_plugin.common.grpc_logging import LoggingStreamerServicer
-from marty_plugin.common.grpc_server import GrpcServerConfig, MartyGrpcServer
-from marty_plugin.common.logging_config import get_logger, setup_logging
+from marty_common.base_config import BaseServiceConfig, GRPCServiceConfig, create_service_config
+from marty_common.grpc_logging import LoggingStreamerServicer
+from marty_common.grpc_server import GrpcServerConfig, MartyGrpcServer
+from marty_common.logging_config import get_logger, setup_logging
 from marty_plugin.proto.v1 import common_services_pb2_grpc
 
 logger = get_logger(__name__)

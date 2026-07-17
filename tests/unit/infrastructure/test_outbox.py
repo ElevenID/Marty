@@ -1,6 +1,6 @@
 import pytest
 
-from src.marty_common.infrastructure import (
+from marty_common.infrastructure import (
     DatabaseConfig,
     DatabaseManager,
     OutboxDispatcher,

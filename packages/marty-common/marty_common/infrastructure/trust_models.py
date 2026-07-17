@@ -11,7 +11,7 @@ from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import func
 
-from marty_plugin.common.crypto.vds_nc_keys import KeyRole, KeyStatus
+from marty_common.crypto.vds_nc_keys import KeyRole, KeyStatus
 
 Base = declarative_base()
 

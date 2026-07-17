@@ -33,7 +33,7 @@ from cryptography.hazmat.primitives.asymmetric import ec, padding, rsa
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 
 # Use Rust-backed HKDF from crypto_bridge
-from marty_plugin.common.crypto_bridge import hkdf_sha256, hkdf_sha384
+from marty_common.crypto_bridge import hkdf_sha256, hkdf_sha384
 
 logger = logging.getLogger(__name__)
 

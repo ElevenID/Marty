@@ -10,7 +10,7 @@ import time
 from collections.abc import Callable
 from typing import Any
 
-from marty_plugin.common.logging_config import get_logger, setup_logging
+from marty_common.logging_config import get_logger, setup_logging
 
 
 class ServiceLogger:

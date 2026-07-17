@@ -11,7 +11,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field, field_validator
 
-from marty_plugin.common.logging_config import setup_logging
+from marty_common.logging_config import setup_logging
 
 
 class BaseServiceConfig(BaseModel):

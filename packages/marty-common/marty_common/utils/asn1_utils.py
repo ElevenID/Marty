@@ -17,7 +17,7 @@ from typing import Any
 from asn1crypto import cms, core, pem, x509
 
 # Import Rust bindings for certificate operations
-from marty_plugin.common.crypto_bridge import (
+from marty_common.crypto_bridge import (
     get_certificate_info as rust_get_certificate_info,
 )
 

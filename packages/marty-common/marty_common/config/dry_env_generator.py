@@ -8,7 +8,7 @@ service registry, eliminating duplication across environment files.
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from marty_plugin.common.service_registry import ServiceDefinition, ServiceRegistry
+from marty_common.service_registry import ServiceDefinition, ServiceRegistry
 
 
 class EnvironmentConfigGenerator:

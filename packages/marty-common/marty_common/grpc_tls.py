@@ -149,7 +149,7 @@ def _request_acme_certificate(tls_options: dict[str, object]) -> None:
     """Request a certificate using ACME client."""
     try:
         # Import here to avoid circular dependencies
-        from marty_plugin.common.acme_client import create_acme_client
+        from marty_common.acme_client import create_acme_client
     except ImportError as e:
         raise RuntimeError("ACME client not available") from e
 
@@ -206,7 +206,7 @@ async def ensure_acme_certificate(
         Tuple of (certificate_path, private_key_path)
     """
     try:
-        from marty_plugin.common.acme_client import create_acme_client
+        from marty_common.acme_client import create_acme_client
     except ImportError as e:
         raise RuntimeError("ACME client not available") from e
 

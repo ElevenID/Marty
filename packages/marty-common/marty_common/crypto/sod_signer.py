@@ -14,9 +14,9 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec, ed448, ed25519, padding, rsa
 
 # Import crypto_bridge for certificate compatibility
-from marty_plugin.common.crypto_bridge import Certificate as CertificateBridge
+from marty_common.crypto_bridge import Certificate as CertificateBridge
 
-from marty_plugin.common.models.asn1_structures import (
+from marty_common.models.asn1_structures import (
     SOD,
     DataGroupHash,
     DataGroupHashValues,

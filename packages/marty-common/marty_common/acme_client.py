@@ -27,7 +27,7 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.hazmat.primitives.serialization import Encoding, NoEncryption, PrivateFormat
 from cryptography.x509.oid import NameOID
 
-from marty_plugin.common.crypto_bridge import (
+from marty_common.crypto_bridge import (
     certificate_pem_to_der,
     get_certificate_info,
     rsa_generate as rust_rsa_generate,

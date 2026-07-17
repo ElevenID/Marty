@@ -8,14 +8,14 @@ import secrets
 from dataclasses import dataclass
 
 # Use crypto_bridge for Rust-backed cryptographic operations
-from marty_plugin.common.crypto_bridge import (
+from marty_common.crypto_bridge import (
     tdes_cbc_encrypt,
     tdes_cbc_decrypt,
     p256_generate,
     p256_agree,
 )
 
-from marty_plugin.common.utils.mrz_utils import MRZException, MRZParser
+from marty_common.utils.mrz_utils import MRZException, MRZParser
 
 logger = logging.getLogger(__name__)
 

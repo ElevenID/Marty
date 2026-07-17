@@ -19,8 +19,8 @@ import grpc
 from grpc_health.v1 import health_pb2_grpc
 from grpc_health.v1.health import HealthServicer
 
-from marty_plugin.common.grpc_logging import LoggingStreamerServicer
-from marty_plugin.common.logging_config import setup_logging
+from marty_common.grpc_logging import LoggingStreamerServicer
+from marty_common.logging_config import setup_logging
 from marty_plugin.proto.v1 import common_services_pb2_grpc
 
 logger = logging.getLogger(__name__)

@@ -9,8 +9,8 @@ while maintaining full backward compatibility with existing code. It provides:
 - Seamless migration path for existing integrations
 
 Migration guide:
-1. Replace imports: from marty_plugin.common.utils.mrz_utils import ... 
-   with: from marty_plugin.common.utils.mrz_enhanced import ...
+1. Replace imports: from marty_common.utils.mrz_utils import ...
+   with: from marty_common.utils.mrz_enhanced import ...
 2. Optionally enable hardened mode: parser = MRZParser(use_hardened=True)
 3. Access enhanced validation: result = parser.parse_mrz_with_validation(mrz)
 """
@@ -21,17 +21,17 @@ import logging
 import warnings
 from typing import Any, Dict, Optional, Union
 
-from marty_plugin.common.models.mrz_validation import MRZValidationResult
-from marty_plugin.common.models.passport import Gender, MRZData
-from marty_plugin.common.utils.mrz_hardened import (
+from marty_common.models.mrz_validation import MRZValidationResult
+from marty_common.models.passport import Gender, MRZData
+from marty_common.utils.mrz_hardened import (
     HardenedMRZException,
     HardenedMRZParser,
     parse_mrz_simple,
     parse_mrz_with_validation,
 )
-from marty_plugin.common.utils.mrz_utils import MRZException as LegacyMRZException
-from marty_plugin.common.utils.mrz_utils import MRZFormatter as LegacyMRZFormatter
-from marty_plugin.common.utils.mrz_utils import MRZParser as LegacyMRZParser
+from marty_common.utils.mrz_utils import MRZException as LegacyMRZException
+from marty_common.utils.mrz_utils import MRZFormatter as LegacyMRZFormatter
+from marty_common.utils.mrz_utils import MRZParser as LegacyMRZParser
 
 logger = logging.getLogger(__name__)
 
@@ -237,7 +237,7 @@ class MRZParser:
         self, mrz: str, mrz_data: MRZData | None, success: bool, error: str | None = None
     ) -> MRZValidationResult:
         """Convert legacy parsing result to validation result."""
-        from marty_plugin.common.models.mrz_validation import MRZErrorCode, MRZValidationError
+        from marty_common.models.mrz_validation import MRZErrorCode, MRZValidationError
 
         result = MRZValidationResult(
             is_valid=success, raw_mrz=mrz, errors=[], warnings=[], field_validations={}

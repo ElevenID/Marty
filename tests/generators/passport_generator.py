@@ -36,8 +36,8 @@ sys.path.append(str(project_root))
 
 
 # Import from Marty's codebase
-from src.marty_common.models.passport import DataGroupType
-from src.marty_plugin.common.crypto_bridge import compute_check_digit as _rust_compute_check_digit
+from marty_common.models.passport import DataGroupType
+from marty_common.crypto_bridge import compute_check_digit as _rust_compute_check_digit
 
 
 class PassportGenerator:

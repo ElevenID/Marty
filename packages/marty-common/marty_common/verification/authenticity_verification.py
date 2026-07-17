@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import Any
 
-from marty_plugin.common.verification.document_detection import DocumentClass
+from marty_common.verification.document_detection import DocumentClass
 from marty_plugin.shared.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -426,7 +426,7 @@ class AuthenticityVerifier:
         """Verify VDS-NC signature."""
         try:
             # Try to use existing VDS-NC verification if available
-            from marty_plugin.common.vds_nc.vds_nc_impl import VDSNCVerifier
+            from marty_common.vds_nc.vds_nc_impl import VDSNCVerifier
 
             VDSNCVerifier()
             # Placeholder verification call

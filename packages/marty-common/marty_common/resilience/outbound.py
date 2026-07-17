@@ -6,7 +6,7 @@ Provides a single convenience coroutine ``async_call_with_resilience`` that appl
 
 Intended usage (example):
 
-    from marty_plugin.common.resilience import async_call_with_resilience
+    from marty_common.resilience import async_call_with_resilience
 
     async def fetch_document(stub, request):
         return await async_call_with_resilience(

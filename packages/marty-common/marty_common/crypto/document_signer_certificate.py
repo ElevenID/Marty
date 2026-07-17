@@ -19,7 +19,7 @@ from datetime import datetime, timedelta, timezone
 from cryptography import x509
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from marty_plugin.common.infrastructure import CertificateRepository, KeyVaultClient
+from marty_common.infrastructure import CertificateRepository, KeyVaultClient
 
 # Import Rust bindings for certificate building
 from _marty_verification import (

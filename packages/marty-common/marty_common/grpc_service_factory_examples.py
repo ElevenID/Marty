@@ -53,7 +53,7 @@ def serve_trust_anchor_old():
 
 # Example 2: Using gRPC Service Factory (AFTER - DRY patterns)
 
-from marty_plugin.common.grpc_service_factory import (
+from marty_common.grpc_service_factory import (
     create_grpc_service_factory,
     grpc_service,
     run_single_service,

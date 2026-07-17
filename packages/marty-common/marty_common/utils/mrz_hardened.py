@@ -27,11 +27,11 @@ from calendar import isleap
 from datetime import date, datetime
 from typing import Any, Optional, Tuple, Union
 
-from marty_plugin.common.crypto_bridge import (
+from marty_common.crypto_bridge import (
     compute_check_digit as _rust_compute_check_digit,
     validate_check_digit as _rust_validate_check_digit,
 )
-from marty_plugin.common.models.mrz_validation import (
+from marty_common.models.mrz_validation import (
     MRZCharacterValidation,
     MRZDocumentType,
     MRZDocumentTypeInference,
@@ -43,7 +43,7 @@ from marty_plugin.common.models.mrz_validation import (
     MRZValidationError,
     MRZValidationResult,
 )
-from marty_plugin.common.models.passport import Gender, MRZData
+from marty_common.models.passport import Gender, MRZData
 
 logger = logging.getLogger(__name__)
 
