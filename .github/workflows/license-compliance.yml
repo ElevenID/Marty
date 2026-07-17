@@ -89,6 +89,9 @@ jobs:
       - name: Set up Python 3.11
         run: uv python install 3.11
 
+      - name: Install smart-card build dependencies
+        run: sudo apt-get update && sudo apt-get install --yes libpcsclite-dev
+
       - name: Install project dependencies
         run: uv sync --all-extras
 
@@ -115,6 +118,9 @@ jobs:
 
       - name: Set up Python 3.11
         run: uv python install 3.11
+
+      - name: Install smart-card build dependencies
+        run: sudo apt-get update && sudo apt-get install --yes libpcsclite-dev
 
       - name: Install project dependencies
         run: uv sync --all-extras
