@@ -27,7 +27,7 @@ pip install marty-common --extra-index-url https://USERNAME:TOKEN@ghcr.io/ORG/
 
 ```bash
 # Clone the Marty repository
-git clone https://github.com/ORG/Marty.git
+git clone https://github.com/ElevenID/Marty.git
 cd Marty/packages/marty-common
 
 # Install in editable mode
