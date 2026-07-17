@@ -59,7 +59,17 @@ dependencies = [
 allow-direct-references = true
 
 [tool.hatch.build.targets.wheel]
-packages = ["src"]
+packages = [
+    "src/digital_identity",
+    "src/entitlements",
+    "src/events",
+    "src/marty_plugin",
+    "src/notifications",
+    "src/proto",
+    "src/revocation",
+    "src/trust_registry",
+    "src/wallet",
+]
 
 [project.optional-dependencies]
 biometric = [
