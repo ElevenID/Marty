@@ -2,7 +2,7 @@
 default_language_version:
   python: python3.10
   # Pin Node.js version to a stable LTS to avoid nodeenv attempting to fetch a non-existent version (saw 24.x 404)
-  node: 20.16.0
+  node: 24.14.1
 
 repos:
   # Local hooks for Marty-specific checks
