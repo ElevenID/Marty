@@ -341,6 +341,16 @@ SPECIAL_ROUTE_RULES: list[tuple[re.Pattern[str], dict[str, str], str]] = [
         "organization",
     ),
     (
+        re.compile(rf"^/v1/organizations/{_UUID_RE}/audit-events/export$"),
+        {"GET": "audit:export"},
+        "audit",
+    ),
+    (
+        re.compile(rf"^/v1/organizations/{_UUID_RE}/audit-events(?:/[^/]+)?$"),
+        {"GET": "audit:view"},
+        "audit",
+    ),
+    (
         re.compile(rf"^/v1/organizations/{_UUID_RE}/scim/v2/Users(?:/[^/]+)?$"),
         {
             "GET": "team:view",
