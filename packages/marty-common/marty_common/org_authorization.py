@@ -244,6 +244,18 @@ async def require_org_membership(
     if not x_user_id:
         raise HTTPException(status_code=401, detail="Authentication required - missing user context")
 
+    # Many services call this helper from a route body after FastAPI has
+    # resolved only the user dependency. Recover the remaining gateway-owned
+    # context from the request so direct calls and dependency injection enforce
+    # the same machine-principal boundary.
+    x_organization_id = x_organization_id or request.headers.get(
+        "X-Organization-ID"
+    )
+    x_api_key_id = x_api_key_id or request.headers.get("X-Api-Key-Id")
+    x_required_permission = x_required_permission or request.headers.get(
+        "X-Required-Permission"
+    )
+
     # API keys are machine principals, not organization members. The gateway
     # validates the key, binds it to one organization, applies its scopes to the
     # resolved Cedar permission, strips client-supplied identity headers, and
