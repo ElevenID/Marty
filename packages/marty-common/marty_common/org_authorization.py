@@ -233,9 +233,46 @@ async def require_org_membership(
     organization_id: str,
     request: Request,
     x_user_id: Annotated[Optional[str], Header(alias="X-User-Id")] = None,
+    x_organization_id: Annotated[
+        Optional[str], Header(alias="X-Organization-ID")
+    ] = None,
+    x_api_key_id: Annotated[Optional[str], Header(alias="X-Api-Key-Id")] = None,
+    x_required_permission: Annotated[
+        Optional[str], Header(alias="X-Required-Permission")
+    ] = None,
 ) -> OrganizationContext:
     if not x_user_id:
         raise HTTPException(status_code=401, detail="Authentication required - missing user context")
+
+    # API keys are machine principals, not organization members. The gateway
+    # validates the key, binds it to one organization, applies its scopes to the
+    # resolved Cedar permission, strips client-supplied identity headers, and
+    # then injects this internal context. Require the complete gateway-owned
+    # binding here so an unmapped route or partial context fails closed.
+    if x_api_key_id:
+        expected_user_id = f"api_key:{x_api_key_id}"
+        if x_user_id != expected_user_id:
+            raise HTTPException(
+                status_code=403,
+                detail="API key identity context is inconsistent",
+            )
+        if not x_organization_id or x_organization_id != organization_id:
+            raise HTTPException(
+                status_code=403,
+                detail="API key does not have access to this organization",
+            )
+        required_permission = (x_required_permission or "").strip()
+        if not required_permission:
+            raise HTTPException(
+                status_code=403,
+                detail="API key request is missing an authorized permission",
+            )
+        return OrganizationContext(
+            user_id=x_user_id,
+            organization_id=organization_id,
+            source="api_key",
+            permissions={required_permission},
+        )
 
     org_client = await get_organization_client(request)
     membership = await org_client.get_membership(x_user_id, organization_id)
