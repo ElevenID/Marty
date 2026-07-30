@@ -11,13 +11,21 @@ from marty_common.org_authorization import (
 )
 
 
-def _request(org_client: object | None = None) -> Request:
+def _request(
+    org_client: object | None = None,
+    *,
+    headers: dict[str, str] | None = None,
+) -> Request:
     request = Request(
         {
             "type": "http",
             "method": "GET",
             "path": "/",
             "app": SimpleNamespace(state=SimpleNamespace()),
+            "headers": [
+                (name.lower().encode(), value.encode())
+                for name, value in (headers or {}).items()
+            ],
         }
     )
     if org_client is not None:
@@ -29,11 +37,14 @@ def _request(org_client: object | None = None) -> Request:
 async def test_api_key_uses_gateway_bound_organization_and_permission() -> None:
     context = await require_org_membership(
         "org-b",
-        _request(),
+        _request(
+            headers={
+                "X-Organization-ID": "org-b",
+                "X-Api-Key-Id": "key-b",
+                "X-Required-Permission": "credential-template:view",
+            }
+        ),
         x_user_id="api_key:key-b",
-        x_organization_id="org-b",
-        x_api_key_id="key-b",
-        x_required_permission="credential-template:view",
     )
 
     assert context.source == "api_key"
@@ -51,11 +62,14 @@ async def test_api_key_cannot_select_another_organization() -> None:
     ) as exc:
         await require_org_membership(
             "org-a",
-            _request(),
+            _request(
+                headers={
+                    "X-Organization-ID": "org-b",
+                    "X-Api-Key-Id": "key-b",
+                    "X-Required-Permission": "credential-template:view",
+                }
+            ),
             x_user_id="api_key:key-b",
-            x_organization_id="org-b",
-            x_api_key_id="key-b",
-            x_required_permission="credential-template:view",
         )
 
     assert exc.value.status_code == 403
@@ -69,10 +83,13 @@ async def test_api_key_requires_complete_gateway_authorization_context() -> None
     ) as exc:
         await require_org_membership(
             "org-b",
-            _request(),
+            _request(
+                headers={
+                    "X-Organization-ID": "org-b",
+                    "X-Api-Key-Id": "key-b",
+                }
+            ),
             x_user_id="api_key:key-b",
-            x_organization_id="org-b",
-            x_api_key_id="key-b",
         )
 
     assert exc.value.status_code == 403
@@ -86,11 +103,14 @@ async def test_api_key_identity_must_match_gateway_principal() -> None:
     ) as exc:
         await require_org_membership(
             "org-b",
-            _request(),
+            _request(
+                headers={
+                    "X-Organization-ID": "org-b",
+                    "X-Api-Key-Id": "key-b",
+                    "X-Required-Permission": "credential-template:view",
+                }
+            ),
             x_user_id="api_key:different-key",
-            x_organization_id="org-b",
-            x_api_key_id="key-b",
-            x_required_permission="credential-template:view",
         )
 
     assert exc.value.status_code == 403
