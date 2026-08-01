@@ -26,7 +26,7 @@ RESOURCE_LOOKUP_MAP: dict[str, tuple[str, str, set[str]]] = {
     ),
     "trust-profiles": (
         "trust-profiles",
-        "/v1/trust-profiles/{resource_id}",
+        "/internal/v1/resource-owners/trust-profiles/{resource_id}",
         set(),
     ),
     "issuer-entities": (
@@ -61,17 +61,17 @@ RESOURCE_LOOKUP_MAP: dict[str, tuple[str, str, set[str]]] = {
     ),
     "application-templates": (
         "issuance",
-        "/v1/application-templates/{resource_id}",
+        "/internal/v1/resource-owners/application-templates/{resource_id}",
         {"validate-artifacts"},
     ),
     "issued-credentials": (
         "issuance",
-        "/v1/issued-credentials/{resource_id}",
+        "/internal/v1/resource-owners/issued-credentials/{resource_id}",
         {"mine"},
     ),
     "issuance": (
         "issuance",
-        "/v1/issuance/transactions/{resource_id}",
+        "/internal/v1/resource-owners/issuance-transactions/{resource_id}",
         {
             "offers",
             "token",
