@@ -149,6 +149,10 @@ class CedarAuthMiddleware(BaseHTTPMiddleware):
             issuance_api_key = _read_secret_value("ISSUANCE_API_KEY")
             if issuance_api_key:
                 headers["X-API-Key"] = issuance_api_key
+        elif service_name == "trust-profiles":
+            internal_api_key = _read_secret_value("SIGNING_KEYS_INTERNAL_API_KEY")
+            if internal_api_key:
+                headers["X-API-Key"] = internal_api_key
 
         return headers
 
