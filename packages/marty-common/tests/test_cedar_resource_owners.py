@@ -20,9 +20,14 @@ def test_identifier_routes_use_minimal_internal_owner_lookups() -> None:
         "trust-profiles",
         "/internal/v1/resource-owners/trust-profiles/profile-b",
     )
+    assert resolve_resource_lookup("/v1/issuer-entities/issuer-b") == (
+        "trust-profiles",
+        "/internal/v1/resource-owners/issuer-entities/issuer-b",
+    )
 
 
 def test_public_protocol_and_collection_routes_do_not_become_owner_lookups() -> None:
     assert resolve_resource_lookup("/v1/issuance/offers/transaction-b") is None
     assert resolve_resource_lookup("/v1/issued-credentials/mine") is None
     assert resolve_resource_lookup("/v1/trust-profiles") is None
+    assert resolve_resource_lookup("/v1/issuer-entities") is None

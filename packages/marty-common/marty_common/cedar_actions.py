@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import re
-from typing import Optional
-
 
 _UUID_RE = r"([a-f0-9\-]{36})"
 _ORG_PATH_RE = re.compile(rf"^/v1/organizations/{_UUID_RE}(?:/|$)")
@@ -31,7 +29,7 @@ RESOURCE_LOOKUP_MAP: dict[str, tuple[str, str, set[str]]] = {
     ),
     "issuer-entities": (
         "trust-profiles",
-        "/v1/issuer-entities/{resource_id}",
+        "/internal/v1/resource-owners/issuer-entities/{resource_id}",
         set(),
     ),
     "compliance-profiles": (
@@ -183,6 +181,11 @@ SPECIAL_ROUTE_RULES: list[tuple[re.Pattern[str], dict[str, str], str]] = [
             "OPTIONS": "issuance:view",
         },
         "issued-credential",
+    ),
+    (
+        re.compile(r"^/v1/issuance/didcomm/deliver$"),
+        {"POST": "issuance:initiate"},
+        "issuance",
     ),
     (
         re.compile(r"^/v1/issuance/[^/]+/revoke$"),
@@ -383,6 +386,7 @@ SPECIAL_ROUTE_RULES: list[tuple[re.Pattern[str], dict[str, str], str]] = [
 GENERIC_RESOURCE_MAP: dict[str, tuple[str, str]] = {
     "credential-templates": ("credential-template", "credential-template"),
     "trust-profiles": ("trust-profile", "trust-profile"),
+    "issuer-entities": ("trusted-issuer", "issuer-entity"),
     "compliance-profiles": ("compliance-profile", "compliance-profile"),
     "presentation-policies": ("presentation-policy", "presentation-policy"),
     "revocation-profiles": ("revocation-profile", "revocation-profile"),
@@ -396,7 +400,7 @@ GENERIC_RESOURCE_MAP: dict[str, tuple[str, str]] = {
 }
 
 
-def _resolve_generic_org_permission(method: str, segment: str) -> Optional[tuple[str, str]]:
+def _resolve_generic_org_permission(method: str, segment: str) -> tuple[str, str] | None:
     mapping = GENERIC_RESOURCE_MAP.get(segment)
     if mapping is None:
         return None
@@ -420,12 +424,12 @@ def _resolve_generic_org_permission(method: str, segment: str) -> Optional[tuple
     return None
 
 
-def resolve_action(method: str, path: str) -> Optional[str]:
+def resolve_action(method: str, path: str) -> str | None:
     resolved = resolve_action_and_resource(method, path)
     return resolved[0] if resolved else None
 
 
-def resolve_action_and_resource(method: str, path: str) -> Optional[tuple[str, str]]:
+def resolve_action_and_resource(method: str, path: str) -> tuple[str, str] | None:
     for pattern, method_map, resource_name in SPECIAL_ROUTE_RULES:
         if pattern.match(path):
             permission_key = method_map.get(method.upper())
@@ -444,7 +448,7 @@ def resolve_action_and_resource(method: str, path: str) -> Optional[tuple[str, s
     return None
 
 
-def extract_org_id(path: str) -> Optional[str]:
+def extract_org_id(path: str) -> str | None:
     match = _ORG_PATH_RE.match(path)
     if not match:
         return None
@@ -452,7 +456,7 @@ def extract_org_id(path: str) -> Optional[str]:
     return uuid_match.group(1) if uuid_match else None
 
 
-def resolve_resource_lookup(path: str) -> Optional[tuple[str, str]]:
+def resolve_resource_lookup(path: str) -> tuple[str, str] | None:
     canvas_platform_match = _CANVAS_PLATFORM_RESOURCE_RE.match(path)
     if canvas_platform_match:
         platform_id = canvas_platform_match.group(1)
