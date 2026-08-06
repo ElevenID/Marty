@@ -26,7 +26,7 @@ def _read_secret_value(name: str) -> str:
     if not file_path:
         return ""
     try:
-        with open(file_path, "r", encoding="utf-8") as handle:
+        with open(file_path, encoding="utf-8") as handle:
             return handle.read().strip()
     except OSError:
         return ""
@@ -73,7 +73,7 @@ class CedarAuthMiddleware(BaseHTTPMiddleware):
             "application-template": ("applications:read", "applications:write"),
             "application": ("applications:read", "applications:write"),
             "trust-profile": ("trust:read", "trust:write"),
-            "issuer-entity": ("trust:read", "trust:write"),
+            "trusted-issuer": ("trust:read", "trust:write"),
             "presentation-policy": ("trust:read", "trust:write"),
             "compliance-profile": ("compliance:read", "compliance:write"),
             "deployment-profile": ("deployment:read", "deployment:write"),
