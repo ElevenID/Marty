@@ -157,7 +157,14 @@ class CedarAuthMiddleware(BaseHTTPMiddleware):
         return headers
 
     async def _extract_body_org_id(self, request: Request) -> str | None:
-        if request.method.upper() not in {"POST", "PUT", "PATCH"}:
+        # A few provider-neutral management endpoints use a JSON body on
+        # DELETE because the resource is selected by a complete public tuple
+        # rather than an internal database identifier.  Treat that tuple's
+        # organization exactly like the body organization on every other
+        # mutation so membership is checked before the request reaches the
+        # route.  Ignoring DELETE here falls back to a potentially stale
+        # session-selected organization and rejects legitimate multi-org use.
+        if request.method.upper() not in {"POST", "PUT", "PATCH", "DELETE"}:
             return None
 
         content_type = (request.headers.get("content-type") or "").split(";", 1)[0].strip().lower()
