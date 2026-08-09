@@ -26,7 +26,7 @@ def _read_secret_value(name: str) -> str:
     if not file_path:
         return ""
     try:
-        with open(file_path, "r", encoding="utf-8") as handle:
+        with open(file_path, encoding="utf-8") as handle:
             return handle.read().strip()
     except OSError:
         return ""
@@ -73,7 +73,7 @@ class CedarAuthMiddleware(BaseHTTPMiddleware):
             "application-template": ("applications:read", "applications:write"),
             "application": ("applications:read", "applications:write"),
             "trust-profile": ("trust:read", "trust:write"),
-            "issuer-entity": ("trust:read", "trust:write"),
+            "trusted-issuer": ("trust:read", "trust:write"),
             "presentation-policy": ("trust:read", "trust:write"),
             "compliance-profile": ("compliance:read", "compliance:write"),
             "deployment-profile": ("deployment:read", "deployment:write"),
@@ -149,11 +149,22 @@ class CedarAuthMiddleware(BaseHTTPMiddleware):
             issuance_api_key = _read_secret_value("ISSUANCE_API_KEY")
             if issuance_api_key:
                 headers["X-API-Key"] = issuance_api_key
+        elif service_name == "trust-profiles":
+            internal_api_key = _read_secret_value("SIGNING_KEYS_INTERNAL_API_KEY")
+            if internal_api_key:
+                headers["X-API-Key"] = internal_api_key
 
         return headers
 
     async def _extract_body_org_id(self, request: Request) -> str | None:
-        if request.method.upper() not in {"POST", "PUT", "PATCH"}:
+        # A few provider-neutral management endpoints use a JSON body on
+        # DELETE because the resource is selected by a complete public tuple
+        # rather than an internal database identifier.  Treat that tuple's
+        # organization exactly like the body organization on every other
+        # mutation so membership is checked before the request reaches the
+        # route.  Ignoring DELETE here falls back to a potentially stale
+        # session-selected organization and rejects legitimate multi-org use.
+        if request.method.upper() not in {"POST", "PUT", "PATCH", "DELETE"}:
             return None
 
         content_type = (request.headers.get("content-type") or "").split(";", 1)[0].strip().lower()
