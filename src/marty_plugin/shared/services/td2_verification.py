@@ -327,7 +327,16 @@ class TD2VerificationEngine:
             return result
 
         try:
-            # Import SOD processor
+            # Signature verification is security-sensitive and must run in Rust.
+            from marty_plugin.native_backends import require_backend
+
+            native = require_backend("marty_verification")
+            if not native.verify_sod_signature(bytes(chip_data.sod_signature)):
+                result["errors"].append("SOD signature verification failed")
+                return result
+
+            # Retain the existing parser only for extracting DG hash metadata;
+            # authenticity has already been established by the native verifier.
             from marty_common.crypto.sod_parser import SODProcessor
 
             processor = SODProcessor()

@@ -9,7 +9,7 @@ import logging
 import time
 from datetime import datetime
 from io import BytesIO
-from typing import Any, NoReturn
+from typing import Any
 from uuid import uuid4
 
 from app.core.config import settings
@@ -29,115 +29,44 @@ from app.models.doc_models_clean import (
 )
 from PIL import Image
 from pytesseract import pytesseract  # type: ignore
+from marty_plugin.native_backends import NativeOperationError, require_backend
 
-# Attempt to use Marty common MRZ utilities; if unavailable (e.g. grpc dependency build fails
-# under the current Python version) fall back to a lightweight local parser sufficient for
-# document processing integration tests. This avoids pulling in the heavy grpc dependency
-# chain just to parse basic MRZ data for the doc-processing service.
-try:  # pragma: no cover - exercised only in environments missing grpc/marty_common deps
-    from marty_common.utils.mrz_utils import MRZException, MRZParser  # type: ignore[attr-defined]
-except (ImportError, ModuleNotFoundError):  # Fallback only for import-related failures
 
-    class MRZException(Exception):
-        """Fallback MRZ exception used when core library is unavailable."""
+class MRZException(NativeOperationError):
+    """Compatibility exception for callers of the document-processing service."""
 
-    class _FallbackMRZData:  # Minimal attribute container expected by downstream code
-        def __init__(
-            self,
-            document_type: str | None = None,
-            issuing_country: str | None = None,
-            document_number: str | None = None,
-            surname: str | None = None,
-            given_names: str | None = None,
-            nationality: str | None = None,
-            date_of_birth: str | None = None,
-            gender: str | None = None,
-            date_of_expiry: str | None = None,
-            personal_number: str | None = None,
-        ) -> None:
-            self.document_type = document_type
-            self.issuing_country = issuing_country
-            self.document_number = document_number
-            self.surname = surname
-            self.given_names = given_names
-            self.nationality = nationality
-            self.date_of_birth = date_of_birth
-            self.gender = gender
-            self.date_of_expiry = date_of_expiry
-            self.personal_number = personal_number
 
-    class MRZParser:  # type: ignore[override]
-        """Lightweight fallback MRZ parser (TD3 only, checksum relaxed).
+class MRZParser:
+    """Compatibility adapter over the Rust TD1/TD2/TD3 parser."""
 
-        This implementation intentionally relaxes strict length & checksum validation.
-        It extracts core fields needed for positive status signaling in the service.
-        """
+    @staticmethod
+    def parse_mrz(mrz: str) -> Any:
+        native = require_backend("marty_verification")
+        try:
+            return native.parse_mrz(mrz.strip().splitlines())
+        except Exception as exc:
+            raise MRZException(f"Rust MRZ parsing failed: {exc}") from exc
 
-        @staticmethod
-        def parse_td3_mrz(mrz: str) -> _FallbackMRZData:
-            lines = mrz.strip().split("\n")
-            if len(lines) != 2:
-                msg = "Fallback TD3 parser expects 2 lines"
-                raise MRZException(msg)
-            line1, line2 = lines
-            # Pad lines to expected length if shorter (common in OCR mocks)
-            if len(line1) < 44:
-                line1 = line1 + ("<" * (44 - len(line1)))
-            if len(line2) < 44:
-                line2 = line2 + ("<" * (44 - len(line2)))
-            document_type = line1[0] if line1 else None
-            issuing_country = line1[2:5] if len(line1) >= 5 else None
-            # Split surname and given names by the first double filler
-            name_section = line1[5:]
-            surname = None
-            given_names = None
-            if name_section:
-                parts = name_section.split("<<", 1)
-                surname = parts[0].replace("<", " ").strip() if parts[0] else None
-                if len(parts) > 1:
-                    given_names = parts[1].replace("<", " ").strip() or None
-            document_number = line2[0:9].replace("<", "") or None
-            nationality = line2[10:13] or None
-            date_of_birth = line2[13:19] or None
-            gender = line2[20] or None
-            date_of_expiry = line2[21:27] or None
-            personal_number = line2[28:42].replace("<", "") or None
-            return _FallbackMRZData(
-                document_type=document_type,
-                issuing_country=issuing_country,
-                document_number=document_number,
-                surname=surname,
-                given_names=given_names,
-                nationality=nationality,
-                date_of_birth=date_of_birth,
-                gender=gender,
-                date_of_expiry=date_of_expiry,
-                personal_number=personal_number,
-            )
+    @classmethod
+    def parse_td3_mrz(cls, mrz: str) -> Any:
+        data = cls.parse_mrz(mrz)
+        if data.format != "TD3":
+            raise MRZException(f"Expected TD3 MRZ, received {data.format}")
+        return data
 
-        @staticmethod
-        def parse_td2_mrz(mrz: str) -> NoReturn:  # Not implemented in fallback
-            msg = "TD2 parsing not supported in fallback parser"
-            raise MRZException(msg)
+    @classmethod
+    def parse_td2_mrz(cls, mrz: str) -> Any:
+        data = cls.parse_mrz(mrz)
+        if data.format != "TD2":
+            raise MRZException(f"Expected TD2 MRZ, received {data.format}")
+        return data
 
-        @staticmethod
-        def parse_td1_mrz(mrz: str) -> NoReturn:  # Not implemented in fallback
-            msg = "TD1 parsing not supported in fallback parser"
-            raise MRZException(msg)
-
-        @classmethod
-        def parse_mrz(cls, mrz: str):  # Basic gateway mimicking real interface
-            lines = mrz.strip().split("\n")
-            if len(lines) == 2:
-                return cls.parse_td3_mrz(mrz)
-            msg = "Unsupported MRZ format in fallback parser"
-            raise MRZException(msg)
-
-    logger = logging.getLogger(__name__)
-    logger.warning(
-        "Using fallback MRZParser (grpc/marty_common unavailable). Limited functionality; "
-        "install grpcio for full features."
-    )
+    @classmethod
+    def parse_td1_mrz(cls, mrz: str) -> Any:
+        data = cls.parse_mrz(mrz)
+        if data.format != "TD1":
+            raise MRZException(f"Expected TD1 MRZ, received {data.format}")
+        return data
 
 # logger already defined above for module
 
@@ -356,16 +285,19 @@ class MRZProcessingService:
         return None
 
     def _try_td3_then_td2(self, mrz_text: str) -> Any | None:
-        """Try TD-3 parser first, then return None for other formats."""
+        """Try the native TD-3 and TD-2 parsers."""
         try:
             return MRZParser.parse_td3_mrz(mrz_text)
         except MRZException:
-            return None
+            try:
+                return MRZParser.parse_td2_mrz(mrz_text)
+            except MRZException:
+                return None
 
     def _try_td1(self, mrz_text: str) -> Any | None:
-        """Try TD-3 parser for TD-1 format (fallback handles both)."""
+        """Parse a TD-1 MRZ with the native parser."""
         try:
-            return MRZParser.parse_td3_mrz(mrz_text)
+            return MRZParser.parse_td1_mrz(mrz_text)
         except MRZException:
             return None
 

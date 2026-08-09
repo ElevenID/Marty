@@ -22,6 +22,7 @@ from digital_identity.application.ports.trust_profile import (
     ValidationStatus,
     RevocationStatus,
 )
+from marty_plugin.native_backends import require_backend
 
 logger = logging.getLogger(__name__)
 
@@ -32,10 +33,10 @@ def _pem_to_trust_anchor(
 ) -> TrustAnchor | None:
     """Convert a PEM certificate to a TrustAnchor using Rust helpers."""
     try:
-        from marty_verification import certificate_pem_to_der, get_certificate_info  # type: ignore
+        native = require_backend("marty_verification")
 
-        der = bytes(certificate_pem_to_der(cert_pem))
-        info = get_certificate_info(der)
+        der = bytes(native.certificate_pem_to_der(cert_pem))
+        info = native.get_certificate_info(der)
         return TrustAnchor(
             id=info["fingerprint_sha256"],
             subject=info["subject"],
@@ -70,26 +71,19 @@ class AamvaTrustProfile:
 
     def __post_init__(self):
         """Initialize the IACA registry."""
-        try:
-            from marty_verification import IacaRegistry  # type: ignore
+        native = require_backend("marty_verification")
 
-            if self.iaca_directory.exists():
-                self._rust_registry = IacaRegistry.from_directory(
-                    str(self.iaca_directory)
-                )
-                logger.info(
-                    "Initialized AAMVA trust profile with %d IACA anchors",
-                    len(self._rust_registry),
-                )
-            else:
-                self._rust_registry = IacaRegistry()
-                logger.info("Initialized empty AAMVA trust profile")
-
-        except ImportError:
-            logger.error(
-                "Rust marty-verification not available — AAMVA trust profile unavailable"
+        if self.iaca_directory.exists():
+            self._rust_registry = native.IacaRegistry.from_directory(
+                str(self.iaca_directory)
             )
-            self._rust_registry = None
+            logger.info(
+                "Initialized AAMVA trust profile with %d IACA anchors",
+                len(self._rust_registry),
+            )
+        else:
+            self._rust_registry = native.IacaRegistry()
+            logger.info("Initialized empty AAMVA trust profile")
 
     # ------------------------------------------------------------------
     # TrustProfilePort interface
