@@ -24,6 +24,7 @@ from digital_identity.application.ports.trust_profile import (
     ValidationStatus,
     RevocationStatus,
 )
+from marty_plugin.native_backends import require_backend
 
 logger = logging.getLogger(__name__)
 
@@ -109,7 +110,9 @@ class CustomTrustProfile:
             )
 
         try:
-            from marty_verification import ChainValidator, certificate_der_to_pem  # type: ignore
+            native = require_backend("marty_verification")
+            ChainValidator = native.ChainValidator
+            certificate_der_to_pem = native.certificate_der_to_pem
 
             if certificate_der and not certificate_pem:
                 certificate_pem = certificate_der_to_pem(certificate_der)
@@ -134,10 +137,6 @@ class CustomTrustProfile:
                     status=ValidationStatus.INVALID,
                     errors=list(result.errors) if result.errors else ["Chain validation failed"],
                 )
-
-        except ImportError:
-            # Fallback to pure-Python issuer matching
-            return self._python_fallback_validate(certificate_pem)
 
         except Exception as e:
             logger.exception("Default chain validation failed")
