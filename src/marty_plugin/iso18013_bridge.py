@@ -100,32 +100,70 @@ class Session:
 
 
 class Transport:
-    """Transport interface reserved for native transport bindings."""
+    """Async-compatible adapter over a synchronous native transport."""
+
+    def __init__(self, inner: Any) -> None:
+        self._inner = inner
 
     async def connect(self) -> None:
-        raise NativeBackendUnavailable("Native ISO 18013 transport bindings are not installed")
+        self._inner.connect()
 
     async def send(self, data: bytes) -> None:
-        raise NativeBackendUnavailable("Native ISO 18013 transport bindings are not installed")
+        self._inner.send(data)
 
     async def receive(self) -> bytes:
-        raise NativeBackendUnavailable("Native ISO 18013 transport bindings are not installed")
+        return bytes(self._inner.receive())
 
     async def close(self) -> None:
-        raise NativeBackendUnavailable("Native ISO 18013 transport bindings are not installed")
+        self._inner.close()
 
     def is_connected(self) -> bool:
-        raise NativeBackendUnavailable("Native ISO 18013 transport bindings are not installed")
+        return bool(self._inner.is_connected())
 
 
 class BleTransport(Transport):
-    """Fail-closed BLE adapter until the Rust transport PyO3 surface is enabled."""
+    """Native BLE transport adapter."""
 
     def __init__(self, service_uuid: Optional[str] = None) -> None:
-        self.service_uuid = service_uuid or "0000FFF0-0000-1000-8000-00805F9B34FB"
-        raise NativeBackendUnavailable(
-            "Rust BLE transport bindings are not available in the installed marty_iso18013 module"
-        )
+        native_type = getattr(_native, "BleTransport", None)
+        if native_type is None:
+            raise NativeBackendUnavailable(
+                "The installed marty_iso18013 module was built without BLE transport support"
+            )
+        super().__init__(native_type(service_uuid))
+
+
+class NfcTransport(Transport):
+    """Native NFC transport adapter."""
+
+    def __init__(self) -> None:
+        native_type = getattr(_native, "NfcTransport", None)
+        if native_type is None:
+            raise NativeBackendUnavailable(
+                "The installed marty_iso18013 module was built without NFC transport support"
+            )
+        super().__init__(native_type())
+
+
+class HttpsTransport(Transport):
+    """Native HTTPS transport adapter."""
+
+    def __init__(self, url: str) -> None:
+        native_type = getattr(_native, "HttpsTransport", None)
+        if native_type is None:
+            raise NativeBackendUnavailable(
+                "The installed marty_iso18013 module was built without HTTPS transport support"
+            )
+        super().__init__(native_type(url))
+
+
+def transport_capabilities() -> dict[str, bool]:
+    """Report which native transport classes are present in the installed wheel."""
+    return {
+        "ble": hasattr(_native, "BleTransport"),
+        "nfc": hasattr(_native, "NfcTransport"),
+        "https": hasattr(_native, "HttpsTransport"),
+    }
 
 
 def get_implementation() -> str:
@@ -140,7 +178,9 @@ __all__ = [
     "BleTransport",
     "DeviceEngagement",
     "EngagementMethod",
+    "HttpsTransport",
     "NativeBackendUnavailable",
+    "NfcTransport",
     "ResponseStatus",
     "RUST_AVAILABLE",
     "Session",
@@ -150,4 +190,5 @@ __all__ = [
     "TransportMethod",
     "get_implementation",
     "get_version",
+    "transport_capabilities",
 ]
