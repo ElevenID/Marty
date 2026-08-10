@@ -9,15 +9,10 @@ import zipfile
 from collections.abc import Iterator
 from datetime import datetime
 
-import asn1crypto.crl
-import asn1crypto.pem
-import asn1crypto.x509
 from app.models.pkd_models import Certificate, RevokedCertificate
-from app.utils.asn1_utils import ASN1Encoder
-from marty_common.crypto_bridge import (
-    certificate_pem_to_der,
-    get_certificate_info,
-)
+from app.utils.asn1_utils import ASN1Decoder
+
+from marty_plugin.native_backends import NativeBackendUnavailable, require_backend
 
 logger = logging.getLogger(__name__)
 
@@ -25,7 +20,9 @@ logger = logging.getLogger(__name__)
 PAYLOAD_ROOT_LABEL = "payload"
 
 
-def unwrap_pkd_payload(blob: bytes, label: str = PAYLOAD_ROOT_LABEL) -> list[tuple[str, bytes]]:
+def unwrap_pkd_payload(
+    blob: bytes, label: str = PAYLOAD_ROOT_LABEL
+) -> list[tuple[str, bytes]]:
     """Recursively unwrap PKD payload containers into raw binary blobs."""
 
     results: list[tuple[str, bytes]] = []
@@ -85,7 +82,9 @@ def parse_certificate_payload(
     return list(certificates.values())
 
 
-def parse_crl_payload(blob: bytes, *, source_hint: str = PAYLOAD_ROOT_LABEL) -> list[dict]:
+def parse_crl_payload(
+    blob: bytes, *, source_hint: str = PAYLOAD_ROOT_LABEL
+) -> list[dict]:
     """Decode the CRLs embedded in a PKD payload."""
 
     crls: list[dict] = []
@@ -100,11 +99,10 @@ def parse_crl_payload(blob: bytes, *, source_hint: str = PAYLOAD_ROOT_LABEL) -> 
 def _decode_masterlist_like(data: bytes) -> list[Certificate]:
     """Try interpreting data as an ICAO master list (CMS SignedData)."""
 
-    # Late import avoids circular dependency with ASN1Decoder
-    from app.utils.asn1_utils import ASN1Decoder
-
     try:
         certificates = ASN1Decoder.decode_master_list(data)
+    except NativeBackendUnavailable:
+        raise
     except Exception as exc:  # pragma: no cover - defensive guard
         logger.debug("Master list decode failed: %s", exc)
         return []
@@ -125,9 +123,14 @@ def _decode_raw_certificates(data: bytes) -> list[Certificate]:
     if "-----BEGIN CERTIFICATE-----" in text:
         for pem_block in _iterate_pem_blocks(text):
             try:
-                der_bytes = certificate_pem_to_der(pem_block)
+                native = require_backend("marty_verification")
+                der_bytes = bytes(native.certificate_pem_to_der(pem_block))
                 certs.append(_convert_der_to_model(der_bytes))
-            except Exception as exc:  # pragma: no cover - malformed block logged for diagnosis
+            except NativeBackendUnavailable:
+                raise
+            except (
+                Exception
+            ) as exc:  # pragma: no cover - malformed block logged for diagnosis
                 logger.debug("Failed to parse PEM certificate: %s", exc)
         return certs
 
@@ -161,12 +164,9 @@ def _iterate_pem_blocks(text: str) -> Iterator[str]:
 def _convert_der_to_model(der_bytes: bytes) -> Certificate:
     """Convert DER-encoded certificate into the PKD Certificate model."""
 
-    # Get certificate info from Rust bindings
-    cert_info = get_certificate_info(der_bytes)
-
-    # Use asn1crypto for country code extraction
-    asn1_cert = asn1crypto.x509.Certificate.load(der_bytes)
-    country_code = ASN1Encoder.extract_country_code(asn1_cert.subject) or "XXX"
+    native = require_backend("marty_verification")
+    cert_info = native.get_certificate_info(der_bytes)
+    country_code = _country_from_subject(cert_info["subject"]) or "XXX"
 
     # Parse ISO 8601 dates
     valid_from = datetime.fromisoformat(cert_info["not_before"].replace("Z", "+00:00"))
@@ -187,33 +187,10 @@ def _decode_single_crl(data: bytes) -> dict | None:
     """Decode a single CRL, returning a dictionary suitable for storage."""
 
     try:
-        der_bytes = _ensure_der(data)
-        crl = asn1crypto.crl.CertificateList.load(der_bytes)
-        tbs_cert_list = crl["tbs_cert_list"]
-
-        issuer = tbs_cert_list["issuer"].human_friendly
-        this_update = tbs_cert_list["this_update"].native
-        next_update_field = tbs_cert_list.get("next_update")
-        next_update = next_update_field.native if next_update_field is not None else this_update
-
-        revoked_entries: list[RevokedCertificate] = []
-        for revoked in tbs_cert_list.get("revoked_certificates", []):
-            serial = format(revoked["user_certificate"].native, "X")
-            revocation_date = revoked["revocation_date"].native
-
-            reason_code = None
-            for extension in revoked.get("crl_entry_extensions", []):
-                if extension["extn_id"].native == "crl_reason":
-                    reason_code = extension["extn_value"].parsed.native
-                    break
-
-            revoked_entries.append(
-                RevokedCertificate(
-                    serial_number=serial,
-                    revocation_date=revocation_date,
-                    reason_code=reason_code,
-                )
-            )
+        der_bytes = ASN1Decoder._pem_to_der(data)
+        issuer, this_update, next_update, revoked_entries = ASN1Decoder.decode_crl(
+            der_bytes
+        )
 
         return {
             "issuer": issuer,
@@ -230,15 +207,19 @@ def _decode_single_crl(data: bytes) -> dict | None:
             ],
         }
 
+    except NativeBackendUnavailable:
+        raise
     except Exception as exc:  # pragma: no cover - handled by caller/logged for context
         logger.debug("Failed to decode CRL payload: %s", exc)
         return None
 
 
-def _ensure_der(data: bytes) -> bytes:
-    """Ensure payload is DER encoded, unwrapping PEM if needed."""
-
-    if data.startswith(b"-----BEGIN"):
-        _, _, der_bytes = asn1crypto.pem.unarmor(data)
-        return der_bytes
-    return data
+def _country_from_subject(subject: str) -> str | None:
+    """Extract an ISO alpha-2 country value from a native subject string."""
+    for component in subject.replace("/", ",").split(","):
+        key, separator, value = component.strip().partition("=")
+        if separator and key.upper() == "C":
+            candidate = value.strip().upper()
+            if len(candidate) == 2 and candidate.isalpha():
+                return candidate
+    return None

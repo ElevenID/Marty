@@ -12,6 +12,7 @@ from marty_plugin.native_backends import (
     backend_diagnostics,
     require_backend,
 )
+from marty_plugin.pkd_service.app.utils.certificate_validator import CertificateValidator
 
 
 def test_missing_native_backend_raises_typed_error() -> None:
@@ -74,3 +75,53 @@ def test_iso18013_transport_adapter_uses_native_surface(monkeypatch) -> None:
         asyncio.run(exercise())
     finally:
         sys.modules.pop("marty_plugin.iso18013_bridge", None)
+
+
+def test_pkd_certificate_validator_routes_chain_to_native(monkeypatch) -> None:
+    anchors: list[bytes] = []
+    intermediates: list[bytes] = []
+    validated: list[str] = []
+
+    class Result:
+        valid = True
+
+    class FakeChainValidator:
+        def add_trust_anchor_der(self, value: bytes) -> None:
+            anchors.append(value)
+
+        def add_intermediate_der(self, value: bytes) -> None:
+            intermediates.append(value)
+
+        def validate_chain(self, chain: list[str]) -> Result:
+            validated.extend(chain)
+            return Result()
+
+    native = ModuleType("marty_verification")
+    native.ChainValidator = FakeChainValidator
+    native.load_certificate_der = bytes
+    native.certificate_der_to_pem = lambda value: f"pem:{value.decode()}"
+    native.certificate_pem_to_der = lambda value: value.removeprefix("pem:").encode()
+
+    module = importlib.import_module(
+        "marty_plugin.pkd_service.app.utils.certificate_validator"
+    )
+    monkeypatch.setattr(module, "require_backend", lambda _name: native)
+
+    validator = CertificateValidator(trust_roots=[b"root"], other_certs=[b"intermediate"])
+    assert validator.validate_chain([b"leaf", b"issuer"])
+    assert anchors == [b"root"]
+    assert intermediates == [b"intermediate"]
+    assert validated == ["pem:leaf", "pem:issuer"]
+
+
+def test_pkd_certificate_validator_propagates_missing_backend(monkeypatch) -> None:
+    module = importlib.import_module(
+        "marty_plugin.pkd_service.app.utils.certificate_validator"
+    )
+
+    def unavailable(_name: str) -> None:
+        raise NativeBackendUnavailable("native backend missing")
+
+    monkeypatch.setattr(module, "require_backend", unavailable)
+    with pytest.raises(NativeBackendUnavailable, match="native backend missing"):
+        CertificateValidator().validate(b"certificate")
