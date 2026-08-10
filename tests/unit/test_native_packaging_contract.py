@@ -29,6 +29,7 @@ def test_release_image_embeds_and_validates_native_wheels() -> None:
     assert "COPY native-wheels /native-wheels" in dockerfile
     assert "COPY packages/marty-common ./packages/marty-common" in dockerfile
     assert "./packages/marty-common" in dockerfile
+    assert "libdbus-1-3 libpcsclite1" in dockerfile
     assert "--find-links=/native-wheels" in dockerfile
     assert "require_native_backends()" in dockerfile
     assert "download-native-wheels.sh all" in release_workflow

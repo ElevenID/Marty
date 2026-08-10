@@ -26,7 +26,7 @@ LABEL org.opencontainers.image.source="https://github.com/ElevenID/Marty" \
 RUN groupadd --system --gid 10001 marty \
     && useradd --system --uid 10001 --gid marty --home-dir /app marty \
     && apt-get update \
-    && apt-get install --yes --no-install-recommends libpcsclite1 \
+    && apt-get install --yes --no-install-recommends libdbus-1-3 libpcsclite1 \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=builder /wheels /wheels
 RUN --mount=type=cache,target=/root/.cache/pip \
