@@ -25,7 +25,8 @@ Python cryptographic fallback.
   data-group hashes, CSCA/DSC chains, master lists, CRLs, and OCSP structures
   route through `marty_verification`.
 - JWT, SD-JWT, mDoc, signing, key generation, and presentation verification in
-  credential services route through `_marty_rs`.
+  credential services route through `_marty_rs`. Provider/KMS detached
+  signatures and ECDSA signature normalization also cross this native boundary.
 - IETF Token Status Lists and W3C Bitstring Status Lists are encoded, decoded,
   bounded, and mutated by `_marty_rs`; unknown mappings and unavailable shards
   fail closed. Unsigned Python status-list credentials are disabled.
@@ -35,13 +36,18 @@ Python cryptographic fallback.
 - The former permissive test signature verifier and structure-only VDS-NC
   verification path have been removed. Invalid keys, missing PKD trust, and
   legacy password hashes are rejected.
+- PKD certificate ingestion and trust-anchor metadata extraction use
+  `marty_verification`. The standalone synchronization adapter refuses to
+  report non-empty certificate batches as stored until persistence is
+  configured.
 - Shared Rust/Python vectors cover valid and malformed MRZ, SOD/data-group
   alteration, trust chains, and native ISO request/session behavior. Criterion
   benchmarks cover MRZ, SOD, chain validation, and encrypted session handling.
 
 ## Packaging and rollout
 
-Marty pins the canonical core native v0.1.39 release for `marty_iso18013`,
+Marty pins the canonical core native v0.1.39 release built from merged core
+commit `2a1e2743ff0499adbe473ea242e179681f874b3c` for `marty_iso18013`,
 `marty_verification`, and `_marty_rs`. CI and release jobs download the exact
 GitHub release wheels, require GitHub-provided SHA-256 asset digests to match,
 and install only those wheels. Production images verify all native backends
