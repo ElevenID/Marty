@@ -73,3 +73,12 @@ def test_trust_api_contains_no_synthetic_success_or_signature() -> None:
     assert "For now, return a mock response" not in source
     assert "encode_raw_certificates" not in source
     assert "Fallback to mock data" not in source
+
+
+def test_pkd_offline_verifier_does_not_log_certificate_record_values() -> None:
+    source = (
+        ROOT
+        / "src/marty_plugin/pkd_service/app/services/offline_verifier.py"
+    ).read_text(encoding="utf-8")
+
+    assert 'logger.warning("Skipping invalid CSCA %s: %s", item.get("id"), exc)' not in source

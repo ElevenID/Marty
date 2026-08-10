@@ -169,7 +169,9 @@ class OfflineVerifier:
                 (self.trust_store_path / f"{country}_{identifier}.cer").write_bytes(der)
                 count += 1
             except Exception as exc:
-                logger.warning("Skipping invalid CSCA %s: %s", item.get("id"), exc)
+                logger.warning(
+                    "Skipping invalid CSCA record (%s)", type(exc).__name__
+                )
         return count
 
     async def update_local_crls(self) -> int:
