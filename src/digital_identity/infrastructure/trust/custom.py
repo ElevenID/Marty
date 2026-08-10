@@ -12,17 +12,14 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Callable
 
-from cryptography import x509
-from cryptography.hazmat.primitives import hashes, serialization
-
 from digital_identity.application.ports.trust_profile import (
-    TrustProfilePort,
-    TrustAnchor,
     ChainValidationResult,
-    RevocationCheckResult,
     RefreshResult,
-    ValidationStatus,
+    RevocationCheckResult,
     RevocationStatus,
+    TrustAnchor,
+    TrustProfilePort,
+    ValidationStatus,
 )
 from marty_plugin.native_backends import require_backend
 
@@ -42,8 +39,12 @@ class CustomTrustProfile:
 
     name: str
     trust_anchors: dict[str, TrustAnchor] = field(default_factory=dict)
-    validation_callback: Callable[[list[str], str | None], ChainValidationResult] | None = None
-    revocation_callback: Callable[[str, str | None], RevocationCheckResult] | None = None
+    validation_callback: (
+        Callable[[list[str], str | None], ChainValidationResult] | None
+    ) = None
+    revocation_callback: Callable[[str, str | None], RevocationCheckResult] | None = (
+        None
+    )
     refresh_callback: Callable[[], RefreshResult] | None = None
 
     # ------------------------------------------------------------------
@@ -135,7 +136,9 @@ class CustomTrustProfile:
             else:
                 return ChainValidationResult(
                     status=ValidationStatus.INVALID,
-                    errors=list(result.errors) if result.errors else ["Chain validation failed"],
+                    errors=list(result.errors)
+                    if result.errors
+                    else ["Chain validation failed"],
                 )
 
         except Exception as e:
@@ -203,28 +206,25 @@ class CustomTrustProfile:
         source: str = "manual",
     ) -> None:
         """Add a trust anchor from a PEM certificate."""
-        cert = x509.load_pem_x509_certificate(certificate_pem.encode("utf-8"))
-        not_before = (
-            cert.not_valid_before_utc
-            if hasattr(cert, "not_valid_before_utc")
-            else cert.not_valid_before
-        )
-        not_after = (
-            cert.not_valid_after_utc
-            if hasattr(cert, "not_valid_after_utc")
-            else cert.not_valid_after
-        )
-        fingerprint = cert.fingerprint(hashes.SHA256()).hex()
+        native = require_backend("marty_verification")
+        certificate_der = bytes(native.certificate_pem_to_der(certificate_pem))
+        info = native.get_certificate_info(certificate_der)
+        fingerprint = info["fingerprint_sha256"]
 
         anchor = TrustAnchor(
             id=fingerprint,
-            subject=cert.subject.rfc4514_string(),
-            issuer=cert.issuer.rfc4514_string(),
-            serial_number=format(cert.serial_number, "x"),
-            valid_from=not_before,
-            valid_until=not_after,
+            subject=info["subject"],
+            issuer=info["issuer"],
+            serial_number=info["serial_number"],
+            valid_from=datetime.fromisoformat(
+                info["not_before"].replace("Z", "+00:00")
+            ),
+            valid_until=datetime.fromisoformat(
+                info["not_after"].replace("Z", "+00:00")
+            ),
             certificate_pem=certificate_pem,
-            certificate_der=cert.public_bytes(serialization.Encoding.DER),
+            certificate_der=certificate_der,
+            key_usage=list(info.get("key_usage") or []),
             metadata={"source": source},
         )
 

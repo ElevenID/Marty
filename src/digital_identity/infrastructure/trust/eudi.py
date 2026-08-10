@@ -13,13 +13,13 @@ from datetime import datetime
 from typing import Any
 
 from digital_identity.application.ports.trust_profile import (
-    TrustProfilePort,
-    TrustAnchor,
     ChainValidationResult,
-    RevocationCheckResult,
     RefreshResult,
-    ValidationStatus,
+    RevocationCheckResult,
     RevocationStatus,
+    TrustAnchor,
+    TrustProfilePort,
+    ValidationStatus,
 )
 from marty_plugin.native_backends import require_backend
 
@@ -66,8 +66,8 @@ class EudiTrustProfile:
 
     trust_list_url: str | None = None
     member_state: str | None = None
-    _rust_registry: Any = None     # Rust EudiRegistry via PyO3
-    _chain_validator: Any = None   # Rust ChainValidator via PyO3
+    _rust_registry: Any = None  # Rust EudiRegistry via PyO3
+    _chain_validator: Any = None  # Rust ChainValidator via PyO3
 
     def __post_init__(self):
         """Initialize the Rust registry and chain validator."""
@@ -147,10 +147,10 @@ class EudiTrustProfile:
             )
 
         try:
-            from marty_verification import certificate_der_to_pem  # type: ignore
+            native = require_backend("marty_verification")
 
             if certificate_der and not certificate_pem:
-                certificate_pem = certificate_der_to_pem(certificate_der)
+                certificate_pem = native.certificate_der_to_pem(certificate_der)
 
             result = self._chain_validator.validate_chain([certificate_pem])
 
@@ -165,7 +165,9 @@ class EudiTrustProfile:
             else:
                 return ChainValidationResult(
                     status=ValidationStatus.INVALID,
-                    errors=list(result.errors) if result.errors else ["Chain validation failed"],
+                    errors=list(result.errors)
+                    if result.errors
+                    else ["Chain validation failed"],
                 )
 
         except Exception as e:
@@ -188,17 +190,19 @@ class EudiTrustProfile:
             )
 
         try:
-            from marty_verification import (  # type: ignore
-                certificate_pem_to_der,
-                get_ocsp_responder_url,
-            )
+            native = require_backend("marty_verification")
 
             if certificate_pem and not certificate_der:
-                certificate_der = bytes(certificate_pem_to_der(certificate_pem))
+                certificate_der = bytes(native.certificate_pem_to_der(certificate_pem))
+            if certificate_der is None:
+                raise ValueError("No certificate provided")
 
-            ocsp_url = get_ocsp_responder_url(certificate_der)
+            ocsp_url = native.get_ocsp_responder_url(certificate_der)
+            crl_urls = list(native.get_crl_distribution_points(certificate_der))
             if ocsp_url:
                 logger.debug("OCSP responder found: %s (fetch not yet wired)", ocsp_url)
+            if crl_urls:
+                logger.debug("CRL distribution points found: %s", crl_urls)
 
             return RevocationCheckResult(
                 status=RevocationStatus.UNKNOWN,
@@ -225,8 +229,9 @@ class EudiTrustProfile:
         anchors_after = len(self._rust_registry)
 
         return RefreshResult(
-            success=True,
+            success=False,
             anchors_added=max(0, anchors_after - anchors_before),
+            errors=["EUDI LoTL refresh provider is not configured"],
         )
 
     async def is_issuer_trusted(self, issuer_id: str) -> bool:

@@ -9,16 +9,17 @@ TimePolicy enforcement.
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import Protocol
+from typing import Any, Protocol
 
 from digital_identity.application.ports.secrets import SecretsServicePort
 from marty_common.infrastructure.key_vault import KeyVaultClient
 
 from digital_identity.domain.entities import TrustFramework
 from digital_identity.domain.value_objects import TimePolicy
-from marty_plugin.native_backends import require_backend
+from marty_plugin.native_backends import NativeOperationError, require_backend
 
 
 @dataclass
@@ -50,10 +51,14 @@ class IcaoPkdProvider:
     """ICAO PKD trust anchor provider with LDAP support."""
 
     def __init__(
-        self, secrets_service: SecretsServicePort, base_url: str | None = None
+        self,
+        secrets_service: SecretsServicePort,
+        base_url: str | None = None,
+        master_list_fetcher: Callable[[], Awaitable[bytes]] | None = None,
     ):
         self.secrets_service = secrets_service
         self.base_url = base_url or "pkddownloadsg.icao.int"
+        self.master_list_fetcher = master_list_fetcher
 
     async def fetch_trust_anchors(self) -> bytes:
         """
@@ -61,28 +66,12 @@ class IcaoPkdProvider:
 
         Returns CMS-signed master list bytes.
         """
-        # Get credentials from secrets service
-        username = await self.secrets_service.get_secret("icao_pkd", "username")
-        password = await self.secrets_service.get_secret("icao_pkd", "password")
-
-        # Import Rust module
-        from marty_verification import IcaoPkdClient, IcaoPkdConfig
-
-        # Create config
-        config = IcaoPkdConfig(
-            base_url=self.base_url,
-            username=username,
-            password=password,
-            offline_dir=None,  # Use live fetch
-        )
-
-        # Fetch master list
-        client = IcaoPkdClient(config)
-        entries = await asyncio.to_thread(client.fetch_master_list)
-
-        # For now, return raw CMS bytes (would be returned by Rust in production)
-        # This is a placeholder - the Rust module would return the CMS bytes
-        raise NotImplementedError("CMS byte extraction from Rust not yet implemented")
+        if self.master_list_fetcher is None:
+            raise NativeOperationError("ICAO PKD Master List fetcher is not configured")
+        cms_bytes = await self.master_list_fetcher()
+        if not cms_bytes:
+            raise NativeOperationError("ICAO PKD returned an empty Master List")
+        return cms_bytes
 
     async def fetch_signer_certificate(self) -> bytes:
         """Fetch ICAO PKD signing certificate (pinned)."""
@@ -100,20 +89,30 @@ class IcaoPkdProvider:
 class AamvaVicalProvider:
     """AAMVA VICAL trust anchor provider."""
 
-    def __init__(self, secrets_service: SecretsServicePort):
+    def __init__(
+        self,
+        secrets_service: SecretsServicePort,
+        vical_fetcher: Callable[[], Awaitable[bytes]] | None = None,
+    ):
         self.secrets_service = secrets_service
+        self.vical_fetcher = vical_fetcher
 
     async def fetch_trust_anchors(self) -> bytes:
         """Fetch VICAL (AAMVA IACA registry)."""
-        # AAMVA credentials
-        api_key = await self.secrets_service.get_secret("aamva_vical", "api_key")
-
-        # Would fetch from AAMVA VICAL endpoint
-        raise NotImplementedError("AAMVA VICAL sync not yet implemented")
+        if self.vical_fetcher is None:
+            raise NativeOperationError("AAMVA VICAL fetcher is not configured")
+        vical_bytes = await self.vical_fetcher()
+        if not vical_bytes:
+            raise NativeOperationError("AAMVA VICAL returned an empty payload")
+        return vical_bytes
 
     async def fetch_signer_certificate(self) -> bytes:
         """Fetch AAMVA signing certificate."""
-        raise NotImplementedError("AAMVA signer cert fetch not yet implemented")
+        cert_pem = await self.secrets_service.get_secret("aamva_vical", "signer_cert")
+        if not cert_pem:
+            raise NativeOperationError("AAMVA signer certificate is not configured")
+        native = require_backend("marty_verification")
+        return bytes(native.certificate_pem_to_der(cert_pem))
 
 
 class TrustAnchorSyncService:
@@ -131,9 +130,14 @@ class TrustAnchorSyncService:
         self,
         secrets_service: SecretsServicePort,
         key_vault_client: KeyVaultClient | None = None,
+        anchor_store: Callable[
+            [list[dict[str, Any]], TrustFramework], Awaitable[tuple[int, int]]
+        ]
+        | None = None,
     ):
         self.secrets_service = secrets_service
         self.key_vault_client = key_vault_client
+        self.anchor_store = anchor_store
         self.providers: dict[str, TrustAnchorProvider] = {}
 
     def register_provider(
@@ -345,12 +349,14 @@ class TrustAnchorSyncService:
         # Parse master list
         master_list = await asyncio.to_thread(native.parse_master_list, cms_bytes)
 
-        # Store anchors (would integrate with TrustProfileRepository)
-        # For now, return counts
-        anchors_added = len(master_list["certificates"])
-        anchors_updated = 0
-
-        return anchors_added, anchors_updated
+        certificates = list(master_list.get("certificates", []))
+        if not certificates:
+            raise NativeOperationError("Verified trust list contained no certificates")
+        if self.anchor_store is None:
+            raise NativeOperationError(
+                "Trust anchor persistence adapter is not configured"
+            )
+        return await self.anchor_store(certificates, framework)
 
     async def sync_all_frameworks(
         self,

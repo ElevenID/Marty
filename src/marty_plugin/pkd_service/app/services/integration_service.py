@@ -16,6 +16,14 @@ import grpc
 
 sys.path.append("/app")  # Ensure Python can find the modules
 try:
+    from marty_plugin.trust_anchor_pb2 import (
+        GetTrustAnchorRequest,
+        ListTrustAnchorsRequest,
+        ListTrustAnchorsResponse,
+        TrustAnchorResponse,
+    )
+    from marty_plugin.trust_anchor_pb2_grpc import TrustAnchorServiceStub
+
     from marty_plugin.proto.v1.csca_service_pb2 import (
         CscaCertificateResponse,
         GetCscaCertificateRequest,
@@ -30,30 +38,20 @@ try:
         ListDocumentSignerCertificatesResponse,
     )
     from marty_plugin.proto.v1.document_signer_pb2_grpc import DocumentSignerServiceStub
-    from marty_plugin.trust_anchor_pb2 import (
-        GetTrustAnchorRequest,
-        ListTrustAnchorsRequest,
-        ListTrustAnchorsResponse,
-        TrustAnchorResponse,
-    )
-    from marty_plugin.trust_anchor_pb2_grpc import TrustAnchorServiceStub
-except ImportError:
-    logging.warning("Could not import gRPC stubs. Integration will be mocked.")
-
-    # Create mock/placeholder classes
-    class CscaServiceStub:
-        pass
-
-    class DocumentSignerServiceStub:
-        pass
-
-    class TrustAnchorServiceStub:
-        pass
+except ImportError as exc:
+    logging.warning("Could not import gRPC stubs: %s", exc)
+    CscaServiceStub = None
+    DocumentSignerServiceStub = None
+    TrustAnchorServiceStub = None
 
 
 from app.models.pkd_models import Certificate, CertificateStatus
 
 logger = logging.getLogger(__name__)
+
+
+class IntegrationUnavailable(RuntimeError):
+    """Raised when a required PKD service integration cannot be constructed."""
 
 
 class IntegrationService:
@@ -82,41 +80,57 @@ class IntegrationService:
     async def _get_csca_stub(self):
         """Get or create the CSCA service stub"""
         if self._csca_stub is None:
+            if CscaServiceStub is None:
+                raise IntegrationUnavailable("CSCA gRPC bindings are unavailable")
             try:
                 self._csca_channel = grpc.aio.insecure_channel(self.csca_endpoint)
                 self._csca_stub = CscaServiceStub(self._csca_channel)
             except Exception as e:
                 logger.exception(f"Failed to create CSCA service stub: {e}")
-                # Return a mock stub that will handle the error case
+                raise IntegrationUnavailable("CSCA service is unavailable") from e
         return self._csca_stub
 
     async def _get_ds_stub(self):
         """Get or create the Document Signer service stub"""
         if self._ds_stub is None:
+            if DocumentSignerServiceStub is None:
+                raise IntegrationUnavailable(
+                    "Document Signer gRPC bindings are unavailable"
+                )
             try:
                 self._ds_channel = grpc.aio.insecure_channel(self.ds_endpoint)
                 self._ds_stub = DocumentSignerServiceStub(self._ds_channel)
             except Exception as e:
                 logger.exception(f"Failed to create Document Signer service stub: {e}")
-                # Return a mock stub that will handle the error case
+                raise IntegrationUnavailable(
+                    "Document Signer service is unavailable"
+                ) from e
         return self._ds_stub
 
     async def _get_ta_stub(self):
         """Get or create the Trust Anchor service stub"""
         if self._ta_stub is None:
+            if TrustAnchorServiceStub is None:
+                raise IntegrationUnavailable(
+                    "Trust Anchor gRPC bindings are unavailable"
+                )
             try:
                 self._ta_channel = grpc.aio.insecure_channel(self.ta_endpoint)
                 self._ta_stub = TrustAnchorServiceStub(self._ta_channel)
             except Exception as e:
                 logger.exception(f"Failed to create Trust Anchor service stub: {e}")
-                # Return a mock stub that will handle the error case
+                raise IntegrationUnavailable(
+                    "Trust Anchor service is unavailable"
+                ) from e
         return self._ta_stub
 
-    async def get_csca_certificates(self, country: str | None = None) -> list[Certificate]:
+    async def get_csca_certificates(
+        self, country: str | None = None
+    ) -> list[Certificate]:
         """
         Get CSCA certificates from the CSCA service.
 
-        In development mode or if the service is unavailable, returns mock data.
+        Raises IntegrationUnavailable if the upstream service cannot be reached.
         """
         try:
             stub = await self._get_csca_stub()
@@ -150,40 +164,12 @@ class IntegrationService:
                     )
                 )
 
+        except IntegrationUnavailable:
+            raise
         except Exception as e:
-            logger.warning(f"Failed to get CSCA certificates from service: {e}")
-            logger.info("Returning mock CSCA certificate data")
-
-            # Return mock data in case of failure
-            datetime.now()
-            mock_certificates = [
-                Certificate(
-                    id=uuid.uuid4(),
-                    subject="CN=CSCA-USA,O=Department of State,C=US",
-                    issuer="CN=CSCA-USA,O=Department of State,C=US",
-                    valid_from=datetime(2020, 1, 1),
-                    valid_to=datetime(2030, 1, 1),
-                    serial_number="01234567",
-                    certificate_data=b"MOCK_CERTIFICATE_DATA_USA",
-                    status=CertificateStatus.ACTIVE,
-                    country_code="USA",
-                ),
-                Certificate(
-                    id=uuid.uuid4(),
-                    subject="CN=CSCA-CAN,O=Passport Canada,C=CA",
-                    issuer="CN=CSCA-CAN,O=Passport Canada,C=CA",
-                    valid_from=datetime(2020, 1, 1),
-                    valid_to=datetime(2030, 1, 1),
-                    serial_number="89012345",
-                    certificate_data=b"MOCK_CERTIFICATE_DATA_CAN",
-                    status=CertificateStatus.ACTIVE,
-                    country_code="CAN",
-                ),
-            ]
-
-            if country:
-                return [cert for cert in mock_certificates if cert.country_code == country]
-            return mock_certificates
+            raise IntegrationUnavailable(
+                f"Failed to get CSCA certificates from service: {e}"
+            ) from e
         else:
             return certificates
 
@@ -193,7 +179,7 @@ class IntegrationService:
         """
         Get Document Signer certificates from the Document Signer service.
 
-        In development mode or if the service is unavailable, returns mock data.
+        Raises IntegrationUnavailable if the upstream service cannot be reached.
         """
         try:
             stub = await self._get_ds_stub()
@@ -227,39 +213,12 @@ class IntegrationService:
                     )
                 )
 
+        except IntegrationUnavailable:
+            raise
         except Exception as e:
-            logger.warning(f"Failed to get DS certificates from service: {e}")
-            logger.info("Returning mock DS certificate data")
-
-            # Return mock data in case of failure
-            mock_certificates = [
-                Certificate(
-                    id=uuid.uuid4(),
-                    subject="CN=DS-001-USA,O=Department of State,C=US",
-                    issuer="CN=CSCA-USA,O=Department of State,C=US",
-                    valid_from=datetime(2022, 1, 1),
-                    valid_to=datetime(2025, 1, 1),
-                    serial_number="DSC00000001",
-                    certificate_data=b"MOCK_DSC_DATA_USA_001",
-                    status=CertificateStatus.ACTIVE,
-                    country_code="USA",
-                ),
-                Certificate(
-                    id=uuid.uuid4(),
-                    subject="CN=DS-001-CAN,O=Passport Canada,C=CA",
-                    issuer="CN=CSCA-CAN,O=Passport Canada,C=CA",
-                    valid_from=datetime(2022, 1, 1),
-                    valid_to=datetime(2025, 1, 1),
-                    serial_number="DSC00000002",
-                    certificate_data=b"MOCK_DSC_DATA_CAN_001",
-                    status=CertificateStatus.ACTIVE,
-                    country_code="CAN",
-                ),
-            ]
-
-            if country:
-                return [cert for cert in mock_certificates if cert.country_code == country]
-            return mock_certificates
+            raise IntegrationUnavailable(
+                f"Failed to get DS certificates from service: {e}"
+            ) from e
         else:
             return certificates
 

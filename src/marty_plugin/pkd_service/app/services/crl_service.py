@@ -7,13 +7,21 @@ from __future__ import annotations
 import logging
 import os
 import uuid
-from datetime import datetime, timedelta
+from collections.abc import Awaitable, Callable
+from datetime import datetime
 
 import aiosqlite
 from app.core.config import settings
 from app.db.database import DatabaseManager
-from app.models.pkd_models import CrlResponse, CrlUploadResponse, RevokedCertificate, UploadStatus
+from app.models.pkd_models import (
+    CrlResponse,
+    CrlUploadResponse,
+    RevokedCertificate,
+    UploadStatus,
+)
 from app.utils.asn1_utils import ASN1Decoder, ASN1Encoder
+
+from marty_plugin.native_backends import NativeOperationError, require_backend
 
 logger = logging.getLogger(__name__)
 
@@ -21,9 +29,15 @@ logger = logging.getLogger(__name__)
 class CRLService:
     """Service for managing Certificate Revocation Lists"""
 
-    def __init__(self, db_connection: aiosqlite.Connection | None = None) -> None:
+    def __init__(
+        self,
+        db_connection: aiosqlite.Connection | None = None,
+        issuer_certificate_resolver: Callable[[str], Awaitable[bytes | None]]
+        | None = None,
+    ) -> None:
         """Initialize with optional database connection"""
         self.db_connection = db_connection
+        self.issuer_certificate_resolver = issuer_certificate_resolver
 
     async def get_crl(self, country: str | None = None) -> CrlResponse:
         """
@@ -57,23 +71,7 @@ class CRLService:
                 next_update=crl_dict["next_update"],
                 revoked_certificates=revoked_certs,
             )
-        # Fallback to mock data
-        now = datetime.now()
-        revoked_certs = await self._get_revoked_certificates(country)
-
-        issuer = "CN=CSCA-USA,O=Department of State,C=US"
-        if country and country != "USA":
-            issuer = f"CN=CSCA-{country},O=Passport Authority,C={country}"
-
-        return CrlResponse(
-            id=uuid.uuid4(),
-            version=1,
-            created=now,
-            issuer=issuer,
-            this_update=now,
-            next_update=now + timedelta(days=30),
-            revoked_certificates=revoked_certs,
-        )
+        raise NativeOperationError("No CRL is available for the requested issuer")
 
     async def get_crl_binary(self, country: str | None = None) -> bytes:
         """
@@ -96,7 +94,20 @@ class CRLService:
         """
         try:
             # Parse the ASN.1 CRL data
-            issuer, this_update, next_update, revoked_certs = ASN1Decoder.decode_crl(crl_data)
+            issuer, this_update, next_update, revoked_certs = ASN1Decoder.decode_crl(
+                crl_data
+            )
+            if self.issuer_certificate_resolver is None:
+                raise NativeOperationError(
+                    "CRL issuer certificate resolver is not configured"
+                )
+            issuer_certificate_der = await self.issuer_certificate_resolver(issuer)
+            if issuer_certificate_der is None:
+                raise NativeOperationError("CRL issuer certificate was not found")
+            native = require_backend("marty_verification")
+            der_data = ASN1Decoder._pem_to_der(crl_data)
+            if not native.verify_crl_signature(der_data, issuer_certificate_der):
+                raise NativeOperationError("CRL signature verification failed")
 
             # Save the raw CRL file to file system
             storage_path = settings.CRL_PATH
@@ -112,7 +123,7 @@ class CRLService:
                 "issuer": issuer,
                 "this_update": this_update,
                 "next_update": next_update,
-                "crl_data": crl_data,
+                "crl_data": der_data,
                 "revoked_certificates": [
                     {
                         "serial_number": cert.serial_number,
@@ -146,32 +157,3 @@ class CRLService:
                 status=UploadStatus.ERROR,
                 revoked_count=0,
             )
-
-    async def _get_revoked_certificates(
-        self, country: str | None = None
-    ) -> list[RevokedCertificate]:
-        """
-        Helper method to get revoked certificates.
-        This is a fallback when the database is empty.
-        """
-        # This is a simplified mock implementation with sample data
-        now = datetime.now()
-        return [
-            RevokedCertificate(
-                serial_number="REVOKED00001",
-                revocation_date=now - timedelta(days=30),
-                reason_code=1,  # Key compromise
-            ),
-            RevokedCertificate(
-                serial_number="REVOKED00002",
-                revocation_date=now - timedelta(days=20),
-                reason_code=3,  # Superseded
-            ),
-            RevokedCertificate(
-                serial_number="REVOKED00003",
-                revocation_date=now - timedelta(days=10),
-                reason_code=5,  # Cessation of operation
-            ),
-        ]
-
-        # In a real implementation, filter by country
