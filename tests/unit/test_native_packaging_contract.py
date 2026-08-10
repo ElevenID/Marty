@@ -54,3 +54,10 @@ def test_legacy_iso_modules_contain_no_python_protocol_or_transport_kernel() -> 
         "simulated NFC response",
     ):
         assert prohibited not in contents
+
+
+def test_trust_api_contains_no_synthetic_success_or_signature() -> None:
+    source = (ROOT / "src/marty_plugin/trust_svc/api.py").read_text(encoding="utf-8")
+
+    assert "MOCK_KMS_SIGNATURE" not in source
+    assert "For now, return a mock response" not in source

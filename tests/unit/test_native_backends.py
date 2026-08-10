@@ -3,7 +3,7 @@
 import asyncio
 import importlib
 import sys
-from types import ModuleType
+from types import ModuleType, SimpleNamespace
 
 import pytest
 
@@ -70,6 +70,7 @@ def test_iso18013_transport_adapter_uses_native_surface(monkeypatch) -> None:
         "MdlResponse",
         "SelectiveDisclosure",
         "Session",
+        "SessionConfig",
     ):
         setattr(native, name, object())
     native.HttpsTransport = FakeHttpsTransport
@@ -180,3 +181,99 @@ def test_pkd_certificate_validator_propagates_missing_backend(monkeypatch) -> No
     monkeypatch.setattr(module, "require_backend", unavailable)
     with pytest.raises(NativeBackendUnavailable, match="native backend missing"):
         CertificateValidator().validate(b"certificate")
+
+
+def test_trust_master_list_upload_uses_native_signature_and_parsing(
+    monkeypatch,
+) -> None:
+    from marty_plugin.trust_svc import api
+    from marty_plugin.trust_svc.models import MasterListUploadRequest
+
+    class Native:
+        def parse_master_list(self, value: bytes) -> dict:
+            assert value == b"signed-master-list"
+            return {
+                "certificates": [
+                    {
+                        "subject": "C=US,CN=CSCA",
+                        "issuer": "C=US,CN=CSCA",
+                        "serial_number": "01",
+                        "country": "US",
+                        "not_before": "2026-01-01T00:00:00Z",
+                        "not_after": "2036-01-01T00:00:00Z",
+                        "der_bytes": b"csca",
+                    }
+                ]
+            }
+
+        def verify_master_list_signature(self, value: bytes, signer: bytes) -> bool:
+            return value == b"signed-master-list" and signer == b"signer"
+
+        def get_certificate_info(self, _value: bytes) -> dict:
+            return {"fingerprint_sha256": "ab", "key_usage": ["keyCertSign"]}
+
+        def get_certificate_public_key(self, _value: bytes) -> bytes:
+            return b"spki"
+
+        def detect_public_key_type(self, _value: bytes) -> str:
+            return "ecdsa-p256"
+
+        def certificate_pem_to_der(self, _value: str) -> bytes:
+            raise AssertionError("DER signer should not require conversion")
+
+    class Database:
+        added: list[dict] = []
+
+        async def get_trust_anchors(self, active_only: bool = True) -> list[dict]:
+            assert active_only
+            return [{"certificate_data": b"signer"}]
+
+        async def add_trust_anchor(self, value: dict) -> str:
+            self.added.append(value)
+            return "anchor-1"
+
+    database = Database()
+    monkeypatch.setattr(api, "require_backend", lambda _name: Native())
+    result = asyncio.run(
+        api.process_master_list_upload(
+            MasterListUploadRequest(
+                country_code="USA", master_list_data=b"signed-master-list"
+            ),
+            database,
+        )
+    )
+
+    assert result.success
+    assert result.certificates_processed == 1
+    assert result.trust_anchors_added == 1
+    assert database.added[0]["certificate_data"] == b"csca"
+
+
+def test_trust_master_list_rejects_untrusted_signature(monkeypatch) -> None:
+    from marty_plugin.trust_svc import api
+    from marty_plugin.trust_svc.models import MasterListUploadRequest
+
+    native = SimpleNamespace(
+        parse_master_list=lambda _value: {"certificates": [{"der_bytes": b"csca"}]},
+        verify_master_list_signature=lambda _value, _signer: False,
+    )
+    database = SimpleNamespace(
+        get_trust_anchors=lambda active_only=True: None,
+    )
+
+    async def anchors(active_only: bool = True) -> list[dict]:
+        assert active_only
+        return [{"certificate_data": b"untrusted"}]
+
+    database.get_trust_anchors = anchors
+    monkeypatch.setattr(api, "require_backend", lambda _name: native)
+
+    with pytest.raises(NativeOperationError, match="pinned trust anchor"):
+        asyncio.run(
+            api.process_master_list_upload(
+                MasterListUploadRequest(
+                    country_code="USA", master_list_data=b"signed-master-list"
+                ),
+                database,
+            )
+        )
