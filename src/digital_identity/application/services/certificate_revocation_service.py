@@ -9,11 +9,14 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from digital_identity.domain.value_objects import RevocationPolicy, RevocationCheckMode
-from digital_identity.infrastructure.adapters.revocation_cache import RevocationCacheAdapter
+from digital_identity.domain.value_objects import RevocationCheckMode, RevocationPolicy
+from digital_identity.infrastructure.adapters.revocation_cache import (
+    RevocationCacheAdapter,
+)
+from marty_plugin.native_backends import NativeBackendUnavailable
 
 logger = logging.getLogger(__name__)
 
@@ -21,7 +24,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class RevocationCheckResult:
     """Result of a revocation check with cache metadata."""
-    
+
     is_revoked: bool
     source: str  # "online", "cached", "grace_period"
     check_timestamp: datetime
@@ -33,7 +36,7 @@ class RevocationCheckResult:
 class CertificateRevocationService:
     """
     Service for checking certificate revocation with offline grace period support.
-    
+
     Implements the following flow:
     1. Attempt online revocation check (OCSP/CRL)
     2. On success: cache result and return
@@ -41,7 +44,7 @@ class CertificateRevocationService:
     4. If cached result within grace period: return cached result
     5. Otherwise: respect RevocationCheckMode (hard_fail/soft_fail)
     """
-    
+
     def __init__(
         self,
         revocation_processor: Any,  # marty_plugin.trust_svc.revocation.RevocationProcessor
@@ -49,14 +52,14 @@ class CertificateRevocationService:
     ):
         """
         Initialize revocation service.
-        
+
         Args:
             revocation_processor: Underlying revocation processor (OCSP/CRL)
             cache_adapter: Redis cache adapter
         """
         self.revocation_processor = revocation_processor
         self.cache = cache_adapter
-    
+
     async def check_revocation(
         self,
         certificate_der: bytes,
@@ -65,22 +68,22 @@ class CertificateRevocationService:
     ) -> RevocationCheckResult:
         """
         Check certificate revocation status with grace period support.
-        
+
         Args:
             certificate_der: DER-encoded certificate
             organization_id: Organization ID for cache scoping
             policy: Revocation policy with grace period settings
-            
+
         Returns:
             RevocationCheckResult with status and metadata
-            
+
         Raises:
             Exception: If mode is HARD_FAIL and check fails (no cache or expired)
         """
         # Try online check first
         try:
             online_result = await self._check_online(certificate_der, policy)
-            
+
             # Cache the successful result
             await self.cache.set(
                 organization_id=organization_id,
@@ -90,7 +93,7 @@ class CertificateRevocationService:
                 reason=online_result.get("reason"),
                 ttl_seconds=policy.cache_ttl_seconds,
             )
-            
+
             return RevocationCheckResult(
                 is_revoked=online_result["is_revoked"],
                 source="online",
@@ -98,10 +101,12 @@ class CertificateRevocationService:
                 revocation_timestamp=online_result.get("revocation_timestamp"),
                 reason=online_result.get("reason"),
             )
-            
+
+        except NativeBackendUnavailable:
+            raise
         except Exception as e:
             logger.warning(f"Online revocation check failed: {e}")
-            
+
             # Check if we're in offline mode with skip policy
             if policy.check_mode == RevocationCheckMode.SKIP:
                 logger.info("Revocation check skipped per policy")
@@ -110,22 +115,22 @@ class CertificateRevocationService:
                     source="skipped",
                     check_timestamp=datetime.now(timezone.utc),
                 )
-            
+
             # Try to use cached result with grace period
             within_grace, cached_entry = await self.cache.is_within_grace_period(
                 organization_id=organization_id,
                 certificate_der=certificate_der,
                 grace_period_seconds=policy.cache_ttl_seconds,
             )
-            
+
             if within_grace and cached_entry:
                 cache_age = datetime.now(timezone.utc) - cached_entry.check_timestamp
-                
+
                 logger.info(
                     f"Using cached revocation result (age: {cache_age.total_seconds()}s, "
                     f"grace: {policy.cache_ttl_seconds}s)"
                 )
-                
+
                 return RevocationCheckResult(
                     is_revoked=cached_entry.is_revoked,
                     source="grace_period",
@@ -134,7 +139,7 @@ class CertificateRevocationService:
                     reason=cached_entry.reason,
                     cache_age=cache_age,
                 )
-            
+
             # No valid cache - respect mode
             if policy.check_mode == RevocationCheckMode.SOFT_FAIL:
                 logger.warning(
@@ -145,17 +150,17 @@ class CertificateRevocationService:
                     source="soft_fail",
                     check_timestamp=datetime.now(timezone.utc),
                 )
-            
+
             else:  # HARD_FAIL
                 logger.error(
                     "Revocation check failed, no valid cache, and HARD_FAIL policy enforced"
                 )
-                raise Exception(
+                raise RuntimeError(
                     f"Certificate revocation check failed: {e}. "
                     f"No cached result within grace period ({policy.cache_ttl_seconds}s). "
                     f"HARD_FAIL policy enforced."
                 )
-    
+
     async def _check_online(
         self,
         certificate_der: bytes,
@@ -163,32 +168,31 @@ class CertificateRevocationService:
     ) -> dict[str, Any]:
         """
         Perform online revocation check.
-        
+
         Args:
             certificate_der: DER-encoded certificate
             policy: Revocation policy with check flags
-            
+
         Returns:
             Dictionary with is_revoked, revocation_timestamp, reason
-            
+
         Raises:
             Exception: If check fails
         """
-        from cryptography import x509
-        from cryptography.hazmat.primitives import serialization
-        
-        cert = x509.load_der_x509_certificate(certificate_der)
-        
         # Try OCSP
-        ocsp_url = self.revocation_processor.get_ocsp_url_from_certificate(cert)
+        ocsp_url = self.revocation_processor.get_ocsp_url_from_certificate(
+            certificate_der
+        )
         if ocsp_url:
             # Get issuer certificate (would need to be passed or looked up)
             # For now, skip OCSP and try CRL
-            logger.debug(f"OCSP URL found: {ocsp_url} (OCSP check not fully implemented)")
-        
+            logger.debug(
+                f"OCSP URL found: {ocsp_url} (OCSP check not fully implemented)"
+            )
+
         # Try CRL
         try:
-            crl_urls = self._get_crl_urls_from_certificate(cert)
+            crl_urls = self._get_crl_urls_from_certificate(certificate_der)
             if crl_urls:
                 # Download and check CRL (simplified - production needs caching)
                 for crl_url in crl_urls:
@@ -201,25 +205,10 @@ class CertificateRevocationService:
                         continue
         except Exception as e:
             logger.warning(f"Failed to get CRL URLs: {e}")
-        
+
         # If no checks succeeded, raise to trigger cache fallback
-        raise Exception("No successful online revocation check")
-    
-    def _get_crl_urls_from_certificate(self, cert: Any) -> list[str]:
-        """Extract CRL distribution point URLs from certificate."""
-        from cryptography.x509.oid import ExtensionOID
-        from cryptography import x509
-        
-        try:
-            crl_ext = cert.extensions.get_extension_for_oid(
-                ExtensionOID.CRL_DISTRIBUTION_POINTS
-            )
-            urls = []
-            for dist_point in crl_ext.value:
-                if dist_point.full_name:
-                    for name in dist_point.full_name:
-                        if isinstance(name, x509.UniformResourceIdentifier):
-                            urls.append(name.value)
-            return urls
-        except x509.ExtensionNotFound:
-            return []
+        raise RuntimeError("No successful online revocation check")
+
+    def _get_crl_urls_from_certificate(self, certificate_der: bytes) -> list[str]:
+        """Extract CRL distribution point URLs using native X.509 parsing."""
+        return self.revocation_processor.get_crl_urls_from_certificate(certificate_der)
