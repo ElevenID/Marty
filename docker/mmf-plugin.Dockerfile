@@ -8,8 +8,11 @@ RUN apt-get update \
 COPY pyproject.toml README.md LICENSE ./
 COPY src ./src
 COPY proto ./proto
+COPY packages/marty-common ./packages/marty-common
+COPY native-wheels /native-wheels
 RUN --mount=type=cache,target=/root/.cache/pip \
-    python -m pip wheel --wheel-dir /wheels .
+    python -m pip wheel --wheel-dir /wheels --find-links=/native-wheels ./packages/marty-common \
+    && python -m pip wheel --wheel-dir /wheels --find-links=/native-wheels --find-links=/wheels .
 
 FROM python:3.12-slim AS production
 ARG VERSION
@@ -23,11 +26,12 @@ LABEL org.opencontainers.image.source="https://github.com/ElevenID/Marty" \
 RUN groupadd --system --gid 10001 marty \
     && useradd --system --uid 10001 --gid marty --home-dir /app marty \
     && apt-get update \
-    && apt-get install --yes --no-install-recommends libpcsclite1 \
+    && apt-get install --yes --no-install-recommends libdbus-1-3 libpcsclite1 \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=builder /wheels /wheels
 RUN --mount=type=cache,target=/root/.cache/pip \
     python -m pip install --no-cache-dir --no-index --find-links=/wheels marty-trust-pki-plugin \
+    && python -c "from marty_plugin.native_backends import require_native_backends; require_native_backends()" \
     && rm -rf /wheels
 WORKDIR /app
 USER 10001:10001

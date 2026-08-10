@@ -7,18 +7,13 @@ import json
 import secrets
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
-from uuid import uuid4
 
-import jwt
-
-# Use Rust crypto_bridge for cryptographic operations
-from marty_common.crypto_bridge import Certificate, Encoding, sha256
-# Keep serialization for private key loading (PyJWT needs cryptography key objects)
-from cryptography.hazmat.primitives import serialization
-
+from marty_common import crypto_bridge
+from marty_common.crypto_bridge import Certificate, sha256
 from marty_common.infrastructure import KeyVaultClient
+from marty_common.native_backends import NativeOperationError, load_native_backend
 
 
 def _b64url_encode(data: bytes) -> str:
@@ -106,69 +101,45 @@ class SdJwtIssuer:
         self._config = config
 
     async def issue(self, issuance: SdJwtIssuanceInput) -> SdJwtIssuanceResult:
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         expires_at = issuance.expires_at or now + self._config.default_expiry
-        credential_id = str(uuid4())
         audience = issuance.audience or self._config.audience
-
-        disclosures = [
-            SdJwtDisclosure.build(name, value)
-            for name, value in issuance.selective_disclosures.items()
-        ]
-
-        credential_subject = dict(issuance.base_claims)
-        if disclosures:
-            credential_subject["_sd"] = [disclosure.digest for disclosure in disclosures]
-        if "id" not in credential_subject:
-            credential_subject["id"] = issuance.subject_id
-
-        vc_payload: dict[str, Any] = {
-            "type": ["VerifiableCredential", issuance.credential_type],
-            "credentialSubject": credential_subject,
-        }
-        if issuance.additional_payload:
-            vc_payload.update(issuance.additional_payload)
-
-        payload: dict[str, Any] = {
-            "iss": self._config.issuer,
-            "jti": credential_id,
-            "iat": int(now.timestamp()),
-            "nbf": int(now.timestamp()),
-            "exp": int(expires_at.timestamp()),
-            "vc": vc_payload,
-            "sub": issuance.subject_id,
-        }
-        if audience:
-            payload["aud"] = audience
-        if issuance.nonce:
-            payload["nonce"] = issuance.nonce
-        if disclosures:
-            payload["_sd"] = [disclosure.digest for disclosure in disclosures]
-            payload["_sd_hash_alg"] = "sha-256"
+        if audience or issuance.nonce or issuance.additional_payload:
+            raise NativeOperationError(
+                "The native SD-JWT issuer does not support audience, nonce, or arbitrary top-level payload injection"
+            )
+        if self._certificate_chain_provider():
+            raise NativeOperationError("The native SD-JWT issuer does not support an x5c header")
 
         private_key_pem = await self._key_vault.load_private_key(self._config.signing_key_id)
-        private_key = serialization.load_pem_private_key(private_key_pem, password=None)
-        headers = {
-            "typ": "vc+sd-jwt",
-            "alg": self._config.signing_algorithm,
-        }
-        if self._config.kid:
-            headers["kid"] = self._config.kid
-        x5c_chain = self._build_x5c_chain()
-        if x5c_chain:
-            headers["x5c"] = x5c_chain
+        private_key_der = crypto_bridge.load_private_key_pem(private_key_pem.decode("ascii"))
+        private_jwk = self._private_jwk(private_key_der)
+        claims = dict(issuance.base_claims)
+        claims.update(issuance.selective_disclosures)
+        ttl_seconds = max(1, int((expires_at - now).total_seconds()))
 
-        token = jwt.encode(
-            payload,
-            private_key,
-            algorithm=self._config.signing_algorithm,
-            headers=headers,
+        native = load_native_backend(
+            "_marty_rs",
+            ("oid4vci_sign_credential",),
         )
+        compact, credential_id = native.oid4vci_sign_credential(
+            self._config.issuer,
+            json.dumps(private_jwk),
+            issuance.subject_id,
+            issuance.credential_type,
+            json.dumps(claims),
+            ttl_seconds,
+            "vc+sd-jwt",
+            list(issuance.selective_disclosures),
+        )
+        token, disclosures = self._split_compact_sd_jwt(compact)
+        payload = self._decode_jwt_payload(token)
+        disclosure_objects = [self._decode_disclosure(encoded) for encoded in disclosures]
 
         return SdJwtIssuanceResult(
             credential_id=credential_id,
             token=token,
-            disclosures=[disclosure.encoded for disclosure in disclosures],
+            disclosures=disclosures,
             issuer=self._config.issuer,
             subject_id=issuance.subject_id,
             credential_type=issuance.credential_type,
@@ -176,20 +147,68 @@ class SdJwtIssuer:
             expires_at=expires_at,
             issued_at=now,
             payload=payload,
-            disclosure_objects=disclosures,
+            disclosure_objects=disclosure_objects,
         )
 
-    def _build_x5c_chain(self) -> list[str]:
-        chain = self._certificate_chain_provider()
-        x5c_entries: list[str] = []
-        for certificate in chain:
-            try:
-                # Use crypto_bridge Certificate's to_der() method
-                der_bytes = certificate.to_der() if hasattr(certificate, 'to_der') else certificate.public_bytes(Encoding.DER)
-            except Exception:  # pragma: no cover - defensive guard
-                continue
-            x5c_entries.append(_b64url_encode(der_bytes))
-        return x5c_entries
+    def _private_jwk(self, private_key_der: bytes) -> dict[str, str]:
+        key_type = crypto_bridge.detect_private_key_type(private_key_der)
+        private_raw, _ = crypto_bridge.pkcs8_to_raw_private_key(private_key_der)
+        public_der = crypto_bridge.extract_public_key(private_key_der)
+        public_raw, _ = crypto_bridge.spki_to_raw_public_key(public_der)
+        kid = self._config.kid or self._config.signing_key_id
+
+        if key_type == "EC_P256" and len(public_raw) == 65:
+            return {
+                "kty": "EC",
+                "crv": "P-256",
+                "x": _b64url_encode(public_raw[1:33]),
+                "y": _b64url_encode(public_raw[33:65]),
+                "d": _b64url_encode(private_raw),
+                "alg": "ES256",
+                "kid": kid,
+            }
+        if key_type == "Ed25519" and len(public_raw) == 32:
+            return {
+                "kty": "OKP",
+                "crv": "Ed25519",
+                "x": _b64url_encode(public_raw),
+                "d": _b64url_encode(private_raw),
+                "alg": "EdDSA",
+                "kid": kid,
+            }
+        raise NativeOperationError(f"Native SD-JWT issuance does not support key type {key_type!r}")
+
+    @staticmethod
+    def _split_compact_sd_jwt(compact: str) -> tuple[str, list[str]]:
+        parts = compact.split("~")
+        token = parts[0]
+        disclosures = [value for value in parts[1:] if value]
+        if token.count(".") != 2:
+            raise NativeOperationError("Native SD-JWT issuer returned an invalid token")
+        return token, disclosures
+
+    @staticmethod
+    def _decode_jwt_payload(token: str) -> dict[str, Any]:
+        try:
+            encoded = token.split(".", 2)[1]
+            return json.loads(base64.urlsafe_b64decode(encoded + "=" * (-len(encoded) % 4)))
+        except (ValueError, json.JSONDecodeError) as exc:
+            raise NativeOperationError("Native SD-JWT issuer returned an invalid payload") from exc
+
+    @staticmethod
+    def _decode_disclosure(encoded: str) -> SdJwtDisclosure:
+        try:
+            raw = base64.urlsafe_b64decode(encoded + "=" * (-len(encoded) % 4))
+            salt, name, value = json.loads(raw)
+        except (ValueError, json.JSONDecodeError, TypeError) as exc:
+            raise NativeOperationError("Native SD-JWT issuer returned an invalid disclosure") from exc
+        return SdJwtDisclosure(
+            salt=str(salt),
+            name=str(name),
+            value=value,
+            encoded=encoded,
+            digest=_b64url_encode(sha256(encoded.encode("ascii"))),
+        )
 
 
 __all__ = [

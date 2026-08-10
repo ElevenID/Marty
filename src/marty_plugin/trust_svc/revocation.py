@@ -4,7 +4,7 @@ Revocation Processing Service
 Handles CRL parsing, OCSP checking, and DSC revocation status management.
 
 This module uses Rust implementations from marty-verification for core cryptographic
-operations (CRL parsing, OCSP request building/response parsing) while maintaining
+operations (CRL parsing, OCSP request building/authenticated response validation) while maintaining
 Python async HTTP handling for network operations.
 """
 
@@ -12,27 +12,15 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timezone
-from sqlalchemy import text  # Added for raw SQL queries
-from typing import Any, Optional
-from urllib.parse import urlparse
+from typing import Any
 
 import aiohttp
-from cryptography import x509
-from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.x509.oid import ExtensionOID
+from sqlalchemy import text  # Added for raw SQL queries
+
+from marty_plugin.native_backends import require_backend
 
 from .database import DatabaseManager
 from .models import RevocationStatus
-
-# Import Rust bindings for OCSP/CRL operations and crypto
-from marty_common.crypto_bridge import (
-    parse_crl as rust_parse_crl,
-    build_ocsp_request as rust_build_ocsp_request,
-    parse_ocsp_response as rust_parse_ocsp_response,
-    get_ocsp_responder_url as rust_get_ocsp_responder_url,
-    check_certificate_revocation as rust_check_revocation,
-    sha256,
-)
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +29,7 @@ class RevocationProcessor:
     """Processes certificate revocation lists and OCSP responses."""
 
     def __init__(self, db_manager: DatabaseManager, ocsp_timeout: int = 10):
+        self.native = require_backend("marty_verification")
         self.db_manager = db_manager
         self.ocsp_timeout = ocsp_timeout
         self.session: aiohttp.ClientSession | None = None
@@ -48,14 +37,21 @@ class RevocationProcessor:
 
     async def initialize(self) -> None:
         """Initialize HTTP session for OCSP requests."""
-        self.session = aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=self.ocsp_timeout))
+        self.session = aiohttp.ClientSession(
+            timeout=aiohttp.ClientTimeout(total=self.ocsp_timeout)
+        )
 
     async def close(self) -> None:
         """Close HTTP session."""
         if self.session:
             await self.session.close()
 
-    async def process_crl(self, crl_data: bytes, issuer_dn: str) -> dict[str, Any]:
+    async def process_crl(
+        self,
+        crl_data: bytes,
+        issuer_dn: str,
+        issuer_certificate_der: bytes | None = None,
+    ) -> dict[str, Any]:
         """
         Process a Certificate Revocation List.
 
@@ -67,26 +63,21 @@ class RevocationProcessor:
             Dictionary with processing results
         """
         try:
-            # Parse CRL
-            if crl_data.startswith(b"-----BEGIN"):
-                crl = x509.load_pem_x509_crl(crl_data)
-            else:
-                crl = x509.load_der_x509_crl(crl_data)
+            der_data = self._crl_der(crl_data)
+            crl = self.native.parse_crl(der_data)
+            if self._normalize_dn(crl.issuer) != self._normalize_dn(issuer_dn):
+                raise ValueError("CRL issuer does not match the expected issuer")
+            if issuer_certificate_der is None:
+                raise ValueError(
+                    "Issuer certificate is required for CRL signature verification"
+                )
+            self.native.validate_crl(der_data, issuer_certificate_der)
 
-            # Extract CRL metadata
-            this_update = crl.last_update
-            next_update = crl.next_update
-            crl_number = None
-
-            # Extract CRL number if present
-            try:
-                crl_number_ext = crl.extensions.get_extension_for_oid(ExtensionOID.CRL_NUMBER).value
-                crl_number = crl_number_ext.crl_number
-            except x509.ExtensionNotFound:
-                pass
-
-            # Generate CRL hash using Rust sha256
-            crl_hash = sha256(crl_data).hex()
+            this_update = self._parse_datetime(crl.this_update)
+            next_update = self._parse_datetime(crl.next_update)
+            crl_number = crl.crl_number
+            crl_hash = bytes(self.native.hash_data("sha256", der_data)).hex()
+            native_revoked = list(crl.revoked_certificates())
 
             # Store CRL in cache
             crl_cache_data = {
@@ -96,10 +87,10 @@ class RevocationProcessor:
                 "crl_number": crl_number,
                 "this_update": this_update,
                 "next_update": next_update,
-                "crl_data": crl_data,
+                "crl_data": der_data,
                 "crl_hash": crl_hash,
-                "signature_valid": True,  # TODO: Verify signature
-                "revoked_count": len(crl),
+                "signature_valid": True,
+                "revoked_count": len(native_revoked),
                 "status": "active",
             }
 
@@ -109,19 +100,10 @@ class RevocationProcessor:
             revoked_certificates = []
             updated_dscs = 0
 
-            for revoked_cert in crl:
-                serial_number = format(revoked_cert.serial_number, "X")
-                revocation_date = revoked_cert.revocation_date
-
-                # Extract reason code if present
-                reason_code = None
-                try:
-                    reason_ext = revoked_cert.extensions.get_extension_for_oid(
-                        ExtensionOID.CRL_REASON
-                    ).value
-                    reason_code = reason_ext.reason.value
-                except x509.ExtensionNotFound:
-                    pass
+            for revoked_cert in native_revoked:
+                serial_number = revoked_cert.serial_number
+                revocation_date = self._parse_datetime(revoked_cert.revocation_date)
+                reason_code = self._reason_code(revoked_cert.reason)
 
                 revoked_certificates.append(
                     {
@@ -160,14 +142,14 @@ class RevocationProcessor:
             return {"success": False, "error": str(e), "issuer_dn": issuer_dn}
 
     async def check_ocsp_status(
-        self, certificate: x509.Certificate, issuer_certificate: x509.Certificate, ocsp_url: str
+        self, certificate_der: bytes, issuer_certificate_der: bytes, ocsp_url: str
     ) -> dict[str, Any]:
         """
         Check certificate status via OCSP.
 
         Args:
-            certificate: Certificate to check
-            issuer_certificate: Issuer certificate
+            certificate_der: DER-encoded certificate to check
+            issuer_certificate_der: DER-encoded issuer certificate
             ocsp_url: OCSP responder URL
 
         Returns:
@@ -177,12 +159,10 @@ class RevocationProcessor:
             await self.initialize()
 
         try:
-            # Get DER bytes for both certificates
-            cert_der = certificate.public_bytes(serialization.Encoding.DER)
-            issuer_der = issuer_certificate.public_bytes(serialization.Encoding.DER)
-            
             # Build OCSP request using Rust
-            request_der = rust_build_ocsp_request(cert_der, issuer_der)
+            request_der = self.native.build_ocsp_request(
+                certificate_der, issuer_certificate_der
+            )
 
             # Send OCSP request
             async with self.session.post(
@@ -191,13 +171,20 @@ class RevocationProcessor:
                 headers={"Content-Type": "application/ocsp-request"},
             ) as response:
                 if response.status != 200:
-                    raise ValueError(f"OCSP request failed with status {response.status}")
+                    raise ValueError(
+                        f"OCSP request failed with status {response.status}"
+                    )
 
                 response_data = await response.read()
 
-            # Parse OCSP response using Rust
-            parsed = rust_parse_ocsp_response(response_data)
-            status_str = parsed.get("status", "unknown")
+            # Authenticate the response and bind it to this exact certificate/issuer.
+            # The native operation also enforces responder authorization and freshness.
+            parsed = self.native.validate_ocsp_response(
+                response_data,
+                certificate_der,
+                issuer_certificate_der,
+            )
+            status_str = parsed.get("cert_status", "unknown")
             if status_str == "good":
                 status = RevocationStatus.GOOD
                 revocation_date = None
@@ -217,7 +204,7 @@ class RevocationProcessor:
                 reason_code = None
 
             # Update DSC status using Rust sha256
-            cert_hash = sha256(cert_der).hex()
+            cert_hash = bytes(self.native.hash_data("sha256", certificate_der)).hex()
             await self.db_manager.update_dsc_revocation_status(
                 cert_hash, status, revocation_date, reason_code, "OCSP"
             )
@@ -239,40 +226,44 @@ class RevocationProcessor:
             return {"success": False, "error": str(e), "ocsp_url": ocsp_url}
 
     def check_revocation_against_crl(
-        self, certificate: x509.Certificate, issuer_dn: str, crl_der: bytes
+        self,
+        certificate_der: bytes,
+        issuer_certificate_der: bytes,
+        crl_der: bytes,
     ) -> tuple[bool, str | None]:
         """
         Check if a certificate is revoked according to a CRL using Rust.
-        
+
         This is a synchronous method that uses Rust for fast revocation checking
         without parsing the entire CRL in Python.
 
         Args:
-            certificate: Certificate to check
-            issuer_dn: Issuer distinguished name
+            certificate_der: DER-encoded certificate to check
+            issuer_certificate_der: DER-encoded issuer certificate
             crl_der: DER-encoded CRL data
 
         Returns:
             Tuple of (is_revoked: bool, reason: Optional[str])
         """
-        
-        serial_number = format(certificate.serial_number, "X")
-        return rust_check_revocation(serial_number, issuer_dn, crl_der)
 
-    def get_ocsp_url_from_certificate(self, certificate: x509.Certificate) -> str | None:
+        result = self.native.validate_crl_for_certificate(
+            crl_der, certificate_der, issuer_certificate_der
+        )
+        return bool(result["revoked"]), result.get("reason")
+
+    def get_ocsp_url_from_certificate(self, certificate_der: bytes) -> str | None:
         """
         Extract OCSP responder URL from certificate's AIA extension.
-        
+
         Uses Rust for fast extraction.
 
         Args:
-            certificate: Certificate to extract URL from
+            certificate_der: DER-encoded certificate to extract URL from
 
         Returns:
             OCSP responder URL or None if not present
         """
-        cert_der = certificate.public_bytes(serialization.Encoding.DER)
-        return rust_get_ocsp_responder_url(cert_der)
+        return self.native.get_ocsp_responder_url(certificate_der)
 
     async def refresh_all_crls(self, force: bool = False) -> dict[str, Any]:
         """
@@ -307,8 +298,19 @@ class RevocationProcessor:
                 if crl_data["crl_url"]:
                     crl_result = await self._fetch_crl_from_url(crl_data["crl_url"])
                     if crl_result["success"]:
+                        issuer_certificate_der = await self._find_issuer_certificate(
+                            crl_data["issuer_dn"]
+                        )
+                        if issuer_certificate_der is None:
+                            results["crls_failed"] += 1
+                            results["errors"].append(
+                                f"Issuer certificate not found for {crl_data['issuer_dn']}"
+                            )
+                            continue
                         process_result = await self.process_crl(
-                            crl_result["data"], crl_data["issuer_dn"]
+                            crl_result["data"],
+                            crl_data["issuer_dn"],
+                            issuer_certificate_der,
                         )
 
                         if process_result["success"]:
@@ -317,10 +319,14 @@ class RevocationProcessor:
                             results["updated_dscs"] += process_result["updated_dscs"]
                         else:
                             results["crls_failed"] += 1
-                            results["errors"].append(process_result.get("error", "Unknown error"))
+                            results["errors"].append(
+                                process_result.get("error", "Unknown error")
+                            )
                     else:
                         results["crls_failed"] += 1
-                        results["errors"].append(crl_result.get("error", "Failed to fetch CRL"))
+                        results["errors"].append(
+                            crl_result.get("error", "Failed to fetch CRL")
+                        )
 
             if results["crls_failed"] > 0:
                 results["success"] = False
@@ -355,7 +361,11 @@ class RevocationProcessor:
             return {"success": False, "error": str(e), "url": crl_url}
 
     async def _update_dsc_from_revocation(
-        self, serial_number: str, revocation_date: datetime, reason_code: int | None, source: str
+        self,
+        serial_number: str,
+        revocation_date: datetime,
+        reason_code: int | None,
+        source: str,
     ) -> None:
         """Update DSC revocation status from CRL entry."""
         # Find DSC by serial number
@@ -413,7 +423,9 @@ class RevocationProcessor:
             Comprehensive revocation status
         """
         # Get DSC from database
-        dscs = await self.db_manager.get_dsc_certificates(certificate_hash=certificate_hash)
+        dscs = await self.db_manager.get_dsc_certificates(
+            certificate_hash=certificate_hash
+        )
 
         if not dscs:
             return {
@@ -425,16 +437,28 @@ class RevocationProcessor:
         dsc = dscs[0]
 
         # Check CRL status
-        crl_status = await self._check_crl_status(dsc["serial_number"], dsc["issuer_dn"])
+        crl_status = await self._check_crl_status(
+            dsc["serial_number"], dsc["issuer_dn"]
+        )
 
         # Check OCSP if requested and URL available
         ocsp_status = None
         if check_ocsp:
-            # TODO: Extract OCSP URL from certificate extensions
             ocsp_url = self._extract_ocsp_url(dsc["certificate_data"])
             if ocsp_url:
-                # TODO: Get issuer certificate
-                pass
+                issuer_certificate_der = await self._find_issuer_certificate(
+                    dsc["issuer_dn"], dsc.get("country_code")
+                )
+                if issuer_certificate_der is None:
+                    ocsp_status = {
+                        "success": False,
+                        "error": "Issuer certificate required for OCSP was not found",
+                        "ocsp_url": ocsp_url,
+                    }
+                else:
+                    ocsp_status = await self.check_ocsp_status(
+                        dsc["certificate_data"], issuer_certificate_der, ocsp_url
+                    )
 
         # Determine final status
         final_status = RevocationStatus.UNKNOWN
@@ -458,7 +482,9 @@ class RevocationProcessor:
             "sources": {"crl": dsc["crl_source"], "ocsp": dsc["ocsp_source"]},
         }
 
-    async def _check_crl_status(self, serial_number: str, issuer_dn: str) -> dict[str, Any]:
+    async def _check_crl_status(
+        self, serial_number: str, issuer_dn: str
+    ) -> dict[str, Any]:
         """Check if certificate is in any current CRL."""
         async with self.db_manager.get_session() as session:
             query = text(
@@ -516,21 +542,63 @@ class RevocationProcessor:
     def _extract_ocsp_url(self, certificate_data: bytes) -> str | None:
         """Extract OCSP URL from certificate Authority Information Access extension."""
         try:
-            cert = x509.load_der_x509_certificate(certificate_data)
-
-            try:
-                aia_ext = cert.extensions.get_extension_for_oid(
-                    ExtensionOID.AUTHORITY_INFORMATION_ACCESS
-                ).value
-
-                for access_description in aia_ext:
-                    if access_description.access_method == x509.AuthorityInformationAccessOID.OCSP:
-                        return access_description.access_location.value
-
-            except x509.ExtensionNotFound:
-                pass
-
+            return self.native.get_ocsp_responder_url(certificate_data)
         except Exception as e:
             logger.warning(f"Failed to extract OCSP URL: {e}")
 
         return None
+
+    async def _find_issuer_certificate(
+        self, issuer_dn: str, country_code: str | None = None
+    ) -> bytes | None:
+        """Resolve one active trust anchor by normalized subject DN."""
+        anchors = await self.db_manager.get_trust_anchors(
+            country_code=country_code, active_only=True
+        )
+        matches = [
+            anchor
+            for anchor in anchors
+            if self._normalize_dn(anchor["subject_dn"]) == self._normalize_dn(issuer_dn)
+        ]
+        if len(matches) != 1:
+            logger.error(
+                "Expected exactly one issuer certificate for %s, found %d",
+                issuer_dn,
+                len(matches),
+            )
+            return None
+        return bytes(matches[0]["certificate_data"])
+
+    def get_crl_urls_from_certificate(self, certificate_der: bytes) -> list[str]:
+        """Extract CRL distribution points using native X.509 parsing."""
+        return list(self.native.get_crl_distribution_points(certificate_der))
+
+    def _crl_der(self, crl_data: bytes) -> bytes:
+        if crl_data.lstrip().startswith(b"-----BEGIN"):
+            return bytes(self.native.crl_pem_to_der(crl_data.decode("ascii")))
+        return crl_data
+
+    @staticmethod
+    def _parse_datetime(value: str | None) -> datetime:
+        if not value:
+            raise ValueError("Native revocation result omitted a required timestamp")
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+
+    @staticmethod
+    def _normalize_dn(value: str) -> str:
+        return value.upper().replace(" ", "").replace(",", "")
+
+    @staticmethod
+    def _reason_code(reason: str | None) -> int | None:
+        return {
+            "KeyCompromise": 1,
+            "CaCompromise": 2,
+            "AffiliationChanged": 3,
+            "Superseded": 4,
+            "CessationOfOperation": 5,
+            "CertificateHold": 6,
+            "RemoveFromCrl": 8,
+            "PrivilegeWithdrawn": 9,
+            "AaCompromise": 10,
+        }.get(reason or "")

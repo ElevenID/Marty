@@ -1,46 +1,35 @@
-"""
-Trust Verification Layer for Unified Verification Protocol
-
-This module implements Layer 5 of the unified verification protocol:
-- PKD (Public Key Directory) certificate chain resolution
-- Trust anchor validation and verification
-- Certificate revocation status checking
-- Trust chain building and validation
-"""
+"""Native-backed trust verification compatibility layer."""
 
 from __future__ import annotations
 
-import logging
-from dataclasses import dataclass
-from datetime import datetime, timezone
+import inspect
+from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from enum import Enum
 from typing import Any
 
-# Import from our document detection module
-from .document_detection import DocumentClass
+from marty_common.crypto.certificate_validator import (
+    CertificateChainValidator as NativeChainValidator,
+)
+from marty_common.crypto.sod_signer import verify_sod_signature
+from marty_common.native_backends import NativeOperationError, load_native_backend
 
 
 class TrustValidationLevel(Enum):
-    """Trust validation strictness levels."""
-
-    BASIC = "basic"  # Basic trust anchor validation
-    STANDARD = "standard"  # + PKD resolution and chain validation
-    STRICT = "strict"  # + revocation checking and policy validation
+    BASIC = "basic"
+    STANDARD = "standard"
+    STRICT = "strict"
 
 
 class TrustSource(Enum):
-    """Sources of trust information."""
-
-    PKD = "pkd"  # ICAO Public Key Directory
-    CONFIGURED = "configured"  # Manually configured trust store
-    CSCA = "csca"  # Country Signing Certificate Authority
-    NATIONAL_PKI = "national_pki"  # National PKI infrastructure
-    EMERGENCY = "emergency"  # Emergency trust procedures
+    PKD = "pkd"
+    CONFIGURED = "configured"
+    CSCA = "csca"
+    NATIONAL_PKI = "national_pki"
+    EMERGENCY = "emergency"
 
 
 class TrustValidationError(Enum):
-    """Trust validation error codes."""
-
     PKD_UNAVAILABLE = "pkd_unavailable"
     CERTIFICATE_NOT_FOUND = "certificate_not_found"
     CERTIFICATE_EXPIRED = "certificate_expired"
@@ -53,8 +42,6 @@ class TrustValidationError(Enum):
 
 @dataclass
 class TrustResult:
-    """Result of a trust verification check."""
-
     check_name: str
     passed: bool
     details: str
@@ -67,8 +54,6 @@ class TrustResult:
 
 @dataclass
 class CertificateInfo:
-    """Certificate information for trust validation."""
-
     certificate_pem: str
     subject: str
     issuer: str
@@ -77,600 +62,269 @@ class CertificateInfo:
     not_after: datetime
     fingerprint: str
     is_ca: bool = False
-    key_usage: list[str] = None
+    key_usage: list[str] = field(default_factory=list)
 
-    def __post_init__(self):
-        if self.key_usage is None:
-            self.key_usage = []
+
+def _native():
+    return load_native_backend(
+        "marty_verification",
+        (
+            "certificate_der_to_pem",
+            "certificate_pem_to_der",
+            "get_certificate_info",
+            "load_certificate_der",
+        ),
+    )
+
+
+def _certificate_der(value: Any) -> bytes:
+    native = _native()
+    if isinstance(value, CertificateInfo):
+        value = value.certificate_pem
+    if isinstance(value, str):
+        return bytes(native.certificate_pem_to_der(value))
+    if isinstance(value, bytes):
+        if value.lstrip().startswith(b"-----BEGIN"):
+            return bytes(native.certificate_pem_to_der(value.decode("ascii")))
+        return bytes(native.load_certificate_der(value))
+    if isinstance(value, dict):
+        for key in ("certificate", "certificate_pem", "pem", "der"):
+            if value.get(key) is not None:
+                return _certificate_der(value[key])
+    for attribute in ("certificate", "certificate_pem", "pem", "der"):
+        candidate = getattr(value, attribute, None)
+        if candidate is not None:
+            return _certificate_der(candidate)
+    raise NativeOperationError("Trust validation requires a DER or PEM certificate")
+
+
+def _parse_time(value: Any) -> datetime:
+    return datetime.fromisoformat(str(value).replace("Z", "+00:00")).astimezone(UTC)
+
+
+def _certificate_info(value: Any) -> CertificateInfo:
+    native = _native()
+    der = _certificate_der(value)
+    info = native.get_certificate_info(der)
+    return CertificateInfo(
+        certificate_pem=str(native.certificate_der_to_pem(der)),
+        subject=str(info["subject"]),
+        issuer=str(info["issuer"]),
+        serial_number=str(info["serial_number"]),
+        not_before=_parse_time(info["not_before"]),
+        not_after=_parse_time(info["not_after"]),
+        fingerprint=str(info["fingerprint_sha256"]),
+        is_ca=bool(info.get("is_ca")),
+        key_usage=list(info.get("key_usage", [])),
+    )
+
+
+async def _invoke(client: Any, names: tuple[str, ...], *args: Any) -> Any:
+    if client is None:
+        return None
+    for name in names:
+        method = getattr(client, name, None)
+        if callable(method):
+            result = method(*args)
+            return await result if inspect.isawaitable(result) else result
+    raise NativeOperationError(f"Configured trust client exposes none of the required methods: {', '.join(names)}")
 
 
 class PKDResolver:
-    """Resolves certificates and trust information from PKD sources."""
+    """Resolve certificate bytes from configured PKD/CSCA service adapters."""
 
     def __init__(self, pkd_service_client=None, csca_service_client=None) -> None:
-        """
-        Initialize PKD resolver with service clients.
-
-        Args:
-            pkd_service_client: gRPC client for PKD service
-            csca_service_client: gRPC client for CSCA service
-        """
         self.pkd_client = pkd_service_client
         self.csca_client = csca_service_client
-        self.logger = logging.getLogger(__name__)
         self._certificate_cache: dict[str, CertificateInfo] = {}
         self._trust_anchor_cache: dict[str, CertificateInfo] = {}
 
     async def resolve_certificate(self, certificate_id: str) -> CertificateInfo | None:
-        """
-        Resolve a certificate by ID from PKD sources.
-
-        Args:
-            certificate_id: Certificate identifier (fingerprint, serial, etc.)
-
-        Returns:
-            Certificate information if found, None otherwise
-        """
-        # Check cache first
         if certificate_id in self._certificate_cache:
             return self._certificate_cache[certificate_id]
-
-        # Try PKD service
-        cert_info = await self._resolve_from_pkd(certificate_id)
-        if cert_info:
-            self._certificate_cache[certificate_id] = cert_info
-            return cert_info
-
-        # Try CSCA service
-        cert_info = await self._resolve_from_csca(certificate_id)
-        if cert_info:
-            self._certificate_cache[certificate_id] = cert_info
-            return cert_info
-
+        for client in (self.pkd_client, self.csca_client):
+            record = await _invoke(
+                client,
+                ("get_certificate", "resolve_certificate", "GetCertificate"),
+                certificate_id,
+            )
+            if record is not None:
+                parsed = _certificate_info(record)
+                self._certificate_cache[certificate_id] = parsed
+                return parsed
         return None
 
     async def _resolve_from_pkd(self, certificate_id: str) -> CertificateInfo | None:
-        """Resolve certificate from PKD service."""
-        if not self.pkd_client:
-            return None
-
-        try:
-            # This would be the actual gRPC call to PKD service
-            # For now, return mock data
-            self.logger.info(f"Resolving certificate {certificate_id} from PKD")
-
-            # Mock implementation - in real system would call:
-            # response = await self.pkd_client.GetCertificate(
-            #     pkd_service_pb2.GetCertificateRequest(certificate_id=certificate_id)
-            # )
-
-        except Exception as e:
-            self.logger.exception(f"Error resolving from PKD: {e}")
-            return None
-        else:
-            return None  # Mock: certificate not found
+        record = await _invoke(
+            self.pkd_client,
+            ("get_certificate", "resolve_certificate", "GetCertificate"),
+            certificate_id,
+        )
+        return _certificate_info(record) if record is not None else None
 
     async def _resolve_from_csca(self, certificate_id: str) -> CertificateInfo | None:
-        """Resolve certificate from CSCA service."""
-        if not self.csca_client:
-            return None
-
-        try:
-            self.logger.info(f"Resolving certificate {certificate_id} from CSCA")
-
-            # Mock implementation - in real system would call:
-            # response = await self.csca_client.GetCscaData(
-            #     csca_service_pb2.GetCscaDataRequest(id=certificate_id)
-            # )
-
-        except Exception as e:
-            self.logger.exception(f"Error resolving from CSCA: {e}")
-            return None
-        else:
-            return None  # Mock: certificate not found
+        record = await _invoke(
+            self.csca_client,
+            ("get_certificate", "resolve_certificate", "GetCertificate"),
+            certificate_id,
+        )
+        return _certificate_info(record) if record is not None else None
 
     async def get_trust_anchors(self, country_code: str | None = None) -> list[CertificateInfo]:
-        """
-        Get trust anchors for a specific country or all available.
-
-        Args:
-            country_code: ISO 3166-1 alpha-3 country code (optional)
-
-        Returns:
-            List of trust anchor certificates
-        """
-        try:
-            if not self.pkd_client:
-                self.logger.warning("PKD client not available for trust anchor resolution")
-                return []
-
-            # Mock implementation - would call PKD ListTrustAnchors
-            self.logger.info(f"Fetching trust anchors for country: {country_code or 'ALL'}")
-
-            # Return mock trust anchors
-
-        except Exception as e:
-            self.logger.exception(f"Error fetching trust anchors: {e}")
+        client = self.pkd_client or self.csca_client
+        records = await _invoke(
+            client,
+            ("list_trust_anchors", "get_trust_anchors", "ListTrustAnchors"),
+            country_code,
+        )
+        if records is None:
             return []
-        else:
-            return []
+        records = getattr(records, "certificates", records)
+        anchors = [_certificate_info(record) for record in records]
+        for anchor in anchors:
+            self._trust_anchor_cache[anchor.fingerprint] = anchor
+        return anchors
 
 
 class CertificateChainValidator:
-    """Validates certificate chains and trust paths."""
+    """Map native chain validation into the historical trust-result shape."""
 
     def __init__(self, pkd_resolver: PKDResolver) -> None:
         self.pkd_resolver = pkd_resolver
-        self.logger = logging.getLogger(__name__)
 
     async def validate_chain(
         self,
-        leaf_certificate: str,
-        intermediate_certificates: list[str] | None = None,
+        leaf_certificate: str | bytes,
+        intermediate_certificates: list[str | bytes] | None = None,
         trust_anchors: list[CertificateInfo] | None = None,
+        crls: list[str | bytes] | None = None,
     ) -> list[TrustResult]:
-        """
-        Validate a complete certificate chain.
-
-        Args:
-            leaf_certificate: End-entity certificate (PEM or DER)
-            intermediate_certificates: Intermediate CA certificates
-            trust_anchors: Known trust anchor certificates
-
-        Returns:
-            List of trust validation results
-        """
-        results = []
-
-        if not intermediate_certificates:
-            intermediate_certificates = []
-
-        if not trust_anchors:
-            trust_anchors = []
-
-        # Parse leaf certificate
-        try:
-            leaf_info = self._parse_certificate(leaf_certificate)
-            if not leaf_info:
-                results.append(
-                    TrustResult(
-                        check_name="leaf_certificate_parsing",
-                        passed=False,
-                        details="Failed to parse leaf certificate",
-                        trust_source=TrustSource.CONFIGURED,
-                        confidence=1.0,
-                        error_code=TrustValidationError.CERTIFICATE_NOT_FOUND,
-                    )
-                )
-                return results
-        except Exception as e:
-            results.append(
+        anchors = trust_anchors or []
+        if not anchors:
+            return [
                 TrustResult(
-                    check_name="leaf_certificate_parsing",
-                    passed=False,
-                    details=f"Certificate parsing error: {e}",
-                    trust_source=TrustSource.CONFIGURED,
-                    confidence=1.0,
-                    error_code=TrustValidationError.CERTIFICATE_NOT_FOUND,
+                    "trust_chain_validation",
+                    False,
+                    "No CSCA trust anchors configured",
+                    TrustSource.PKD,
+                    error_code=TrustValidationError.TRUST_ANCHOR_NOT_FOUND,
                 )
-            )
-            return results
-
-        # Validate leaf certificate expiry
-        current_time = datetime.now(timezone.utc)
-        if leaf_info.not_after < current_time:
-            results.append(
-                TrustResult(
-                    check_name="leaf_certificate_expiry",
-                    passed=False,
-                    details=f"Leaf certificate expired on {leaf_info.not_after}",
-                    trust_source=TrustSource.CONFIGURED,
-                    confidence=1.0,
-                    error_code=TrustValidationError.CERTIFICATE_EXPIRED,
-                )
-            )
-        elif leaf_info.not_before > current_time:
-            results.append(
-                TrustResult(
-                    check_name="leaf_certificate_validity",
-                    passed=False,
-                    details=f"Leaf certificate not yet valid (valid from {leaf_info.not_before})",
-                    trust_source=TrustSource.CONFIGURED,
-                    confidence=1.0,
-                    error_code=TrustValidationError.CERTIFICATE_NOT_FOUND,
-                )
-            )
-        else:
-            results.append(
-                TrustResult(
-                    check_name="leaf_certificate_validity",
-                    passed=True,
-                    details=f"Leaf certificate valid until {leaf_info.not_after}",
-                    trust_source=TrustSource.CONFIGURED,
-                    confidence=1.0,
-                )
-            )
-
-        # Build and validate chain
-        chain_results = await self._build_and_validate_chain(
-            leaf_info, intermediate_certificates, trust_anchors
+            ]
+        validator = NativeChainValidator([_certificate_der(anchor) for anchor in anchors])
+        for crl in crls or []:
+            validator.add_crl(crl)
+        result = validator.validate_certificate_chain(
+            _certificate_der(leaf_certificate),
+            [_certificate_der(value) for value in intermediate_certificates or []],
         )
-        results.extend(chain_results)
-
-        return results
-
-    async def _build_and_validate_chain(
-        self,
-        leaf_cert: CertificateInfo,
-        intermediate_certs: list[str],
-        trust_anchors: list[CertificateInfo],
-    ) -> list[TrustResult]:
-        """Build and validate certificate chain to trust anchor."""
-        results = []
-
-        # Parse intermediate certificates
-        parsed_intermediates = []
-        for i, cert_pem in enumerate(intermediate_certs):
-            try:
-                cert_info = self._parse_certificate(cert_pem)
-                if cert_info:
-                    parsed_intermediates.append(cert_info)
-                else:
-                    results.append(
-                        TrustResult(
-                            check_name=f"intermediate_certificate_{i}",
-                            passed=False,
-                            details=f"Failed to parse intermediate certificate {i}",
-                            trust_source=TrustSource.CONFIGURED,
-                            confidence=0.8,
-                            error_code=TrustValidationError.CERTIFICATE_NOT_FOUND,
-                        )
-                    )
-            except Exception as e:
-                results.append(
-                    TrustResult(
-                        check_name=f"intermediate_certificate_{i}",
-                        passed=False,
-                        details=f"Error parsing intermediate certificate {i}: {e}",
-                        trust_source=TrustSource.CONFIGURED,
-                        confidence=0.8,
-                        error_code=TrustValidationError.CERTIFICATE_NOT_FOUND,
-                    )
-                )
-
-        # Try to find a path to trust anchor
-        trust_path = await self._find_trust_path(leaf_cert, parsed_intermediates, trust_anchors)
-
-        if trust_path:
-            results.append(
-                TrustResult(
-                    check_name="trust_chain_validation",
-                    passed=True,
-                    details=f"Valid trust chain found with {len(trust_path)} certificates",
-                    trust_source=TrustSource.PKD,
-                    confidence=0.9,
-                    certificate_chain=[cert.fingerprint for cert in trust_path],
-                    trust_anchor=trust_path[-1].fingerprint,
-                )
+        path = [item.fingerprint_sha256 for item in result.validation_path]
+        anchor = _certificate_info(result.trust_anchor).fingerprint if result.trust_anchor is not None else None
+        details = (
+            "Native certificate chain is valid"
+            if result.is_valid
+            else "; ".join(error.error_message for error in result.errors)
+        )
+        return [
+            TrustResult(
+                "trust_chain_validation",
+                result.is_valid,
+                details or "Native certificate chain validation failed",
+                TrustSource.PKD,
+                certificate_chain=path,
+                trust_anchor=anchor,
+                error_code=(None if result.is_valid else TrustValidationError.CHAIN_VALIDATION_FAILED),
             )
-        else:
-            results.append(
-                TrustResult(
-                    check_name="trust_chain_validation",
-                    passed=False,
-                    details="No valid trust chain found to known trust anchor",
-                    trust_source=TrustSource.PKD,
-                    confidence=0.8,
-                    error_code=TrustValidationError.CHAIN_VALIDATION_FAILED,
-                )
-            )
+        ]
 
-        return results
-
-    async def _find_trust_path(
-        self,
-        leaf_cert: CertificateInfo,
-        intermediates: list[CertificateInfo],
-        trust_anchors: list[CertificateInfo],
-    ) -> list[CertificateInfo] | None:
-        """Find a valid path from leaf certificate to trust anchor."""
-        # Simple implementation - in production would use proper chain building
-        # For now, just check if leaf issuer matches any trust anchor subject
-
-        for anchor in trust_anchors:
-            if leaf_cert.issuer == anchor.subject:
-                return [leaf_cert, anchor]
-
-        # Try with intermediates
-        for intermediate in intermediates:
-            if leaf_cert.issuer == intermediate.subject:
-                # Recursively check intermediate to trust anchor
-                sub_path = await self._find_trust_path(intermediate, [], trust_anchors)
-                if sub_path:
-                    return [leaf_cert, *sub_path]
-
-        return None
-
-    def _parse_certificate(self, certificate_data: str) -> CertificateInfo | None:
-        """
-        Parse certificate data and extract relevant information.
-
-        Args:
-            certificate_data: Certificate in PEM or base64 format
-
-        Returns:
-            CertificateInfo object if parsing successful, None otherwise
-        """
-        try:
-            # Mock certificate parsing - in real implementation would use cryptography library
-            # For demonstration, create mock certificate info
-
-            import hashlib
-            import uuid
-
-            # Generate deterministic mock data based on certificate content
-            cert_hash = hashlib.sha256(certificate_data.encode()).hexdigest()[:16]
-
-            return CertificateInfo(
-                certificate_pem=certificate_data,
-                subject=f"CN=Mock Certificate {cert_hash}",
-                issuer=f"CN=Mock CA {cert_hash}",
-                serial_number=str(uuid.uuid4()),
-                not_before=datetime(2020, 1, 1, tzinfo=timezone.utc),
-                not_after=datetime(2030, 1, 1, tzinfo=timezone.utc),
-                fingerprint=cert_hash,
-                is_ca=False,
-                key_usage=["digital_signature", "key_encipherment"],
-            )
-
-        except Exception as e:
-            self.logger.exception(f"Certificate parsing failed: {e}")
-            return None
+    def _parse_certificate(self, certificate_data: str | bytes) -> CertificateInfo:
+        return _certificate_info(certificate_data)
 
 
 class TrustValidator:
-    """
-    Main trust validation orchestrator.
-
-    Implements Layer 5 of the unified verification protocol:
-    validates certificate chains, PKD resolution, and trust anchors.
-    """
+    """Orchestrate PKD resolution and native trust checks without simulation."""
 
     def __init__(self, pkd_service_client=None, csca_service_client=None) -> None:
         self.pkd_resolver = PKDResolver(pkd_service_client, csca_service_client)
         self.chain_validator = CertificateChainValidator(self.pkd_resolver)
-        self.logger = logging.getLogger(__name__)
 
     async def validate_trust(
         self,
         document_data: dict[str, Any],
-        doc_class: DocumentClass,
+        doc_class: Any,
         validation_level: TrustValidationLevel = TrustValidationLevel.STANDARD,
     ) -> list[TrustResult]:
-        """
-        Execute complete trust validation.
+        del doc_class
+        issuing_authority = str(document_data.get("issuing_authority", ""))
+        country = issuing_authority[:3] or None
+        anchors = await self.pkd_resolver.get_trust_anchors(country)
+        results = [
+            TrustResult(
+                "pkd_trust_anchor_resolution",
+                bool(anchors),
+                (f"Resolved {len(anchors)} native trust anchors" if anchors else "No trust anchors resolved"),
+                TrustSource.PKD,
+                error_code=(None if anchors else TrustValidationError.TRUST_ANCHOR_NOT_FOUND),
+            )
+        ]
 
-        Args:
-            document_data: Document data including certificates and trust info
-            doc_class: Detected document class
-            validation_level: Strictness level for validation
-
-        Returns:
-            List of trust validation results
-        """
-        all_results = []
-
-        # Extract trust-related data from document
-        chip_data = document_data.get("chip_data", {})
-        vds_nc_data = document_data.get("vds_nc_data", {})
-        issuing_authority = document_data.get("issuing_authority", "")
-
-        # 1. PKD Resolution (if STANDARD or STRICT)
-        if validation_level in [TrustValidationLevel.STANDARD, TrustValidationLevel.STRICT]:
-            pkd_results = await self._validate_pkd_resolution(issuing_authority, doc_class)
-            all_results.extend(pkd_results)
-
-        # 2. Certificate Chain Validation
-        if chip_data.get("security_object") or chip_data.get("sod"):
-            # Chip-based trust validation
-            chip_trust_results = await self._validate_chip_trust(chip_data, issuing_authority)
-            all_results.extend(chip_trust_results)
-
-        elif vds_nc_data.get("certificate") or vds_nc_data.get("signature"):
-            # VDS-NC trust validation
-            vds_trust_results = await self._validate_vds_nc_trust(vds_nc_data, issuing_authority)
-            all_results.extend(vds_trust_results)
-
+        chip = document_data.get("chip_data") or {}
+        vds = document_data.get("vds_nc_data") or {}
+        leaf = chip.get("dsc_certificate") or vds.get("certificate")
+        intermediates = document_data.get("intermediate_certificates") or []
+        crls = document_data.get("crls") or []
+        if leaf:
+            results.extend(
+                await self.chain_validator.validate_chain(
+                    leaf,
+                    intermediates,
+                    anchors,
+                    crls if validation_level is TrustValidationLevel.STRICT else None,
+                )
+            )
         else:
-            # No cryptographic trust anchor available
-            all_results.append(
-                TrustResult(
-                    check_name="trust_anchor_availability",
-                    passed=False,
-                    details="No cryptographic trust anchor available (no chip or VDS-NC data)",
-                    trust_source=TrustSource.CONFIGURED,
-                    confidence=0.1,
-                    error_code=TrustValidationError.TRUST_ANCHOR_NOT_FOUND,
-                )
-            )
-
-        # 3. Revocation Checking (if STRICT)
-        if validation_level == TrustValidationLevel.STRICT:
-            revocation_results = await self._check_revocation_status(
-                document_data, issuing_authority
-            )
-            all_results.extend(revocation_results)
-
-        return all_results
-
-    async def _validate_pkd_resolution(
-        self, issuing_authority: str, doc_class: DocumentClass
-    ) -> list[TrustResult]:
-        """Validate PKD resolution for issuing authority."""
-        results = []
-
-        if not issuing_authority:
             results.append(
                 TrustResult(
-                    check_name="pkd_issuing_authority",
-                    passed=False,
-                    details="No issuing authority specified for PKD resolution",
-                    trust_source=TrustSource.PKD,
-                    confidence=0.8,
-                    error_code=TrustValidationError.PKD_UNAVAILABLE,
-                )
-            )
-            return results
-
-        try:
-            # Extract country code from issuing authority
-            country_code = (
-                issuing_authority[:3] if len(issuing_authority) >= 3 else issuing_authority
-            )
-
-            # Resolve trust anchors for this country
-            trust_anchors = await self.pkd_resolver.get_trust_anchors(country_code)
-
-            if trust_anchors:
-                results.append(
-                    TrustResult(
-                        check_name="pkd_trust_anchor_resolution",
-                        passed=True,
-                        details=f"Found {len(trust_anchors)} trust anchors for {country_code}",
-                        trust_source=TrustSource.PKD,
-                        confidence=0.9,
-                    )
-                )
-            else:
-                results.append(
-                    TrustResult(
-                        check_name="pkd_trust_anchor_resolution",
-                        passed=False,
-                        details=f"No trust anchors found in PKD for {country_code}",
-                        trust_source=TrustSource.PKD,
-                        confidence=0.7,
-                        error_code=TrustValidationError.TRUST_ANCHOR_NOT_FOUND,
-                    )
-                )
-
-        except Exception as e:
-            results.append(
-                TrustResult(
-                    check_name="pkd_resolution_error",
-                    passed=False,
-                    details=f"PKD resolution failed: {e}",
-                    trust_source=TrustSource.PKD,
-                    confidence=0.5,
-                    error_code=TrustValidationError.PKD_UNAVAILABLE,
-                )
-            )
-
-        return results
-
-    async def _validate_chip_trust(
-        self, chip_data: dict[str, Any], issuing_authority: str
-    ) -> list[TrustResult]:
-        """Validate trust chain for chip-based documents (SOD/DSC)."""
-        results = []
-
-        # Extract certificates from chip data
-        sod_data = chip_data.get("sod") or chip_data.get("security_object")
-        dsc_certificate = chip_data.get("dsc_certificate")
-
-        if not sod_data and not dsc_certificate:
-            results.append(
-                TrustResult(
-                    check_name="chip_certificate_availability",
-                    passed=False,
-                    details="No SOD or DSC certificate available in chip data",
-                    trust_source=TrustSource.CONFIGURED,
-                    confidence=0.8,
+                    "certificate_availability",
+                    False,
+                    "No DSC or VDS-NC signer certificate supplied",
+                    TrustSource.CONFIGURED,
                     error_code=TrustValidationError.CERTIFICATE_NOT_FOUND,
                 )
             )
-            return results
 
-        # Get trust anchors for issuing country
-        country_code = issuing_authority[:3] if len(issuing_authority) >= 3 else issuing_authority
-        trust_anchors = await self.pkd_resolver.get_trust_anchors(country_code)
-
-        if dsc_certificate:
-            # Validate DSC certificate chain
-            chain_results = await self.chain_validator.validate_chain(
-                leaf_certificate=dsc_certificate, trust_anchors=trust_anchors
-            )
-            results.extend(chain_results)
-        else:
-            # Mock validation for SOD
+        sod = chip.get("sod") or chip.get("security_object")
+        if sod:
+            sod_valid = bool(anchors) and verify_sod_signature(sod, [_certificate_der(anchor) for anchor in anchors])
             results.append(
                 TrustResult(
-                    check_name="sod_trust_validation",
-                    passed=True,
-                    details="SOD trust validation completed (simulated)",
-                    trust_source=TrustSource.PKD,
-                    confidence=0.8,
+                    "sod_trust_validation",
+                    sod_valid,
+                    ("Native SOD signature is trusted" if sod_valid else "Native SOD signature verification failed"),
+                    TrustSource.PKD,
+                    error_code=(None if sod_valid else TrustValidationError.INVALID_SIGNATURE),
                 )
             )
 
-        return results
-
-    async def _validate_vds_nc_trust(
-        self, vds_nc_data: dict[str, Any], issuing_authority: str
-    ) -> list[TrustResult]:
-        """Validate trust chain for VDS-NC documents."""
-        results = []
-
-        certificate = vds_nc_data.get("certificate")
-        if not certificate:
+        if validation_level is TrustValidationLevel.STRICT and not crls:
             results.append(
                 TrustResult(
-                    check_name="vds_nc_certificate_availability",
-                    passed=False,
-                    details="No certificate available in VDS-NC data",
-                    trust_source=TrustSource.CONFIGURED,
-                    confidence=0.8,
-                    error_code=TrustValidationError.CERTIFICATE_NOT_FOUND,
+                    "certificate_revocation_check",
+                    False,
+                    "Strict validation requires native CRL evidence",
+                    TrustSource.PKD,
+                    error_code=TrustValidationError.POLICY_VIOLATION,
                 )
             )
-            return results
-
-        # Get trust anchors for issuing country
-        country_code = issuing_authority[:3] if len(issuing_authority) >= 3 else issuing_authority
-        trust_anchors = await self.pkd_resolver.get_trust_anchors(country_code)
-
-        # Validate VDS-NC certificate chain
-        chain_results = await self.chain_validator.validate_chain(
-            leaf_certificate=certificate, trust_anchors=trust_anchors
-        )
-        results.extend(chain_results)
-
         return results
 
-    async def _check_revocation_status(
-        self, document_data: dict[str, Any], issuing_authority: str
-    ) -> list[TrustResult]:
-        """Check certificate revocation status."""
-        results = []
 
-        # Mock revocation checking - in real implementation would check CRL/OCSP
-        results.append(
-            TrustResult(
-                check_name="certificate_revocation_check",
-                passed=True,
-                details="Certificate revocation status checked (simulated)",
-                trust_source=TrustSource.PKD,
-                confidence=0.8,
-            )
-        )
-
-        results.append(
-            TrustResult(
-                check_name="crl_validation",
-                passed=True,
-                details="Certificate Revocation List validation completed (simulated)",
-                trust_source=TrustSource.PKD,
-                confidence=0.8,
-            )
-        )
-
-        return results
+__all__ = [
+    "CertificateChainValidator",
+    "CertificateInfo",
+    "PKDResolver",
+    "TrustResult",
+    "TrustSource",
+    "TrustValidationError",
+    "TrustValidationLevel",
+    "TrustValidator",
+]

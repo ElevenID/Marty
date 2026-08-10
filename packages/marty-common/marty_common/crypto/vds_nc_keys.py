@@ -7,21 +7,18 @@ trust protocol.
 
 from __future__ import annotations
 
+import base64
 import json
 import logging
 import uuid
 from dataclasses import asdict, dataclass, field
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from enum import Enum
 from typing import Any
 
-from cryptography.hazmat.primitives import serialization
-from cryptography.hazmat.primitives.asymmetric import ec
-from cryptography.hazmat.primitives.asymmetric.ec import (
-    EllipticCurvePrivateKey,
-    EllipticCurvePublicKey,
-)
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from marty_common.native_backends import NativeOperationError, load_native_backend
 
 logger = logging.getLogger(__name__)
 
@@ -59,11 +56,9 @@ class VDSNCKeyMetadata:
     key_size: int = 256
     status: KeyStatus = KeyStatus.PENDING
     rotation_generation: int = 1
-    not_before: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
-    not_after: datetime = field(
-        default_factory=lambda: datetime.now(timezone.utc) + timedelta(days=730)
-    )
-    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    not_before: datetime = field(default_factory=lambda: datetime.now(UTC))
+    not_after: datetime = field(default_factory=lambda: datetime.now(UTC) + timedelta(days=730))
+    created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     activated_at: datetime | None = None
     deprecated_at: datetime | None = None
     revoked_at: datetime | None = None
@@ -74,30 +69,22 @@ class VDSNCKeyMetadata:
 
     def is_valid_now(self) -> bool:
         """Check if key is currently valid."""
-        now = datetime.now(timezone.utc)
-        return (
-            self.status in [KeyStatus.ACTIVE, KeyStatus.ROTATING]
-            and self.not_before <= now <= self.not_after
-        )
+        now = datetime.now(UTC)
+        return self.status in [KeyStatus.ACTIVE, KeyStatus.ROTATING] and self.not_before <= now <= self.not_after
 
     def needs_rotation(self, warning_days: int = 60) -> bool:
         """Check if key approaching expiration."""
-        warning_threshold = datetime.now(timezone.utc) + timedelta(days=warning_days)
+        warning_threshold = datetime.now(UTC) + timedelta(days=warning_days)
         return self.not_after <= warning_threshold
 
-    def to_jwk(self, public_key: EllipticCurvePublicKey) -> dict[str, Any]:
+    def to_jwk(self, public_key: bytes) -> dict[str, Any]:
         """Convert to JWK format for distribution."""
-        # Get public key coordinates
-        public_numbers = public_key.public_numbers()
+        raw = bytes(public_key)
+        if len(raw) != 65 or raw[0] != 4:
+            raise NativeOperationError("Native P-256 public key must be uncompressed SEC1 data")
 
-        # Convert to bytes and base64url encode
-        x_bytes = public_numbers.x.to_bytes(32, "big")
-        y_bytes = public_numbers.y.to_bytes(32, "big")
-
-        import base64
-
-        x_b64 = base64.urlsafe_b64encode(x_bytes).decode("ascii").rstrip("=")
-        y_b64 = base64.urlsafe_b64encode(y_bytes).decode("ascii").rstrip("=")
+        x_b64 = base64.urlsafe_b64encode(raw[1:33]).decode("ascii").rstrip("=")
+        y_b64 = base64.urlsafe_b64encode(raw[33:65]).decode("ascii").rstrip("=")
 
         return {
             "kid": self.kid,
@@ -167,46 +154,45 @@ class VDSNCKeyGenerator:
             return str(uuid.uuid4())
 
         # Deterministic format: VDS-NC-{COUNTRY}-{ROLE}-{YEAR}-{GEN:02d}
-        year = datetime.now(timezone.utc).year
+        year = datetime.now(UTC).year
         return f"VDS-NC-{country}-{role.value}-{year}-{generation:02d}"
 
     @staticmethod
-    def generate_key_pair() -> tuple[EllipticCurvePrivateKey, EllipticCurvePublicKey]:
+    def generate_key_pair() -> tuple[bytes, bytes]:
         """Generate ECDSA P-256 key pair for ES256.
 
         Returns:
             Tuple of (private_key, public_key)
         """
-        private_key = ec.generate_private_key(ec.SECP256R1())
-        public_key = private_key.public_key()
-        return private_key, public_key
+        native = load_native_backend("marty_verification", ("ecdsa_p256_generate",))
+        private_key, public_key = native.ecdsa_p256_generate()
+        return bytes(private_key), bytes(public_key)
 
     @staticmethod
-    def export_private_key_pem(private_key: EllipticCurvePrivateKey) -> str:
+    def export_private_key_pem(private_key: bytes) -> str:
         """Export private key to PEM format."""
-        pem = private_key.private_bytes(
-            encoding=serialization.Encoding.PEM,
-            format=serialization.PrivateFormat.PKCS8,
-            encryption_algorithm=serialization.NoEncryption(),
+        native = load_native_backend(
+            "marty_verification",
+            ("raw_private_key_to_pkcs8", "save_private_key_pem"),
         )
-        return pem.decode("utf-8")
+        der = native.raw_private_key_to_pkcs8(bytes(private_key), "P256")
+        return str(native.save_private_key_pem(der))
 
     @staticmethod
-    def export_public_key_pem(public_key: EllipticCurvePublicKey) -> str:
+    def export_public_key_pem(public_key: bytes) -> str:
         """Export public key to PEM format."""
-        pem = public_key.public_bytes(
-            encoding=serialization.Encoding.PEM,
-            format=serialization.PublicFormat.SubjectPublicKeyInfo,
+        native = load_native_backend(
+            "marty_verification",
+            ("raw_public_key_to_spki", "save_public_key_pem"),
         )
-        return pem.decode("utf-8")
+        der = native.raw_public_key_to_spki(bytes(public_key), "P256")
+        return str(native.save_public_key_pem(der))
 
 
 class VDSNCKeyManager:
     """Manage VDS-NC signer keys lifecycle."""
 
-    def __init__(
-        self, session: AsyncSession, rotation_config: RotationConfig | None = None
-    ) -> None:
+    def __init__(self, session: AsyncSession, rotation_config: RotationConfig | None = None) -> None:
         """Initialize key manager.
 
         Args:
@@ -246,7 +232,7 @@ class VDSNCKeyManager:
         kid = self.generator.generate_kid(issuer_country, role, generation)
 
         # Create metadata
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         metadata = VDSNCKeyMetadata(
             kid=kid,
             issuer_country=issuer_country,
@@ -271,9 +257,7 @@ class VDSNCKeyManager:
             # HSM-backed key - just store metadata
             await self._store_metadata(metadata)
 
-        logger.info(
-            f"Created VDS-NC key {kid} for {issuer_country}/{role.value} (generation {generation})"
-        )
+        logger.info(f"Created VDS-NC key {kid} for {issuer_country}/{role.value} (generation {generation})")
 
         return kid, metadata
 
@@ -296,7 +280,7 @@ class VDSNCKeyManager:
             return False
 
         metadata.status = KeyStatus.ACTIVE
-        metadata.activated_at = datetime.now(timezone.utc)
+        metadata.activated_at = datetime.now(UTC)
 
         await self._update_metadata(metadata)
         logger.info(f"Activated VDS-NC key {kid}")
@@ -324,9 +308,7 @@ class VDSNCKeyManager:
         overlap_days = overlap_days or self.rotation_config.overlap_days
 
         # Get current active key
-        old_keys = await self.list_keys(
-            issuer_country=issuer_country, role=role, status=KeyStatus.ACTIVE
-        )
+        old_keys = await self.list_keys(issuer_country=issuer_country, role=role, status=KeyStatus.ACTIVE)
 
         if not old_keys:
             msg = f"No active key found for {issuer_country}/{role.value}"
@@ -349,12 +331,9 @@ class VDSNCKeyManager:
         await self._update_metadata(old_metadata)
 
         # Calculate deprecation date
-        deprecation_date = datetime.now(timezone.utc) + timedelta(days=overlap_days)
+        deprecation_date = datetime.now(UTC) + timedelta(days=overlap_days)
 
-        logger.info(
-            f"Rotating VDS-NC key {old_kid} → {new_kid} "
-            f"(overlap until {deprecation_date.isoformat()})"
-        )
+        logger.info(f"Rotating VDS-NC key {old_kid} → {new_kid} (overlap until {deprecation_date.isoformat()})")
 
         return old_kid, new_kid, deprecation_date
 
@@ -373,7 +352,7 @@ class VDSNCKeyManager:
             return False
 
         metadata.status = KeyStatus.DEPRECATED
-        metadata.deprecated_at = datetime.now(timezone.utc)
+        metadata.deprecated_at = datetime.now(UTC)
         if reason:
             metadata.tags["deprecation_reason"] = reason
 
@@ -397,7 +376,7 @@ class VDSNCKeyManager:
             return False
 
         metadata.status = KeyStatus.REVOKED
-        metadata.revoked_at = datetime.now(timezone.utc)
+        metadata.revoked_at = datetime.now(UTC)
         metadata.revocation_reason = reason
 
         await self._update_metadata(metadata)
@@ -416,9 +395,8 @@ class VDSNCKeyManager:
         Returns:
             Key metadata or None
         """
-        # Implementation depends on storage backend
-        # This is a placeholder
-        return None
+        del kid
+        raise NativeOperationError("No VDS-NC key repository is configured")
 
     async def list_keys(
         self,
@@ -438,12 +416,10 @@ class VDSNCKeyManager:
         Returns:
             List of key metadata
         """
-        # Implementation depends on storage backend
-        return []
+        del issuer_country, role, status, include_expired
+        raise NativeOperationError("No VDS-NC key repository is configured")
 
-    async def get_active_keys_for_verification(
-        self, issuer_country: str, role: KeyRole
-    ) -> list[VDSNCKeyMetadata]:
+    async def get_active_keys_for_verification(self, issuer_country: str, role: KeyRole) -> list[VDSNCKeyMetadata]:
         """Get all keys valid for verification (active + rotating + grace period).
 
         Args:
@@ -455,7 +431,7 @@ class VDSNCKeyManager:
         """
         all_keys = await self.list_keys(issuer_country=issuer_country, role=role)
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         grace_period = timedelta(days=self.rotation_config.grace_period_days)
 
         valid_keys = []
@@ -490,9 +466,7 @@ class VDSNCKeyManager:
 
     async def _get_next_generation(self, issuer_country: str, role: KeyRole) -> int:
         """Get next generation number for key rotation."""
-        existing_keys = await self.list_keys(
-            issuer_country=issuer_country, role=role, include_expired=True
-        )
+        existing_keys = await self.list_keys(issuer_country=issuer_country, role=role, include_expired=True)
 
         if not existing_keys:
             return 1
@@ -503,21 +477,23 @@ class VDSNCKeyManager:
     async def _store_key_pair(
         self,
         kid: str,
-        private_key: EllipticCurvePrivateKey,
-        public_key: EllipticCurvePublicKey,
+        private_key: bytes,
+        public_key: bytes,
         metadata: VDSNCKeyMetadata,
     ) -> None:
         """Store key pair and metadata."""
-        # Implementation depends on storage backend (database, key vault, HSM)
-        # This is a placeholder
+        del kid, private_key, public_key, metadata
+        raise NativeOperationError("No VDS-NC key persistence adapter is configured")
 
     async def _store_metadata(self, metadata: VDSNCKeyMetadata) -> None:
         """Store key metadata."""
-        # Implementation depends on storage backend
+        del metadata
+        raise NativeOperationError("No VDS-NC metadata persistence adapter is configured")
 
     async def _update_metadata(self, metadata: VDSNCKeyMetadata) -> None:
         """Update key metadata."""
-        # Implementation depends on storage backend
+        del metadata
+        raise NativeOperationError("No VDS-NC metadata persistence adapter is configured")
 
 
 class VDSNCKeyDistributor:
@@ -531,9 +507,7 @@ class VDSNCKeyDistributor:
         """
         self.key_manager = key_manager
 
-    async def get_jwks(
-        self, issuer_country: str | None = None, role: KeyRole | None = None
-    ) -> dict[str, Any]:
+    async def get_jwks(self, issuer_country: str | None = None, role: KeyRole | None = None) -> dict[str, Any]:
         """Get JSON Web Key Set (JWKS) for distribution.
 
         Args:
@@ -545,9 +519,7 @@ class VDSNCKeyDistributor:
         """
         # Get all valid keys for verification
         if issuer_country and role:
-            keys_metadata = await self.key_manager.get_active_keys_for_verification(
-                issuer_country, role
-            )
+            keys_metadata = await self.key_manager.get_active_keys_for_verification(issuer_country, role)
         else:
             keys_metadata = await self.key_manager.list_keys(
                 issuer_country=issuer_country,
@@ -570,7 +542,7 @@ class VDSNCKeyDistributor:
         return {
             "keys": jwks_keys,
             "metadata": {
-                "last_updated": datetime.now(timezone.utc).isoformat(),
+                "last_updated": datetime.now(UTC).isoformat(),
                 "total_count": len(jwks_keys),
                 "country": issuer_country,
                 "role": role.value if role else None,
@@ -596,10 +568,10 @@ class VDSNCKeyDistributor:
 
         return metadata.to_jwk(public_key)
 
-    async def _load_public_key(self, kid: str) -> EllipticCurvePublicKey | None:
+    async def _load_public_key(self, kid: str) -> bytes:
         """Load public key from storage."""
-        # Implementation depends on storage backend
-        return None
+        del kid
+        raise NativeOperationError("No VDS-NC public-key repository is configured")
 
 
 # Example usage functions

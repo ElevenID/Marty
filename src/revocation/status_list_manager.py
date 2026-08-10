@@ -4,27 +4,31 @@ Status List Manager
 Manages Token Status Lists (IETF) and Bitstring Status Lists (W3C).
 Provides shard-based storage and efficient status updates.
 """
+
 from __future__ import annotations
 
-import hashlib
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Optional
 
+from marty_plugin.native_backends import NativeOperationError, require_backend
+
 logger = logging.getLogger(__name__)
 
 
 class StatusListFormat(str, Enum):
     """Status list format types."""
-    TOKEN_STATUS_LIST = "tsl"      # IETF draft-14 for mDoc
+
+    TOKEN_STATUS_LIST = "tsl"  # IETF draft-14 for mDoc
     BITSTRING_STATUS_LIST = "bitstring"  # W3C v1.0 for SD-JWT VC
 
 
 @dataclass
 class StatusListShard:
     """A shard of a status list."""
+
     id: str
     format: StatusListFormat
     issuer_id: Optional[str]
@@ -38,16 +42,16 @@ class StatusListShard:
 class StatusListManager:
     """
     Manages status lists for credential revocation.
-    
+
     Features:
     - Format-per-credential-type support
     - Shard-based storage for scalability
     - Efficient status lookups and updates
     - Integration with Rust ssi-status bindings
     """
-    
-    DEFAULT_SHARD_SIZE = 100000  # 100K entries per shard
-    
+
+    DEFAULT_SHARD_SIZE = 131_072  # W3C privacy floor: 16 KiB at one bit per entry
+
     def __init__(
         self,
         storage: Optional[Any] = None,  # Database or cache storage
@@ -55,23 +59,25 @@ class StatusListManager:
     ):
         """
         Initialize the status list manager.
-        
+
         Args:
             storage: Optional storage backend
             shard_size: Number of entries per shard
         """
-        # Import Rust bindings (required)
-        from _marty_rs import TokenStatusList, BitstringStatusList  # noqa: F401
-        
+        if shard_size < self.DEFAULT_SHARD_SIZE:
+            raise ValueError(
+                f"Status-list shards require at least {self.DEFAULT_SHARD_SIZE} entries"
+            )
+        self._native = require_backend("_marty_rs")
         self._storage = storage
         self._shard_size = shard_size
-        
+
         # In-memory shard cache
         self._shards: dict[str, StatusListShard] = {}
-        
+
         # Credential ID to (shard_id, index) mapping
         self._credential_index: dict[str, tuple[str, int]] = {}
-    
+
     async def set_status(
         self,
         credential_id: str,
@@ -81,13 +87,13 @@ class StatusListManager:
     ) -> int:
         """
         Set the status for a credential.
-        
+
         Args:
             credential_id: The credential identifier
             status: Status code (0 = valid, 1 = revoked, etc.)
             format_type: The status list format
             issuer_id: Optional issuer for list selection
-            
+
         Returns:
             The status list index assigned to this credential
         """
@@ -95,31 +101,47 @@ class StatusListManager:
         if credential_id in self._credential_index:
             shard_id, index = self._credential_index[credential_id]
             shard = self._shards.get(shard_id)
-            if shard:
-                self._set_status_in_shard(shard, index, status)
-                shard.updated_at = datetime.now(timezone.utc)
+            if shard is None:
+                shard = await self._load_shard(shard_id)
+            if shard is None:
+                raise RuntimeError(
+                    f"Mapped status-list shard is unavailable: {shard_id}"
+                )
+            self._validate_shard_binding(shard, format_type, issuer_id)
+            old_data = shard.data
+            old_updated_at = shard.updated_at
+            self._set_status_in_shard(shard, index, status)
+            shard.updated_at = datetime.now(timezone.utc)
+            try:
                 await self._persist_shard(shard)
-                return index
-        
+            except Exception:
+                shard.data = old_data
+                shard.updated_at = old_updated_at
+                raise
+            return index
+
         # Get or create shard
         shard = await self._get_or_create_shard(format_type, issuer_id)
-        
+
         # Allocate index
         index = shard.next_index
+        old_data = shard.data
+        old_updated_at = shard.updated_at
         shard.next_index += 1
-        
-        # Set status
         self._set_status_in_shard(shard, index, status)
         shard.updated_at = datetime.now(timezone.utc)
-        
-        # Record mapping
+        try:
+            await self._persist_shard(shard)
+        except Exception:
+            shard.data = old_data
+            shard.next_index = index
+            shard.updated_at = old_updated_at
+            raise
+
         self._credential_index[credential_id] = (shard.id, index)
-        
-        # Persist
-        await self._persist_shard(shard)
-        
+
         return index
-    
+
     async def get_status(
         self,
         credential_id: str,
@@ -128,28 +150,34 @@ class StatusListManager:
     ) -> int:
         """
         Get the status for a credential.
-        
+
         Args:
             credential_id: The credential identifier
             format_type: The status list format
             issuer_id: Optional issuer for list selection
-            
+
         Returns:
             Status code (0 = valid, 1 = revoked, etc.)
         """
         if credential_id not in self._credential_index:
-            return 0  # Not found = valid
-        
+            raise NativeOperationError(
+                f"Credential status mapping is unavailable: {credential_id}"
+            )
+
         shard_id, index = self._credential_index[credential_id]
         shard = self._shards.get(shard_id)
-        
+
         if not shard:
             shard = await self._load_shard(shard_id)
             if not shard:
-                return 0
-        
+                raise RuntimeError(
+                    f"Mapped status-list shard is unavailable: {shard_id}"
+                )
+
+        self._validate_shard_binding(shard, format_type, issuer_id)
+
         return self._get_status_from_shard(shard, index)
-    
+
     async def get_status_list_credential(
         self,
         shard_id: str,
@@ -158,26 +186,21 @@ class StatusListManager:
     ) -> dict[str, Any]:
         """
         Get a status list as a verifiable credential.
-        
+
         Args:
             shard_id: The shard identifier
             issuer_did: The issuer DID
             issuer_key: The issuer signing key
-            
+
         Returns:
             Status list credential (JWT or CBOR depending on format)
         """
-        shard = self._shards.get(shard_id)
-        if not shard:
-            shard = await self._load_shard(shard_id)
-            if not shard:
-                raise ValueError(f"Shard not found: {shard_id}")
-        
-        if shard.format == StatusListFormat.TOKEN_STATUS_LIST:
-            return self._build_tsl_credential(shard, issuer_did, issuer_key)
-        else:
-            return self._build_bitstring_credential(shard, issuer_did, issuer_key)
-    
+        del shard_id, issuer_did, issuer_key
+        raise NativeOperationError(
+            "Unsigned status-list credential construction is disabled. "
+            "Issue and sign status-list credentials through the native credential service."
+        )
+
     def _set_status_in_shard(
         self,
         shard: StatusListShard,
@@ -185,32 +208,62 @@ class StatusListManager:
         status: int,
     ) -> None:
         """Set status at index in shard using Rust bindings."""
-        from _marty_rs import TokenStatusList, BitstringStatusList
-        
         if shard.format == StatusListFormat.TOKEN_STATUS_LIST:
-            tsl = TokenStatusList.from_cbor(shard.data)
-            tsl.set_status(index, status)
-            shard.data = tsl.to_cbor()
+            status_list = self._native.TokenStatusList.from_base64url(
+                shard.data.decode("ascii"), shard.size, 8
+            )
+            status_list.set(index, status)
         else:
-            bsl = BitstringStatusList.from_base64(shard.data.decode())
-            bsl.set_status(index, status == 1)
-            shard.data = bsl.to_base64().encode()
-    
+            if status not in (0, 1):
+                raise ValueError("Bitstring status values must be 0 or 1")
+            status_list = self._native.BitstringStatusList.from_base64url(
+                self._bitstring_payload(shard.data), shard.size
+            )
+            status_list.set(index, status == 1)
+        encoded = status_list.to_base64url().encode("ascii")
+        shard.data = (
+            b"u" + encoded
+            if shard.format == StatusListFormat.BITSTRING_STATUS_LIST
+            else encoded
+        )
+
     def _get_status_from_shard(
         self,
         shard: StatusListShard,
         index: int,
     ) -> int:
         """Get status at index from shard using Rust bindings."""
-        from _marty_rs import TokenStatusList, BitstringStatusList
-        
         if shard.format == StatusListFormat.TOKEN_STATUS_LIST:
-            tsl = TokenStatusList.from_cbor(shard.data)
-            return tsl.get_status(index)
-        else:
-            bsl = BitstringStatusList.from_base64(shard.data.decode())
-            return 1 if bsl.get_status(index) else 0
-    
+            status_list = self._native.TokenStatusList.from_base64url(
+                shard.data.decode("ascii"), shard.size, 8
+            )
+            return status_list.get(index)
+        status_list = self._native.BitstringStatusList.from_base64url(
+            self._bitstring_payload(shard.data), shard.size
+        )
+        return 1 if status_list.get(index) else 0
+
+    @staticmethod
+    def _bitstring_payload(data: bytes) -> str:
+        """Remove the W3C multibase marker before passing data to Rust."""
+        encoded = data.decode("ascii")
+        if not encoded.startswith("u"):
+            raise NativeOperationError(
+                "Bitstring status list is missing its multibase prefix"
+            )
+        return encoded[1:]
+
+    @staticmethod
+    def _validate_shard_binding(
+        shard: StatusListShard,
+        format_type: StatusListFormat,
+        issuer_id: Optional[str],
+    ) -> None:
+        if shard.format != format_type or shard.issuer_id != issuer_id:
+            raise ValueError(
+                "Credential status mapping does not match format and issuer"
+            )
+
     async def _get_or_create_shard(
         self,
         format_type: StatusListFormat,
@@ -220,22 +273,23 @@ class StatusListManager:
         # Look for existing shard with space
         for shard in self._shards.values():
             if (
-                shard.format == format_type and
-                shard.issuer_id == issuer_id and
-                shard.next_index < self._shard_size
+                shard.format == format_type
+                and shard.issuer_id == issuer_id
+                and shard.next_index < self._shard_size
             ):
                 return shard
-        
+
         # Create new shard
         shard_id = self._generate_shard_id(format_type, issuer_id)
-        
+
         if format_type == StatusListFormat.TOKEN_STATUS_LIST:
-            # TSL: 1 byte per entry
-            data = b'\x00' * 1000  # Start with 1000 entries
+            status_list = self._native.TokenStatusList(self._shard_size, 8)
         else:
-            # Bitstring: 1 bit per entry
-            data = b'\x00' * 125  # 125 bytes = 1000 bits
-        
+            status_list = self._native.BitstringStatusList(self._shard_size)
+        data = status_list.to_base64url().encode("ascii")
+        if format_type == StatusListFormat.BITSTRING_STATUS_LIST:
+            data = b"u" + data
+
         shard = StatusListShard(
             id=shard_id,
             format=format_type,
@@ -243,12 +297,16 @@ class StatusListManager:
             size=self._shard_size,
             data=data,
         )
-        
+
         self._shards[shard_id] = shard
-        await self._persist_shard(shard)
-        
+        try:
+            await self._persist_shard(shard)
+        except Exception:
+            self._shards.pop(shard_id, None)
+            raise
+
         return shard
-    
+
     def _generate_shard_id(
         self,
         format_type: StatusListFormat,
@@ -262,15 +320,15 @@ class StatusListManager:
             datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S"),
         ]
         hash_input = ":".join(components)
-        return hashlib.sha256(hash_input.encode()).hexdigest()[:16]
-    
+        return self._native.sha256(hash_input.encode()).hex()[:16]
+
     async def _persist_shard(self, shard: StatusListShard) -> None:
         """Persist shard to storage."""
         if self._storage is None:
             return  # In-memory only
-        
+
         try:
-            if hasattr(self._storage, 'set'):
+            if hasattr(self._storage, "set"):
                 await self._storage.set(
                     f"shard:{shard.id}",
                     {
@@ -286,14 +344,15 @@ class StatusListManager:
                 )
         except Exception as e:
             logger.error(f"Failed to persist shard {shard.id}: {e}")
-    
+            raise
+
     async def _load_shard(self, shard_id: str) -> Optional[StatusListShard]:
         """Load shard from storage."""
         if self._storage is None:
             return None
-        
+
         try:
-            if hasattr(self._storage, 'get'):
+            if hasattr(self._storage, "get"):
                 data = await self._storage.get(f"shard:{shard_id}")
                 if data:
                     shard = StatusListShard(
@@ -310,67 +369,6 @@ class StatusListManager:
                     return shard
         except Exception as e:
             logger.error(f"Failed to load shard {shard_id}: {e}")
-        
+            raise
+
         return None
-    
-    def _build_tsl_credential(
-        self,
-        shard: StatusListShard,
-        issuer_did: str,
-        issuer_key: Any,
-    ) -> dict[str, Any]:
-        """Build Token Status List credential."""
-        import base64
-        import zlib
-        
-        # Compress data
-        compressed = zlib.compress(shard.data)
-        encoded = base64.urlsafe_b64encode(compressed).decode().rstrip('=')
-        
-        now = datetime.now(timezone.utc)
-        
-        return {
-            "format": "tsl",
-            "issuer": issuer_did,
-            "issued_at": now.isoformat(),
-            "status_list": {
-                "bits": 8,  # TSL uses 8 bits per entry
-                "lst": encoded,
-            },
-            "shard_id": shard.id,
-            "total_entries": shard.next_index,
-        }
-    
-    def _build_bitstring_credential(
-        self,
-        shard: StatusListShard,
-        issuer_did: str,
-        issuer_key: Any,
-    ) -> dict[str, Any]:
-        """Build Bitstring Status List credential."""
-        import base64
-        import zlib
-        
-        # Compress data
-        compressed = zlib.compress(shard.data)
-        encoded = base64.standard_b64encode(compressed).decode()
-        
-        now = datetime.now(timezone.utc)
-        
-        return {
-            "@context": [
-                "https://www.w3.org/ns/credentials/v2",
-                "https://www.w3.org/ns/credentials/status/v1",
-            ],
-            "type": ["VerifiableCredential", "BitstringStatusListCredential"],
-            "issuer": issuer_did,
-            "validFrom": now.isoformat(),
-            "credentialSubject": {
-                "id": f"urn:uuid:{shard.id}",
-                "type": "BitstringStatusList",
-                "statusPurpose": "revocation",
-                "encodedList": encoded,
-            },
-            "shard_id": shard.id,
-            "total_entries": shard.next_index,
-        }

@@ -12,8 +12,13 @@ requires-python = ">=3.11"
 license = {text = "AGPL-3.0-only"}
 dependencies = [
     # Core plugin dependencies
+    "marty-common==0.2.7",
     "pydantic>=2.4.2",
     "pydantic-settings>=2.0.0",
+    # Mandatory native security and protocol kernels
+    "marty-iso18013==0.1.39",
+    "marty-verification-py==0.1.39",
+    "marty-rs==0.1.39",
     # Cryptography and PKI
     "cryptography>=41.0.7",
     "asn1crypto>=1.5.1",
@@ -50,13 +55,14 @@ dependencies = [
     "grpcio>=1.76.0",
 ]
 
-# Note: Rust FFI modules are now provided by separate packages:
-# - marty-credentials[ffi] provides _marty_rs (credential operations)
-# - marty-verification-py provides _marty_verification (verification operations)
-# Install marty-common[ffi] to get both automatically
+# Rust FFI modules are published together from the canonical marty-core release.
+# Install marty-common[ffi] to get the shared credential and verification surface.
 
 [tool.hatch.metadata]
 allow-direct-references = true
+
+[tool.uv.sources]
+marty-common = { path = "packages/marty-common" }
 
 [tool.hatch.build.targets.wheel]
 packages = [

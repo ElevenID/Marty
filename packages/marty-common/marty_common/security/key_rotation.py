@@ -20,7 +20,7 @@ from datetime import datetime, timedelta
 from enum import Enum
 from typing import Any
 
-from marty_common.security.hsm import HSMInterface, create_hsm_service
+from marty_common.security.hsm import HSMInterface, HSMOperationError
 
 logger = logging.getLogger(__name__)
 
@@ -96,9 +96,7 @@ class RotationPolicy:
             return False
 
         age = datetime.utcnow() - key_metadata.created_at
-        return age.days >= self.rotation_interval_days or key_metadata.needs_rotation(
-            self.warning_days
-        )
+        return age.days >= self.rotation_interval_days or key_metadata.needs_rotation(self.warning_days)
 
 
 class KeyStore(ABC):
@@ -113,9 +111,7 @@ class KeyStore(ABC):
         """Retrieve a key and its metadata."""
 
     @abstractmethod
-    def list_keys(
-        self, service_name: str | None = None, key_type: KeyType | None = None
-    ) -> list[KeyMetadata]:
+    def list_keys(self, service_name: str | None = None, key_type: KeyType | None = None) -> list[KeyMetadata]:
         """List keys matching criteria."""
 
     @abstractmethod
@@ -258,9 +254,7 @@ class DatabaseKeyStore(KeyStore):
         else:
             return key_data, metadata
 
-    def list_keys(
-        self, service_name: str | None = None, key_type: KeyType | None = None
-    ) -> list[KeyMetadata]:
+    def list_keys(self, service_name: str | None = None, key_type: KeyType | None = None) -> list[KeyMetadata]:
         """List keys matching criteria."""
         try:
             conditions = []
@@ -408,9 +402,7 @@ class KeyDistributor:
 class KeyRotationManager:
     """Main key rotation management system."""
 
-    def __init__(
-        self, hsm_service: HSMInterface, key_store: KeyStore, distributor: KeyDistributor
-    ) -> None:
+    def __init__(self, hsm_service: HSMInterface, key_store: KeyStore, distributor: KeyDistributor) -> None:
         self.hsm = hsm_service
         self.key_store = key_store
         self.distributor = distributor
@@ -631,12 +623,10 @@ class KeyRotationManager:
         }
 
 
-def create_default_rotation_manager(
-    db_connector, hsm_service: HSMInterface | None = None
-) -> KeyRotationManager:
+def create_default_rotation_manager(db_connector, hsm_service: HSMInterface | None = None) -> KeyRotationManager:
     """Create a key rotation manager with default configuration."""
     if not hsm_service:
-        hsm_service = create_hsm_service()
+        raise HSMOperationError("Key rotation requires an explicitly configured HSM service")
 
     key_store = DatabaseKeyStore(db_connector)
     distributor = KeyDistributor()

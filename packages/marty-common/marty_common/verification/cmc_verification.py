@@ -11,14 +11,18 @@ supporting multiple verification methods:
 
 from __future__ import annotations
 
-import base64
-from datetime import datetime, timezone
+from collections.abc import Callable, Sequence
+from datetime import UTC, datetime
 from typing import Any
 
-from marty_common.models.passport import CMCCertificate, CMCSecurityModel
-from marty_common.utils.mrz_utils import parse_td1_mrz, validate_td1_check_digits
-from marty_common.vds_nc.cmc_vds_nc_service import get_vds_nc_service
 from shared.logging_config import get_logger
+
+from marty_common.crypto.data_group_hasher import verify_passport_data_groups
+from marty_common.crypto.sod_parser import parse_sod
+from marty_common.crypto.sod_signer import verify_sod_signature
+from marty_common.models.passport import CMCCertificate, CMCSecurityModel
+from marty_common.native_backends import load_native_backend
+from marty_common.vds_nc.cmc_vds_nc_service import get_vds_nc_service
 
 logger = get_logger(__name__)
 
@@ -26,9 +30,7 @@ logger = get_logger(__name__)
 class VerificationResult:
     """Result of a verification check."""
 
-    def __init__(
-        self, check_name: str, passed: bool, details: str = "", error_code: str | None = None
-    ) -> None:
+    def __init__(self, check_name: str, passed: bool, details: str = "", error_code: str | None = None) -> None:
         """Initialize verification result.
 
         Args:
@@ -55,9 +57,15 @@ class VerificationResult:
 class CMCVerificationProtocol:
     """Comprehensive verification protocol for CMC certificates."""
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        trust_anchors: Sequence[Any] | None = None,
+        revocation_checker: Callable[[CMCCertificate], bool] | None = None,
+    ) -> None:
         """Initialize verification protocol."""
         self.vds_nc_service = get_vds_nc_service()
+        self.trust_anchors = tuple(trust_anchors or ())
+        self.revocation_checker = revocation_checker
         logger.info("CMC verification protocol initialized")
 
     def verify_cmc_from_td1_mrz(
@@ -78,15 +86,15 @@ class CMCVerificationProtocol:
 
             # Parse TD-1 MRZ
             try:
-                mrz_data = parse_td1_mrz(td1_mrz)
-                results.append(
-                    VerificationResult("MRZ Format", True, "TD-1 MRZ parsed successfully")
-                )
+                native = load_native_backend("marty_verification", ("parse_mrz",))
+                parsed = native.parse_mrz(td1_mrz.strip().splitlines())
+                mrz_data = parsed.to_dict()
+                if mrz_data.get("format") != "TD1":
+                    raise ValueError("MRZ is not TD1")
+                results.append(VerificationResult("MRZ Format", True, "TD-1 MRZ parsed successfully"))
             except Exception as e:
                 results.append(
-                    VerificationResult(
-                        "MRZ Format", False, f"Failed to parse TD-1 MRZ: {e!s}", "MRZ_PARSE_ERROR"
-                    )
+                    VerificationResult("MRZ Format", False, f"Failed to parse TD-1 MRZ: {e!s}", "MRZ_PARSE_ERROR")
                 )
                 return False, None, results
 
@@ -138,16 +146,10 @@ class CMCVerificationProtocol:
             results = []
 
             # Verify VDS-NC barcode
-            is_valid, cmc_certificate, error_messages = self.vds_nc_service.verify_barcode(
-                barcode_data
-            )
+            is_valid, cmc_certificate, error_messages = self.vds_nc_service.verify_barcode(barcode_data)
 
             if is_valid and cmc_certificate:
-                results.append(
-                    VerificationResult(
-                        "VDS-NC Barcode", True, "VDS-NC barcode verified successfully"
-                    )
-                )
+                results.append(VerificationResult("VDS-NC Barcode", True, "VDS-NC barcode verified successfully"))
 
                 # Additional VDS-NC specific checks
                 vds_nc_results = self._verify_vds_nc_specific(barcode_data, cmc_certificate)
@@ -155,9 +157,7 @@ class CMCVerificationProtocol:
 
             else:
                 for error in error_messages:
-                    results.append(
-                        VerificationResult("VDS-NC Barcode", False, error, "VDS_NC_ERROR")
-                    )
+                    results.append(VerificationResult("VDS-NC Barcode", False, error, "VDS_NC_ERROR"))
 
             overall_valid = all(r.passed for r in results)
             logger.info(f"VDS-NC barcode verification completed: {overall_valid}")
@@ -171,9 +171,7 @@ class CMCVerificationProtocol:
         else:
             return overall_valid, cmc_certificate, results
 
-    def verify_cmc_chip_authentication(
-        self, cmc_certificate: CMCCertificate
-    ) -> list[VerificationResult]:
+    def verify_cmc_chip_authentication(self, cmc_certificate: CMCCertificate) -> list[VerificationResult]:
         """Verify chip authentication for chip-based CMC.
 
         Args:
@@ -201,15 +199,11 @@ class CMCVerificationProtocol:
             # Verify SOD presence
             if not cmc_certificate.security_object:
                 results.append(
-                    VerificationResult(
-                        "SOD Presence", False, "No Security Object Document found", "SOD_MISSING"
-                    )
+                    VerificationResult("SOD Presence", False, "No Security Object Document found", "SOD_MISSING")
                 )
                 return results
 
-            results.append(
-                VerificationResult("SOD Presence", True, "Security Object Document found")
-            )
+            results.append(VerificationResult("SOD Presence", True, "Security Object Document found"))
 
             # Verify data group integrity
             dg_integrity_result = self._verify_data_group_integrity(cmc_certificate)
@@ -233,9 +227,7 @@ class CMCVerificationProtocol:
         except Exception as e:
             logger.exception("Chip authentication verification failed")
             results.append(
-                VerificationResult(
-                    "Chip Authentication", False, f"Verification error: {e!s}", "VERIFICATION_ERROR"
-                )
+                VerificationResult("Chip Authentication", False, f"Verification error: {e!s}", "VERIFICATION_ERROR")
             )
             return results
         else:
@@ -268,18 +260,16 @@ class CMCVerificationProtocol:
                 )
 
             if cmc_certificate.status == "EXPIRED":
-                return VerificationResult(
-                    "Revocation Status", False, "Certificate has expired", "CERTIFICATE_EXPIRED"
-                )
+                return VerificationResult("Revocation Status", False, "Certificate has expired", "CERTIFICATE_EXPIRED")
 
             # Check expiry date
             if cmc_certificate.cmc_data.date_of_expiry:
                 try:
-                    expiry_date = datetime.strptime(
-                        cmc_certificate.cmc_data.date_of_expiry, "%Y-%m-%d"
-                    ).replace(tzinfo=timezone.utc)
+                    expiry_date = datetime.strptime(cmc_certificate.cmc_data.date_of_expiry, "%Y-%m-%d").replace(
+                        tzinfo=UTC
+                    )
 
-                    if expiry_date < datetime.now(tz=timezone.utc):
+                    if expiry_date < datetime.now(tz=UTC):
                         return VerificationResult(
                             "Revocation Status",
                             False,
@@ -287,13 +277,27 @@ class CMCVerificationProtocol:
                             "CERTIFICATE_EXPIRED",
                         )
                 except ValueError:
-                    logger.warning(
-                        f"Invalid expiry date format: {cmc_certificate.cmc_data.date_of_expiry}"
-                    )
+                    logger.warning(f"Invalid expiry date format: {cmc_certificate.cmc_data.date_of_expiry}")
 
-            # In production, this would check against CRL or OCSP
-            # For now, assume not revoked if status is ACTIVE
-            return VerificationResult("Revocation Status", True, "Certificate is not revoked")
+            if self.revocation_checker is None:
+                return VerificationResult(
+                    "Revocation Status",
+                    False,
+                    "Native CRL/OCSP evidence is required",
+                    "REVOCATION_EVIDENCE_MISSING",
+                )
+            if not self.revocation_checker(cmc_certificate):
+                return VerificationResult(
+                    "Revocation Status",
+                    False,
+                    "Native revocation validation did not establish good status",
+                    "REVOCATION_CHECK_FAILED",
+                )
+            return VerificationResult(
+                "Revocation Status",
+                True,
+                "Native revocation evidence established good status",
+            )
 
         except Exception as e:
             logger.exception("Revocation status check failed")
@@ -342,9 +346,7 @@ class CMCVerificationProtocol:
                     "RECORD_KEEPING_DISABLED",
                 )
 
-            return VerificationResult(
-                "Background Check", True, "Background verification completed successfully"
-            )
+            return VerificationResult("Background Check", True, "Background verification completed successfully")
 
         except Exception as e:
             logger.exception("Background check verification failed")
@@ -385,8 +387,9 @@ class CMCVerificationProtocol:
                 results.append(
                     VerificationResult(
                         "VDS-NC Security",
-                        True,
-                        "VDS-NC security model detected (barcode verification required separately)",
+                        False,
+                        "The signed VDS-NC barcode is required for verification",
+                        "VDS_NC_BARCODE_MISSING",
                     )
                 )
 
@@ -422,12 +425,12 @@ class CMCVerificationProtocol:
     def _verify_td1_check_digits(self, td1_mrz: str) -> VerificationResult:
         """Verify TD-1 MRZ check digits."""
         try:
-            is_valid = validate_td1_check_digits(td1_mrz)
+            native = load_native_backend("marty_verification", ("parse_mrz",))
+            parsed = native.parse_mrz(td1_mrz.strip().splitlines())
+            is_valid = parsed.format == "TD1" and bool(parsed.check_digits_valid)
             if is_valid:
                 return VerificationResult("MRZ Check Digits", True, "All check digits are valid")
-            return VerificationResult(
-                "MRZ Check Digits", False, "Invalid check digits detected", "CHECK_DIGIT_ERROR"
-            )
+            return VerificationResult("MRZ Check Digits", False, "Invalid check digits detected", "CHECK_DIGIT_ERROR")
         except Exception as e:
             return VerificationResult(
                 "MRZ Check Digits",
@@ -461,9 +464,7 @@ class CMCVerificationProtocol:
                     f"MRZ data mismatches in fields: {', '.join(mismatches)}",
                     "MRZ_MISMATCH",
                 )
-            return VerificationResult(
-                "MRZ Data Consistency", True, "MRZ data matches stored certificate"
-            )
+            return VerificationResult("MRZ Data Consistency", True, "MRZ data matches stored certificate")
 
         except Exception as e:
             return VerificationResult(
@@ -473,9 +474,7 @@ class CMCVerificationProtocol:
                 "MRZ_COMPARISON_ERROR",
             )
 
-    def _verify_vds_nc_specific(
-        self, barcode_data: str, cmc_certificate: CMCCertificate
-    ) -> list[VerificationResult]:
+    def _verify_vds_nc_specific(self, barcode_data: str, cmc_certificate: CMCCertificate) -> list[VerificationResult]:
         """Perform VDS-NC specific verification checks."""
         results = []
 
@@ -487,9 +486,7 @@ class CMCVerificationProtocol:
 
                 # Verify header format
                 if len(header) == 7 and header.startswith("DC"):
-                    results.append(
-                        VerificationResult("VDS-NC Header", True, f"Valid VDS-NC header: {header}")
-                    )
+                    results.append(VerificationResult("VDS-NC Header", True, f"Valid VDS-NC header: {header}"))
                 else:
                     results.append(
                         VerificationResult(
@@ -507,11 +504,7 @@ class CMCVerificationProtocol:
                     payload_data = json.loads(payload)
 
                     if payload_data.get("typ") == "CMC":
-                        results.append(
-                            VerificationResult(
-                                "VDS-NC Payload", True, "Valid CMC payload in VDS-NC"
-                            )
-                        )
+                        results.append(VerificationResult("VDS-NC Payload", True, "Valid CMC payload in VDS-NC"))
                     else:
                         results.append(
                             VerificationResult(
@@ -524,9 +517,7 @@ class CMCVerificationProtocol:
 
                 except json.JSONDecodeError:
                     results.append(
-                        VerificationResult(
-                            "VDS-NC Payload", False, "Invalid JSON payload", "VDS_NC_JSON_ERROR"
-                        )
+                        VerificationResult("VDS-NC Payload", False, "Invalid JSON payload", "VDS_NC_JSON_ERROR")
                     )
 
         except Exception as e:
@@ -545,88 +536,87 @@ class CMCVerificationProtocol:
         """Verify data group hash integrity against SOD."""
         try:
             if not cmc_certificate.data_groups:
+                return VerificationResult("Data Group Integrity", False, "No data groups found", "NO_DATA_GROUPS")
+
+            if not cmc_certificate.security_object:
+                return VerificationResult("Data Group Integrity", False, "SOD not present", "SOD_MISSING")
+            data_groups = {str(dg_type): dg.data for dg_type, dg in cmc_certificate.data_groups.items()}
+            valid, errors, details = verify_passport_data_groups(
+                cmc_certificate.security_object,
+                data_groups,
+            )
+            if not valid:
                 return VerificationResult(
-                    "Data Group Integrity", False, "No data groups found", "NO_DATA_GROUPS"
+                    "Data Group Integrity",
+                    False,
+                    "; ".join(errors) or "Native data-group verification failed",
+                    "DATA_GROUP_HASH_MISMATCH",
                 )
-
-            # In a real implementation, this would parse the SOD and verify hashes
-            # For now, check that data groups have valid hash values
-            for dg_type, dg in cmc_certificate.data_groups.items():
-                if not dg.hash_value:
-                    return VerificationResult(
-                        "Data Group Integrity", False, f"Missing hash for {dg_type}", "MISSING_HASH"
-                    )
-
-                # Verify hash length (SHA-256 = 64 hex chars)
-                if len(dg.hash_value) != 64:
-                    return VerificationResult(
-                        "Data Group Integrity",
-                        False,
-                        f"Invalid hash length for {dg_type}",
-                        "INVALID_HASH",
-                    )
-
             return VerificationResult(
-                "Data Group Integrity", True, "All data group hashes are valid"
+                "Data Group Integrity",
+                True,
+                f"Native SOD hashes verified for {details.get('data_groups_verified', 0)} groups",
             )
 
         except Exception as e:
-            return VerificationResult(
-                "Data Group Integrity", False, f"Integrity check error: {e!s}", "INTEGRITY_ERROR"
-            )
+            return VerificationResult("Data Group Integrity", False, f"Integrity check error: {e!s}", "INTEGRITY_ERROR")
 
     def _verify_dg1_consistency(self, cmc_certificate: CMCCertificate) -> VerificationResult:
         """Verify DG1 MRZ data matches visual MRZ."""
         try:
             dg1 = cmc_certificate.data_groups.get("DG1")
             if not dg1:
-                return VerificationResult(
-                    "DG1 Consistency", False, "DG1 data group missing", "DG1_MISSING"
-                )
+                return VerificationResult("DG1 Consistency", False, "DG1 data group missing", "DG1_MISSING")
 
-            # In real implementation, would decode ASN.1 DG1 data
-            # For now, basic check that DG1 data exists
             if not dg1.data:
-                return VerificationResult(
-                    "DG1 Consistency", False, "DG1 data is empty", "DG1_EMPTY"
-                )
+                return VerificationResult("DG1 Consistency", False, "DG1 data is empty", "DG1_EMPTY")
 
-            return VerificationResult("DG1 Consistency", True, "DG1 MRZ data is present and valid")
+            native = load_native_backend("marty_verification", ("parse_mrz",))
+            raw = dg1.data.decode("ascii") if isinstance(dg1.data, bytes) else str(dg1.data)
+            parsed = native.parse_mrz(raw.strip().splitlines())
+            expected = cmc_certificate.cmc_data
+            matches = (
+                parsed.format == "TD1"
+                and parsed.check_digits_valid
+                and parsed.document_number == expected.document_number
+                and parsed.issuing_country == expected.issuing_country
+                and parsed.surname == expected.surname
+                and parsed.given_names == expected.given_names
+            )
+            if not matches:
+                return VerificationResult(
+                    "DG1 Consistency",
+                    False,
+                    "Native DG1 MRZ validation or printed-field comparison failed",
+                    "DG1_MISMATCH",
+                )
+            return VerificationResult("DG1 Consistency", True, "Native DG1 MRZ and printed fields match")
 
         except Exception as e:
-            return VerificationResult(
-                "DG1 Consistency", False, f"DG1 check error: {e!s}", "DG1_ERROR"
-            )
+            return VerificationResult("DG1 Consistency", False, f"DG1 check error: {e!s}", "DG1_ERROR")
 
     def _verify_dg2_integrity(self, cmc_certificate: CMCCertificate) -> VerificationResult:
         """Verify DG2 face image integrity."""
         try:
             dg2 = cmc_certificate.data_groups.get("DG2")
             if not dg2:
-                return VerificationResult(
-                    "DG2 Integrity", False, "DG2 data group missing", "DG2_MISSING"
-                )
+                return VerificationResult("DG2 Integrity", False, "DG2 data group missing", "DG2_MISSING")
 
             if not dg2.data:
                 return VerificationResult("DG2 Integrity", False, "DG2 data is empty", "DG2_EMPTY")
 
-            # Basic check for minimum biometric data size
-            if len(dg2.data) < 100:
+            integrity = self._verify_data_group_integrity(cmc_certificate)
+            if not integrity.passed:
                 return VerificationResult(
                     "DG2 Integrity",
                     False,
-                    "DG2 data too small for valid biometric",
-                    "DG2_INVALID_SIZE",
+                    "DG2 was not authenticated by the native SOD hash check",
+                    "DG2_HASH_INVALID",
                 )
-
-            return VerificationResult(
-                "DG2 Integrity", True, "DG2 face image data is present and valid"
-            )
+            return VerificationResult("DG2 Integrity", True, "DG2 was authenticated by its native SOD hash check")
 
         except Exception as e:
-            return VerificationResult(
-                "DG2 Integrity", False, f"DG2 check error: {e!s}", "DG2_ERROR"
-            )
+            return VerificationResult("DG2 Integrity", False, f"DG2 check error: {e!s}", "DG2_ERROR")
 
     def _verify_sod_signature(self, cmc_certificate: CMCCertificate) -> VerificationResult:
         """Verify SOD digital signature."""
@@ -634,25 +624,25 @@ class CMCVerificationProtocol:
             if not cmc_certificate.security_object:
                 return VerificationResult("SOD Signature", False, "SOD not present", "SOD_MISSING")
 
-            # Basic SOD format check (base64 decoding)
-            try:
-                sod_bytes = base64.b64decode(cmc_certificate.security_object)
-                if len(sod_bytes) < 100:
-                    return VerificationResult(
-                        "SOD Signature", False, "SOD too small to be valid", "SOD_INVALID_SIZE"
-                    )
-            except Exception:
+            if not self.trust_anchors:
                 return VerificationResult(
-                    "SOD Signature", False, "SOD is not valid base64", "SOD_INVALID_FORMAT"
+                    "SOD Signature",
+                    False,
+                    "CSCA trust anchors are required",
+                    "SOD_TRUST_ANCHOR_MISSING",
                 )
-
-            # In real implementation, would verify SOD signature against CSCA
-            return VerificationResult("SOD Signature", True, "SOD signature structure is valid")
+            sod = parse_sod(cmc_certificate.security_object)
+            if not verify_sod_signature(sod.der, self.trust_anchors):
+                return VerificationResult(
+                    "SOD Signature",
+                    False,
+                    "Native SOD signature or DSC chain validation failed",
+                    "SOD_SIGNATURE_INVALID",
+                )
+            return VerificationResult("SOD Signature", True, "Native SOD signature and DSC chain are valid")
 
         except Exception as e:
-            return VerificationResult(
-                "SOD Signature", False, f"SOD signature error: {e!s}", "SOD_SIGNATURE_ERROR"
-            )
+            return VerificationResult("SOD Signature", False, f"SOD signature error: {e!s}", "SOD_SIGNATURE_ERROR")
 
     def _verify_cmc_consistency(self, cmc_certificate: CMCCertificate) -> list[VerificationResult]:
         """Verify overall CMC consistency."""
@@ -670,15 +660,10 @@ class CMCVerificationProtocol:
                     )
                 )
             else:
-                results.append(
-                    VerificationResult("Document Number", True, "Document number is present")
-                )
+                results.append(VerificationResult("Document Number", True, "Document number is present"))
 
             # Check issuing country
-            if (
-                not cmc_certificate.cmc_data.issuing_country
-                or len(cmc_certificate.cmc_data.issuing_country) != 3
-            ):
+            if not cmc_certificate.cmc_data.issuing_country or len(cmc_certificate.cmc_data.issuing_country) != 3:
                 results.append(
                     VerificationResult(
                         "Issuing Country",
@@ -688,9 +673,7 @@ class CMCVerificationProtocol:
                     )
                 )
             else:
-                results.append(
-                    VerificationResult("Issuing Country", True, "Valid issuing country code")
-                )
+                results.append(VerificationResult("Issuing Country", True, "Valid issuing country code"))
 
             # Check security model consistency
             if cmc_certificate.uses_chip_security:
@@ -704,17 +687,11 @@ class CMCVerificationProtocol:
                         )
                     )
                 else:
-                    results.append(
-                        VerificationResult(
-                            "Security Model", True, "Chip security model is consistent"
-                        )
-                    )
+                    results.append(VerificationResult("Security Model", True, "Chip security model is consistent"))
 
         except Exception as e:
             results.append(
-                VerificationResult(
-                    "CMC Consistency", False, f"Consistency check error: {e!s}", "CONSISTENCY_ERROR"
-                )
+                VerificationResult("CMC Consistency", False, f"Consistency check error: {e!s}", "CONSISTENCY_ERROR")
             )
 
         return results
@@ -759,7 +736,7 @@ class CMCVerificationProtocol:
             td1_mrz_data=td1_mrz_data,
             security_model=CMCSecurityModel.VDS_NC,  # Default for MRZ-only verification
             status="ACTIVE",
-            created_at=datetime.now(tz=timezone.utc),
+            created_at=datetime.now(tz=UTC),
         )
 
 

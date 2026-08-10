@@ -20,11 +20,11 @@ from typing import Any
 
 import grpc
 import qrcode
-
 from marty_common import crypto_bridge
 from marty_common.config import Config
-from marty_common.crypto import hash_password, verify_password, verify_signature
+from marty_common.crypto import hash_password, verify_password
 from marty_common.grpc_client import GRPCClient
+
 from marty_plugin.proto import (
     document_signer_pb2,
     document_signer_pb2_grpc,
@@ -79,17 +79,21 @@ class DTCEngineService(dtc_engine_pb2_grpc.DTCEngineServicer):
         if signing_key_path and Path(signing_key_path).exists():
             self.signing_key_pem = Path(signing_key_path).read_text(encoding="utf-8")
 
-        public_key_path = service_config.get("signer_public_key_path") or os.environ.get(
-            "DTC_SIGNER_PUBLIC_KEY_PATH"
-        )
+        public_key_path = service_config.get(
+            "signer_public_key_path"
+        ) or os.environ.get("DTC_SIGNER_PUBLIC_KEY_PATH")
         if public_key_path and Path(public_key_path).exists():
-            self.signer_public_key_pem = Path(public_key_path).read_text(encoding="utf-8")
+            self.signer_public_key_pem = Path(public_key_path).read_text(
+                encoding="utf-8"
+            )
 
         if self.signing_key_pem and not self.signer_public_key_pem:
             try:
                 private_der = crypto_bridge.load_private_key_pem(self.signing_key_pem)
                 public_der = crypto_bridge.extract_public_key(private_der)
-                self.signer_public_key_pem = crypto_bridge.save_public_key_pem(public_der)
+                self.signer_public_key_pem = crypto_bridge.save_public_key_pem(
+                    public_der
+                )
             except Exception:  # pragma: no cover - defensive
                 self.logger.warning("Failed to derive DTC public key from signing key")
 
@@ -101,8 +105,8 @@ class DTCEngineService(dtc_engine_pb2_grpc.DTCEngineServicer):
         )
         if trust_path and Path(trust_path).exists():
             try:
-                self.trust_anchors_pem = Path(trust_path).read_text(encoding="utf-8").split(
-                    "\n\n"
+                self.trust_anchors_pem = (
+                    Path(trust_path).read_text(encoding="utf-8").split("\n\n")
                 )
             except Exception:  # pragma: no cover - defensive
                 self.logger.warning("Failed to load trust anchors from %s", trust_path)
@@ -112,11 +116,13 @@ class DTCEngineService(dtc_engine_pb2_grpc.DTCEngineServicer):
         )
         if chain_path and Path(chain_path).exists():
             try:
-                self.certificate_chain_pem = Path(chain_path).read_text(encoding="utf-8").split(
-                    "\n\n"
+                self.certificate_chain_pem = (
+                    Path(chain_path).read_text(encoding="utf-8").split("\n\n")
                 )
             except Exception:  # pragma: no cover - defensive
-                self.logger.warning("Failed to load certificate chain from %s", chain_path)
+                self.logger.warning(
+                    "Failed to load certificate chain from %s", chain_path
+                )
 
     def _vr(self, name: str) -> int:
         """Resolve overall verification result enum to its integer value."""
@@ -164,7 +170,9 @@ class DTCEngineService(dtc_engine_pb2_grpc.DTCEngineServicer):
                     {
                         "dg_number": dg.dg_number,
                         "data_type": dg.data_type,
-                        "data": dg.data.decode("latin1") if isinstance(dg.data, bytes) else dg.data,
+                        "data": dg.data.decode("latin1")
+                        if isinstance(dg.data, bytes)
+                        else dg.data,
                     }
                     for dg in request.data_groups
                 ],
@@ -184,28 +192,29 @@ class DTCEngineService(dtc_engine_pb2_grpc.DTCEngineServicer):
 
             # Store binary data separately (portrait and signature)
             if request.personal_details.portrait:
-                portrait_path = os.path.join(self.dtc_storage_dir, f"{dtc_id}_portrait.bin")
+                portrait_path = os.path.join(
+                    self.dtc_storage_dir, f"{dtc_id}_portrait.bin"
+                )
                 with open(portrait_path, "wb") as f:
                     f.write(request.personal_details.portrait)
                 dtc_data["personal_details"]["portrait_path"] = portrait_path
 
             if request.personal_details.signature:
-                signature_path = os.path.join(self.dtc_storage_dir, f"{dtc_id}_signature.bin")
+                signature_path = os.path.join(
+                    self.dtc_storage_dir, f"{dtc_id}_signature.bin"
+                )
                 with open(signature_path, "wb") as f:
                     f.write(request.personal_details.signature)
                 dtc_data["personal_details"]["signature_path"] = signature_path
 
             # Normalize via Rust helpers when available while preserving access key hash
-            try:
-                dtc_payload = dict(dtc_data)
-                dtc_payload.pop("access_key_hash", None)
-                dtc_payload["access_key"] = request.access_key or ""
-                created = json.loads(crypto_bridge.dtc_create(json.dumps(dtc_payload)))
-                created["access_key_hash"] = dtc_data["access_key_hash"]
-                created.pop("access_key", None)
-                dtc_data = created
-            except Exception:
-                self.logger.debug("Rust DTC create unavailable; using raw payload")
+            dtc_payload = dict(dtc_data)
+            dtc_payload.pop("access_key_hash", None)
+            dtc_payload["access_key"] = request.access_key or ""
+            created = json.loads(crypto_bridge.dtc_create(json.dumps(dtc_payload)))
+            created["access_key_hash"] = dtc_data["access_key_hash"]
+            created.pop("access_key", None)
+            dtc_data = created
 
             # Save DTC data to storage
             dtc_file_path = os.path.join(self.dtc_storage_dir, f"{dtc_id}.json")
@@ -226,7 +235,9 @@ class DTCEngineService(dtc_engine_pb2_grpc.DTCEngineServicer):
                 status="ERROR", dtc_id="", error_message="Failed to create DTC"
             )
 
-    def GetDTC(self, request: dtc_engine_pb2.GetDTCRequest, context: grpc.ServicerContext):
+    def GetDTC(
+        self, request: dtc_engine_pb2.GetDTCRequest, context: grpc.ServicerContext
+    ):
         """Retrieve a Digital Travel Credential.
 
         Args:
@@ -367,7 +378,8 @@ class DTCEngineService(dtc_engine_pb2_grpc.DTCEngineServicer):
                 if not dtc_data:
                     self.logger.error(f"DTC with ID {request.dtc_id} not found")
                     return dtc_engine_pb2.SignDTCResponse(
-                        success=False, error_message=f"DTC with ID {request.dtc_id} not found"
+                        success=False,
+                        error_message=f"DTC with ID {request.dtc_id} not found",
                     )
 
             # Verify access key
@@ -411,7 +423,9 @@ class DTCEngineService(dtc_engine_pb2_grpc.DTCEngineServicer):
                         json.dump(dtc_data, f, indent=2)
                     self._dtc_store[request.dtc_id] = dtc_data
 
-                    signature_value = dtc_data.get("signature_info", {}).get("signature", "")
+                    signature_value = dtc_data.get("signature_info", {}).get(
+                        "signature", ""
+                    )
                     if isinstance(signature_value, str):
                         try:
                             signature_bytes = base64.b64decode(signature_value)
@@ -423,23 +437,34 @@ class DTCEngineService(dtc_engine_pb2_grpc.DTCEngineServicer):
                         signature_bytes = b""
 
                     signature_info = dtc_engine_pb2.SignatureInfo(
-                        signature_date=dtc_data.get("signature_info", {}).get("signature_date", ""),
-                        signer_id=dtc_data.get("signature_info", {}).get("signer_id", ""),
+                        signature_date=dtc_data.get("signature_info", {}).get(
+                            "signature_date", ""
+                        ),
+                        signer_id=dtc_data.get("signature_info", {}).get(
+                            "signer_id", ""
+                        ),
                         signature=signature_bytes,
-                        is_valid=dtc_data.get("signature_info", {}).get("is_valid", True),
+                        is_valid=dtc_data.get("signature_info", {}).get(
+                            "is_valid", True
+                        ),
                     )
-                    self.logger.info(f"Successfully signed DTC with ID: {request.dtc_id}")
+                    self.logger.info(
+                        f"Successfully signed DTC with ID: {request.dtc_id}"
+                    )
                     return dtc_engine_pb2.SignDTCResponse(
                         success=True, error_message="", signature_info=signature_info
                     )
                 except Exception:
-                    self.logger.exception("Rust DTC signing failed; falling back to document signer")
+                    self.logger.exception(
+                        "Rust DTC signing failed; falling back to document signer"
+                    )
 
             # Check if document signer service is available
             if not self.document_signer_client:
                 self.logger.error("Document Signer service is not available")
                 return dtc_engine_pb2.SignDTCResponse(
-                    success=False, error_message="Document Signer service is not available"
+                    success=False,
+                    error_message="Document Signer service is not available",
                 )
 
             # Prepare data to be signed
@@ -481,7 +506,9 @@ class DTCEngineService(dtc_engine_pb2_grpc.DTCEngineServicer):
 
             # Prepare response
             signature_info = dtc_engine_pb2.SignatureInfo(
-                signature_date=signature_date, signer_id=sign_response.signer_id, is_valid=True
+                signature_date=signature_date,
+                signer_id=sign_response.signer_id,
+                is_valid=True,
             )
 
             self.logger.info(f"Successfully signed DTC with ID: {request.dtc_id}")
@@ -491,7 +518,9 @@ class DTCEngineService(dtc_engine_pb2_grpc.DTCEngineServicer):
 
         except Exception:
             self.logger.exception("Failed to sign DTC")
-            return dtc_engine_pb2.SignDTCResponse(success=False, error_message="Failed to sign DTC")
+            return dtc_engine_pb2.SignDTCResponse(
+                success=False, error_message="Failed to sign DTC"
+            )
 
     def RevokeDTC(
         self, request: dtc_engine_pb2.RevokeDTCRequest, context: grpc.ServicerContext
@@ -513,7 +542,8 @@ class DTCEngineService(dtc_engine_pb2_grpc.DTCEngineServicer):
             if not os.path.exists(dtc_file_path):
                 self.logger.error(f"DTC with ID {request.dtc_id} not found")
                 return dtc_engine_pb2.RevokeDTCResponse(
-                    success=False, error_message=f"DTC with ID {request.dtc_id} not found"
+                    success=False,
+                    error_message=f"DTC with ID {request.dtc_id} not found",
                 )
 
             # Read DTC data
@@ -553,7 +583,9 @@ class DTCEngineService(dtc_engine_pb2_grpc.DTCEngineServicer):
             )
 
     def GenerateDTCQRCode(
-        self, request: dtc_engine_pb2.GenerateDTCQRCodeRequest, context: grpc.ServicerContext
+        self,
+        request: dtc_engine_pb2.GenerateDTCQRCodeRequest,
+        context: grpc.ServicerContext,
     ):
         """Generate a QR code for a Digital Travel Credential.
 
@@ -650,11 +682,16 @@ class DTCEngineService(dtc_engine_pb2_grpc.DTCEngineServicer):
             img.save(img_bytes, format="PNG")
             qr_code_data = img_bytes.getvalue()
 
-            self.logger.info(f"Successfully generated QR code for DTC with ID: {request.dtc_id}")
+            self.logger.info(
+                f"Successfully generated QR code for DTC with ID: {request.dtc_id}"
+            )
 
             # Return response with QR code image
             return SimpleNamespace(
-                success=True, error_message="", qr_code=qr_code_data, mime_type="image/png"
+                success=True,
+                error_message="",
+                qr_code=qr_code_data,
+                mime_type="image/png",
             )
 
         except Exception:
@@ -666,7 +703,9 @@ class DTCEngineService(dtc_engine_pb2_grpc.DTCEngineServicer):
                 mime_type="",
             )
 
-    def VerifyDTC(self, request: dtc_engine_pb2.VerifyDTCRequest, context: grpc.ServicerContext):
+    def VerifyDTC(
+        self, request: dtc_engine_pb2.VerifyDTCRequest, context: grpc.ServicerContext
+    ):
         """Verify a Digital Travel Credential.
 
         Args:
@@ -731,76 +770,49 @@ class DTCEngineService(dtc_engine_pb2_grpc.DTCEngineServicer):
                         verification_result=self._vr("EXPIRED"),
                     )
             except (ValueError, KeyError):
-                self.logger.warning(f"DTC with ID {request.dtc_id} has invalid date format")
+                self.logger.warning(
+                    f"DTC with ID {request.dtc_id} has invalid date format"
+                )
 
             signer_public_key_pem = (
                 dtc_data.get("signature_info", {}).get("signer_public_key_pem")
                 or self.signer_public_key_pem
             )
-            if signer_public_key_pem:
-                try:
-                    payload = dict(dtc_data)
-                    payload["signer_public_key_pem"] = signer_public_key_pem
-                    if self.trust_anchors_pem:
-                        payload["trust_anchors_pem"] = self.trust_anchors_pem
-                    if self.certificate_chain_pem:
-                        payload["certificate_chain_pem"] = self.certificate_chain_pem
-                    verify_result = json.loads(crypto_bridge.dtc_verify(json.dumps(payload)))
-                    if verify_result.get("is_valid"):
-                        self.logger.info(
-                            f"Successfully verified DTC with ID: {request.dtc_id} (rust)"
-                        )
-                        return SimpleNamespace(
-                            success=True, error_message="", verification_result=self._vr("VALID")
-                        )
-                    error_message = verify_result.get("error_message", "DTC verification failed")
-                    return SimpleNamespace(
-                        success=True,
-                        error_message=error_message,
-                        verification_result=self._vr("INVALID_SIGNATURE"),
-                    )
-                except Exception:
-                    self.logger.exception("Rust DTC verification failed; falling back")
-
-            # Verify the signature
-            signature = dtc_data.get("signature")
-            if not signature:
-                signature = dtc_data.get("signature_info", {}).get("signature")
-            if not signature:
-                self.logger.error(f"DTC with ID {request.dtc_id} has no signature data")
+            if not signer_public_key_pem:
                 return SimpleNamespace(
                     success=False,
-                    error_message="DTC has no signature data",
+                    error_message="DTC signer public key is unavailable",
                     verification_result=self._vr("INVALID"),
                 )
-
-            # Create copy of data without signature for verification
-            verification_data = dict(dtc_data)
-            verification_data.pop("signature")
-            data_to_verify = json.dumps(verification_data).encode("utf-8")
-
-            # Decode signature if stored as string
-            if isinstance(signature, str):
-                signature = signature.encode("latin1")
-
-            # Verify the signature
-            # In this simplified demo, treat signer_id as a public key placeholder
-            is_valid = verify_signature(
-                data_to_verify,
-                signature,
-                dtc_data["signature_info"].get("signer_id", "").encode("utf-8"),
-            )
-
-            if not is_valid:
-                self.logger.error(f"Signature verification failed for DTC with ID {request.dtc_id}")
+            try:
+                payload = dict(dtc_data)
+                payload["signer_public_key_pem"] = signer_public_key_pem
+                if self.trust_anchors_pem:
+                    payload["trust_anchors_pem"] = self.trust_anchors_pem
+                if self.certificate_chain_pem:
+                    payload["certificate_chain_pem"] = self.certificate_chain_pem
+                verify_result = json.loads(
+                    crypto_bridge.dtc_verify(json.dumps(payload))
+                )
+            except Exception:
+                self.logger.exception("Native DTC verification failed")
+                return SimpleNamespace(
+                    success=False,
+                    error_message="Native DTC verification failed",
+                    verification_result=self._vr("INVALID"),
+                )
+            if not verify_result.get("is_valid"):
+                error_message = verify_result.get(
+                    "error_message", "DTC verification failed"
+                )
                 return SimpleNamespace(
                     success=True,
-                    error_message="Signature verification failed",
+                    error_message=error_message,
                     verification_result=self._vr("INVALID_SIGNATURE"),
                 )
-
-            self.logger.info(f"Successfully verified DTC with ID: {request.dtc_id}")
-            # Map to enum value; import here to avoid circulars
+            self.logger.info(
+                "Successfully verified DTC with ID: %s (rust)", request.dtc_id
+            )
             return SimpleNamespace(
                 success=True, error_message="", verification_result=self._vr("VALID")
             )

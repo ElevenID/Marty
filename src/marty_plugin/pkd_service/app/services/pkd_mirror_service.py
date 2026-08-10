@@ -20,8 +20,6 @@ from app.db.certificate_store import CertificateStore
 from app.utils.certificate_validator import CertificateValidator
 from app.utils.http_client import HttpClient
 from app.utils.pkd_payloads import parse_certificate_payload
-# Use Rust crypto_bridge for certificate operations
-from marty_common.crypto_bridge import Certificate
 
 
 class PKDMirrorService:
@@ -51,8 +49,8 @@ class PKDMirrorService:
         pkd_url: str,
         sync_interval: int = 3600,
         logger=None,
-        trust_roots: list[str | Certificate] | None = None,
-        other_certs_for_validation: list[str | Certificate] | None = None,
+        trust_roots: list[str | bytes] | None = None,
+        other_certs_for_validation: list[str | bytes] | None = None,
     ) -> None:
         """
         Initialize the PKD Mirror Service.
@@ -74,7 +72,9 @@ class PKDMirrorService:
         self.sync_thread = None
         # Initialize CertificateValidator with trust roots if provided
         self.cert_validator = CertificateValidator(
-            trust_roots=trust_roots, other_certs=other_certs_for_validation, logger=self.logger
+            trust_roots=trust_roots,
+            other_certs=other_certs_for_validation,
+            logger=self.logger,
         )
 
     def start_sync_scheduler(self) -> None:
@@ -105,7 +105,9 @@ class PKDMirrorService:
             self.logger.warning("PKD mirror sync thread is already running")
             return
 
-        self.sync_thread = threading.Thread(target=self.start_sync_scheduler, daemon=True)
+        self.sync_thread = threading.Thread(
+            target=self.start_sync_scheduler, daemon=True
+        )
         self.sync_thread.start()
         self.logger.info("PKD mirror sync thread started")
 
@@ -134,7 +136,8 @@ class PKDMirrorService:
         try:
             component_results = self.sync_components(["csca", "dsc", "crl"])
             success = all(
-                component_results.get(component, False) for component in ("csca", "dsc", "crl")
+                component_results.get(component, False)
+                for component in ("csca", "dsc", "crl")
             )
 
             # Update last sync time if at least one component was synced successfully
@@ -169,7 +172,9 @@ class PKDMirrorService:
             response = self.http_client.get(url)
 
             if response.status_code != 200:
-                self.logger.error(f"Failed to download from {url}: HTTP {response.status_code}")
+                self.logger.error(
+                    f"Failed to download from {url}: HTTP {response.status_code}"
+                )
                 return False
 
             data = response.content
@@ -208,7 +213,10 @@ class PKDMirrorService:
         """Synchronize a subset of PKD components."""
 
         handler_map = {
-            "csca": ("CscaCertificates", self.certificate_store.store_csca_certificates),
+            "csca": (
+                "CscaCertificates",
+                self.certificate_store.store_csca_certificates,
+            ),
             "dsc": ("DscCertificates", self.certificate_store.store_dsc_certificates),
             "crl": ("CRLs", self.certificate_store.store_crls),
         }
@@ -255,7 +263,9 @@ class PKDMirrorService:
         try:
             certificates = self._parse_certificates(cert_data)
             if not certificates:
-                self.logger.warning("No certificates found in provided data for validation.")
+                self.logger.warning(
+                    "No certificates found in provided data for validation."
+                )
                 return False
 
             all_valid = True
@@ -264,7 +274,7 @@ class PKDMirrorService:
                     cert, usage=usage if usage else "digital_signature"
                 ):
                     self.logger.warning(
-                        f"Validation failed for certificate: {cert.subject.rfc4514_string() if cert else 'Unknown'}"
+                        "Validation failed for a certificate in the PKD payload"
                     )
                     all_valid = False
 
@@ -276,7 +286,7 @@ class PKDMirrorService:
 
     def validate_certificate(
         self,
-        certificate: str | bytes | Certificate,
+        certificate: str | bytes,
         usage: str | None = "digital_signature",
     ) -> bool:
         """
@@ -298,17 +308,12 @@ class PKDMirrorService:
             self.logger.exception(f"Error validating certificate: {e}")
             return False
 
-    def _parse_certificates(self, cert_data: bytes) -> list[Certificate]:
-        """Parse ICAO master list payloads into crypto_bridge Certificate objects."""
+    def _parse_certificates(self, cert_data: bytes) -> list[bytes]:
+        """Parse ICAO payloads into DER certificates using native adapters."""
 
-        parsed = []
-        for cert in parse_certificate_payload(cert_data):
-            try:
-                parsed.append(
-                    Certificate.from_der(cert.certificate_data)
-                )
-            except ValueError as exc:  # pragma: no cover - logged for visibility in mirror logs
-                self.logger.debug("Certificate payload decode failed for %s: %s", cert.subject, exc)
+        parsed = [
+            cert.certificate_data for cert in parse_certificate_payload(cert_data)
+        ]
 
         if not parsed:
             self.logger.debug("No certificates recovered from payload for validation")

@@ -1,33 +1,20 @@
-"""Digital Travel Credential cryptographic verification helpers."""
+"""Native Digital Travel Credential compatibility helpers."""
 
 from __future__ import annotations
 
-import logging
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
-
-import cbor2
-from cryptography import x509
-from cryptography.exceptions import InvalidSignature
-from cryptography.hazmat.primitives import hashes
-from cryptography.hazmat.primitives.asymmetric import ec, padding, rsa
-
-# Import crypto_bridge for certificate compatibility
-from marty_common.crypto_bridge import Certificate as CertificateBridge
 
 from marty_common.crypto.certificate_validator import (
     CertificateChainValidator,
     ChainValidationResult,
 )
-
-logger = logging.getLogger(__name__)
+from marty_common.native_backends import NativeOperationError, load_native_backend
 
 
 @dataclass(slots=True)
 class DTCIntegrityResult:
-    """Outcome of verifying DG hash material embedded in the credential."""
-
     is_valid: bool
     mismatches: list[str]
     expected: Mapping[str, str]
@@ -36,8 +23,6 @@ class DTCIntegrityResult:
 
 @dataclass(slots=True)
 class DTCSignatureResult:
-    """Outcome of verifying the PRES signature."""
-
     is_valid: bool
     certificate_subject: str
     chain_result: ChainValidationResult | None
@@ -45,43 +30,30 @@ class DTCSignatureResult:
 
 
 class DTCVerifier:
-    """Verifier for ICAO Digital Travel Credential cryptographic properties."""
+    """Compatibility adapter for native DTC hashing and trust validation."""
 
-    def __init__(self, trust_anchors: Iterable[x509.Certificate | CertificateBridge] | None = None) -> None:
+    def __init__(self, trust_anchors: Iterable[Any] | None = None) -> None:
         self._chain_validator = CertificateChainValidator()
         if trust_anchors:
-            # Convert CertificateBridge to x509.Certificate if needed
-            converted_anchors = [
-                cert.to_cryptography() if isinstance(cert, CertificateBridge) else cert
-                for cert in trust_anchors
-            ]
-            self._chain_validator.load_csca_certificates(converted_anchors)
-        self.logger = logging.getLogger(f"{__name__}.{self.__class__.__name__}")
+            self._chain_validator.load_csca_certificates(list(trust_anchors))
 
-    # ------------------------------------------------------------------
-    # Data group hash verification
-    # ------------------------------------------------------------------
     @staticmethod
     def compute_data_group_hashes(
-        data_groups: Sequence[Mapping[str, Any]], algorithm: str = "sha256"
+        data_groups: Sequence[Mapping[str, Any]],
+        algorithm: str = "sha256",
     ) -> dict[str, str]:
-        hash_algorithm = algorithm.lower()
-        if hash_algorithm not in {"sha256", "sha384", "sha512", "sha224", "sha1"}:
-            msg = f"Unsupported hash algorithm for DTC data groups: {algorithm}"
-            raise ValueError(msg)
-
-        hash_cls = {
-            "sha1": hashes.SHA1,
-            "sha224": hashes.SHA224,
-            "sha256": hashes.SHA256,
-            "sha384": hashes.SHA384,
-            "sha512": hashes.SHA512,
-        }[hash_algorithm]
-
+        canonical = algorithm.lower().replace("-", "")
+        if canonical not in {"sha1", "sha256", "sha384", "sha512"}:
+            raise NativeOperationError(f"Unsupported native DTC hash algorithm: {algorithm}")
+        native = load_native_backend("marty_verification", ("hash_data",))
         results: dict[str, str] = {}
         for item in data_groups:
-            dg_number = str(item.get("dg_number") or item.get("number") or item.get("id"))
-            raw = item.get("data") or item.get("content") or b""
+            number = item.get("dg_number") or item.get("number") or item.get("id")
+            if number is None:
+                raise NativeOperationError("DTC data group is missing its number")
+            raw = item.get("data") if "data" in item else item.get("content")
+            if raw is None:
+                raise NativeOperationError(f"DTC data group {number} is missing content")
             if isinstance(raw, str):
                 try:
                     payload = bytes.fromhex(raw)
@@ -89,9 +61,7 @@ class DTCVerifier:
                     payload = raw.encode("utf-8")
             else:
                 payload = bytes(raw)
-            digest = hashes.Hash(hash_cls())
-            digest.update(payload)
-            results[dg_number] = digest.finalize().hex()
+            results[str(number)] = bytes(native.hash_data(canonical, payload)).hex()
         return results
 
     def verify_data_group_hashes(
@@ -100,88 +70,48 @@ class DTCVerifier:
         data_groups: Sequence[Mapping[str, Any]],
         algorithm: str = "sha256",
     ) -> DTCIntegrityResult:
-        expected_hashes: Mapping[str, str] = credential_payload.get("dataGroupHashes", {})  # type: ignore[assignment]
-        computed_hashes = self.compute_data_group_hashes(data_groups, algorithm)
-
-        mismatches: list[str] = []
-        for dg_number, expected_hash in expected_hashes.items():
-            actual = computed_hashes.get(str(dg_number))
-            if actual is None:
-                mismatches.append(f"Missing DG{dg_number} in computed hash set")
-            elif actual.lower() != expected_hash.lower():
-                mismatches.append(f"Hash mismatch for DG{dg_number}")
-
+        expected = credential_payload.get("dataGroupHashes")
+        if not isinstance(expected, Mapping) or not expected:
+            return DTCIntegrityResult(False, ["Missing signed data-group hashes"], {}, {})
+        computed = self.compute_data_group_hashes(data_groups, algorithm)
+        expected_strings = {str(key): str(value) for key, value in expected.items()}
+        mismatches = [
+            f"Hash mismatch or missing DG{number}"
+            for number, digest in expected_strings.items()
+            if computed.get(number, "").lower() != digest.lower()
+        ]
         mismatches.extend(
-            f"Unexpected DG{dg_number} in credential payload"
-            for dg_number in computed_hashes
-            if str(dg_number) not in expected_hashes
+            f"Unexpected DG{number} in supplied data groups" for number in computed if number not in expected_strings
         )
-
         return DTCIntegrityResult(
-            is_valid=len(mismatches) == 0,
-            mismatches=mismatches,
-            expected=expected_hashes,
-            computed=computed_hashes,
+            not mismatches,
+            mismatches,
+            expected_strings,
+            computed,
         )
 
-    # ------------------------------------------------------------------
-    # Signature verification
-    # ------------------------------------------------------------------
     def verify_signature(
         self,
         payload: Mapping[str, Any],
         signature: bytes,
-        signer_certificate: x509.Certificate | CertificateBridge,
-        signature_algorithm: hashes.HashAlgorithm | None = None,
+        signer_certificate: Any,
+        signature_algorithm: Any | None = None,
     ) -> DTCSignatureResult:
-        signature_algorithm = signature_algorithm or hashes.SHA256()
-        # Convert CertificateBridge to x509.Certificate if needed
-        if isinstance(signer_certificate, CertificateBridge):
-            signer_certificate = signer_certificate.to_cryptography()
-        public_key = signer_certificate.public_key()
-        cbor_payload = cbor2.dumps(payload)
-
-        try:
-            if isinstance(public_key, rsa.RSAPublicKey):
-                public_key.verify(signature, cbor_payload, padding.PKCS1v15(), signature_algorithm)
-            elif isinstance(public_key, ec.EllipticCurvePublicKey):
-                public_key.verify(signature, cbor_payload, ec.ECDSA(signature_algorithm))
-            else:
-                msg = f"Unsupported public key type for DTC signature: {type(public_key)}"
-                raise TypeError(msg)
-        except (InvalidSignature, TypeError, ValueError) as exc:
-            return DTCSignatureResult(
-                is_valid=False,
-                certificate_subject=signer_certificate.subject.rfc4514_string(),
-                chain_result=None,
-                error=str(exc),
-            )
-
-        return DTCSignatureResult(
-            is_valid=True,
-            certificate_subject=signer_certificate.subject.rfc4514_string(),
-            chain_result=None,
+        del payload, signature, signer_certificate, signature_algorithm
+        raise NativeOperationError(
+            "Detached Python DTC signature verification is retired; submit the complete "
+            "signed DTC to marty-verification.dtc_verify"
         )
 
     def validate_certificate_chain(
         self,
-        signer_certificate: x509.Certificate | CertificateBridge,
-        intermediates: Sequence[x509.Certificate | CertificateBridge] | None = None,
+        signer_certificate: Any,
+        intermediates: Sequence[Any] | None = None,
     ) -> ChainValidationResult:
-        # Convert CertificateBridge to x509.Certificate if needed
-        if isinstance(signer_certificate, CertificateBridge):
-            signer_certificate = signer_certificate.to_cryptography()
-        converted_intermediates = [
-            cert.to_cryptography() if isinstance(cert, CertificateBridge) else cert
-            for cert in (intermediates or [])
-        ]
         return self._chain_validator.validate_certificate_chain(
-            signer_certificate, converted_intermediates
+            signer_certificate,
+            list(intermediates or ()),
         )
 
 
-__all__ = [
-    "DTCIntegrityResult",
-    "DTCSignatureResult",
-    "DTCVerifier",
-]
+__all__ = ["DTCIntegrityResult", "DTCSignatureResult", "DTCVerifier"]

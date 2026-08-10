@@ -1,14 +1,27 @@
 """Minimal artifact-native runtime for the Marty MMF plugin package."""
 
+from contextlib import asynccontextmanager
 from importlib.metadata import version
 
 from fastapi import FastAPI
 
-from .native_backends import backend_diagnostics
+from .native_backends import backend_diagnostics, require_native_backends
 from .plugin import MartyPlugin
 
 
-app = FastAPI(title="Marty MMF Plugin", docs_url=None, redoc_url=None)
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    """Prevent the production runtime from starting without native kernels."""
+    require_native_backends()
+    yield
+
+
+app = FastAPI(
+    title="Marty MMF Plugin",
+    docs_url=None,
+    redoc_url=None,
+    lifespan=lifespan,
+)
 
 
 @app.get("/health")

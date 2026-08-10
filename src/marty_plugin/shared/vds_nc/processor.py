@@ -13,12 +13,11 @@ import base64
 import json
 from typing import Any
 
-from cryptography.hazmat.primitives import serialization
-
 from marty_common.crypto_bridge import (
     ecdsa_p256_sign,
     ecdsa_p384_sign,
     ecdsa_p521_sign,
+    load_private_key_pem,
     pkcs8_to_raw_private_key,
 )
 
@@ -113,7 +112,9 @@ class VDSNCProcessor:
 
         # Create payload
         payload = VDSNCPayload(
-            header=header, message=json.loads(canonical_message), signature_info=signature_info
+            header=header,
+            message=json.loads(canonical_message),
+            signature_info=signature_info,
         )
 
         # Sign the payload
@@ -121,7 +122,9 @@ class VDSNCProcessor:
 
         # Select barcode format
         payload_size = len(canonical_message)
-        error_correction = VDSNCBarcodeSelector.get_recommended_error_correction(doc_type)
+        error_correction = VDSNCBarcodeSelector.get_recommended_error_correction(
+            doc_type
+        )
         barcode_format = VDSNCBarcodeSelector.select_optimal_format(
             payload_size, error_correction, preferred_barcode_format
         )
@@ -181,9 +184,12 @@ class VDSNCProcessor:
                     if not result.signature_valid:
                         result.errors.append("Digital signature verification failed")
                 else:
-                    result.errors.append(f"Public key not found for signer: {signer_id}")
+                    result.errors.append(
+                        f"Public key not found for signer: {signer_id}"
+                    )
             else:
-                result.signature_valid = True
+                result.signature_valid = False
+                result.errors.append("Digital signature verification was not requested")
 
             # Step 4: Field-by-field comparison
             if printed_values:
@@ -195,7 +201,9 @@ class VDSNCProcessor:
                     result.field_consistency_valid = True
             else:
                 result.field_consistency_valid = True
-                result.warnings.append("No printed values provided for field comparison")
+                result.warnings.append(
+                    "No printed values provided for field comparison"
+                )
 
             # Step 5: Temporal validation
             temporal_errors = document.validate_expiry_and_dates()
@@ -218,24 +226,17 @@ class VDSNCProcessor:
 
         return result
 
-    def _sign_payload(self, payload: VDSNCPayload, algorithm: SignatureAlgorithm) -> str:
+    def _sign_payload(
+        self, payload: VDSNCPayload, algorithm: SignatureAlgorithm
+    ) -> str:
         """Sign VDS-NC payload using Rust crypto bindings."""
         try:
             if not self.private_key_pem:
                 msg = "Private key required for signing"
                 raise SignatureError(msg)
 
-            # Load private key and extract raw bytes
-            private_key = serialization.load_pem_private_key(
-                self.private_key_pem.encode(), password=None
-            )
-
-            # Get DER-encoded private key
-            private_key_der = private_key.private_bytes(
-                encoding=serialization.Encoding.DER,
-                format=serialization.PrivateFormat.PKCS8,
-                encryption_algorithm=serialization.NoEncryption(),
-            )
+            # Parse PEM and obtain PKCS#8 DER through the Rust binding.
+            private_key_der = load_private_key_pem(self.private_key_pem)
 
             # Get signature data
             signature_data = payload.get_signature_data()
@@ -296,7 +297,9 @@ class VDSNCProcessor:
                 doc_type = DocumentType(doc_type_str[:3])
                 remainder = header_str[8:]
             except ValueError as exc:
-                raise VerificationError(f"Unknown document type in header: {doc_type_str}") from exc
+                raise VerificationError(
+                    f"Unknown document type in header: {doc_type_str}"
+                ) from exc
 
         issuing_country = remainder[:3] if len(remainder) >= 3 else "XXX"
         signer_id = remainder[3:] or "UNKNOWN"
@@ -317,6 +320,8 @@ class VDSNCProcessor:
             ),
             signature=signature,
             barcode_format=BarcodeFormat.QR_CODE,  # Would be determined from context
-            error_correction=VDSNCBarcodeSelector.get_recommended_error_correction(doc_type),
+            error_correction=VDSNCBarcodeSelector.get_recommended_error_correction(
+                doc_type
+            ),
             barcode_data=barcode_data,
         )

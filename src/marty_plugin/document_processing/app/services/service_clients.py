@@ -14,6 +14,8 @@ from typing import Any
 import grpc
 from app.core.config import settings
 
+from marty_plugin.native_backends import require_backend
+
 logger = logging.getLogger(__name__)
 
 # Service names
@@ -81,11 +83,16 @@ class GrpcPassportEngineClient(PassportEngineClient):
         """Process passport using passport-engine service"""
         try:
             # Import here to handle potential grpc import issues gracefully
-            from marty_plugin.proto.v1 import passport_engine_pb2, passport_engine_pb2_grpc
+            from marty_plugin.proto.v1 import (
+                passport_engine_pb2,
+                passport_engine_pb2_grpc,
+            )
 
             with grpc.insecure_channel(self.address) as channel:
                 stub = passport_engine_pb2_grpc.PassportEngineStub(channel)
-                request = passport_engine_pb2.PassportRequest(passport_number=passport_number)
+                request = passport_engine_pb2.PassportRequest(
+                    passport_number=passport_number
+                )
                 response = stub.ProcessPassport(request)
 
                 return {
@@ -119,7 +126,10 @@ class GrpcInspectionSystemClient(InspectionSystemClient):
     async def inspect_document(self, document_id: str) -> dict[str, Any]:
         """Inspect document using inspection-system service"""
         try:
-            from marty_plugin.proto.v1 import inspection_system_pb2, inspection_system_pb2_grpc
+            from marty_plugin.proto.v1 import (
+                inspection_system_pb2,
+                inspection_system_pb2_grpc,
+            )
 
             with grpc.insecure_channel(self.address) as channel:
                 stub = inspection_system_pb2_grpc.InspectionSystemStub(channel)
@@ -128,7 +138,8 @@ class GrpcInspectionSystemClient(InspectionSystemClient):
 
                 return {
                     "result": response.result,
-                    "valid": "VALID" in response.result.upper(),
+                    "valid": response.result.strip().upper() == "VALID"
+                    or response.result.strip().upper().startswith("VALID:"),
                     "document_id": document_id,
                 }
         except ImportError as e:
@@ -140,10 +151,31 @@ class GrpcInspectionSystemClient(InspectionSystemClient):
             raise ServiceClientError(INSPECTION_SYSTEM, error_details) from e
 
     async def validate_mrz(self, mrz_data: dict[str, Any]) -> dict[str, Any]:
-        """Validate MRZ data using inspection system"""
-        # This would call appropriate inspection system endpoints for MRZ validation
-        logger.info("MRZ validation via inspection-system not yet fully implemented")
-        return {"valid": True, "checksums_valid": True}
+        """Validate OCR-produced MRZ lines with the native Rust parser."""
+        native = require_backend("marty_verification")
+        lines = mrz_data.get("mrzLines") or mrz_data.get("mrz_lines")
+        if not isinstance(lines, list) or not all(
+            isinstance(line, str) for line in lines
+        ):
+            return {
+                "valid": False,
+                "checksums_valid": False,
+                "error_code": "MRZ_LINES_MISSING",
+            }
+        try:
+            parsed = native.parse_mrz(lines)
+        except Exception as exc:
+            return {
+                "valid": False,
+                "checksums_valid": False,
+                "error_code": "MRZ_INVALID",
+                "error": str(exc),
+            }
+        return {
+            "valid": True,
+            "checksums_valid": True,
+            "parsed": parsed.to_dict(),
+        }
 
 
 class GrpcDocumentSignerClient(DocumentSignerClient):
@@ -155,112 +187,80 @@ class GrpcDocumentSignerClient(DocumentSignerClient):
         self.address = f"{host}:{port}"
 
     async def validate_signature(self, document_data: dict[str, Any]) -> dict[str, Any]:
-        """Validate document signature using document signer service"""
-        try:
-            from marty_plugin.proto.v1 import document_signer_pb2, document_signer_pb2_grpc
-
-            with grpc.insecure_channel(self.address):
-                # This would call appropriate document signer endpoints
-                # Implementation depends on available document signer methods
-                logger.info("Document signature validation via document-signer not yet implemented")
-                return {"signature_valid": True, "trusted": True}
-        except ImportError as e:
-            logger.warning("gRPC modules not available for document signer")
-            raise ServiceClientError(DOCUMENT_SIGNER, GRPC_UNAVAILABLE) from e
-        except grpc.RpcError as e:
-            logger.exception("Document signer gRPC error")
-            error_details = str(e)
-            raise ServiceClientError(DOCUMENT_SIGNER, error_details) from e
+        """Reject the legacy unstructured signature request contract."""
+        del document_data
+        raise ServiceClientError(
+            DOCUMENT_SIGNER,
+            "structured native signature verification is required",
+        )
 
 
 class MockPassportEngineClient(PassportEngineClient):
-    """Mock passport engine client for testing/fallback"""
+    """Retired compatibility class that cannot produce verification results."""
 
     async def process_passport(self, passport_number: str) -> dict[str, Any]:
-        """Mock passport processing"""
-        logger.info("Using mock passport engine for passport %s", passport_number)
-        return {"status": "SUCCESS", "passport_number": passport_number, "success": True}
+        del passport_number
+        raise ServiceClientError(PASSPORT_ENGINE, "mock backend is disabled")
 
     async def extract_mrz(self, _image_data: bytes) -> dict[str, Any] | None:
-        """Mock MRZ extraction"""
-        logger.info("Using mock MRZ extraction")
-        return {
-            "document_type": "P",
-            "issuing_country": "USA",
-            "document_number": "123456789",
-            "surname": "DOE",
-            "given_names": "JOHN",
-            "nationality": "USA",
-            "date_of_birth": "850403",
-            "gender": "M",
-            "date_of_expiry": "350402",
-        }
+        raise ServiceClientError(PASSPORT_ENGINE, "mock backend is disabled")
 
 
 class MockInspectionSystemClient(InspectionSystemClient):
-    """Mock inspection system client for testing/fallback"""
+    """Retired compatibility class that always fails closed."""
 
     async def inspect_document(self, document_id: str) -> dict[str, Any]:
-        """Mock document inspection"""
-        logger.info("Using mock inspection system for document %s", document_id)
-        return {
-            "result": f"VALID: Document {document_id} (mock validation)",
-            "valid": True,
-            "document_id": document_id,
-        }
+        del document_id
+        raise ServiceClientError(INSPECTION_SYSTEM, "mock backend is disabled")
 
     async def validate_mrz(self, _mrz_data: dict[str, Any]) -> dict[str, Any]:
-        """Mock MRZ validation"""
-        return {"valid": True, "checksums_valid": True}
+        del _mrz_data
+        raise ServiceClientError(INSPECTION_SYSTEM, "mock backend is disabled")
 
 
 class MockDocumentSignerClient(DocumentSignerClient):
-    """Mock document signer client for testing/fallback"""
+    """Retired compatibility class that always fails closed."""
 
-    async def validate_signature(self, _document_data: dict[str, Any]) -> dict[str, Any]:
-        """Mock signature validation"""
-        return {"signature_valid": True, "trusted": True}
+    async def validate_signature(
+        self, _document_data: dict[str, Any]
+    ) -> dict[str, Any]:
+        del _document_data
+        raise ServiceClientError(DOCUMENT_SIGNER, "mock backend is disabled")
 
 
 class ServiceClientFactory:
-    """Factory for creating service clients with fallback to mocks"""
+    """Factory that never substitutes successful mock verification."""
 
     def __init__(self) -> None:
         self.use_real_services = (
-            settings.USE_REAL_SERVICES if hasattr(settings, "USE_REAL_SERVICES") else False
+            settings.USE_REAL_SERVICES
+            if hasattr(settings, "USE_REAL_SERVICES")
+            else False
         )
 
     def create_passport_engine_client(self) -> PassportEngineClient:
         """Create passport engine client"""
         if self.use_real_services:
-            try:
-                return GrpcPassportEngineClient(
-                    host=settings.PASSPORT_ENGINE_HOST, port=settings.PASSPORT_ENGINE_PORT
-                )
-            except (ImportError, grpc.RpcError) as e:
-                logger.warning("Failed to create real passport engine client, using mock: %s", e)
+            return GrpcPassportEngineClient(
+                host=settings.PASSPORT_ENGINE_HOST, port=settings.PASSPORT_ENGINE_PORT
+            )
         return MockPassportEngineClient()
 
     def create_inspection_system_client(self) -> InspectionSystemClient:
         """Create inspection system client"""
         if self.use_real_services:
-            try:
-                return GrpcInspectionSystemClient(
-                    host=settings.INSPECTION_SYSTEM_HOST, port=settings.INSPECTION_SYSTEM_PORT
-                )
-            except (ImportError, grpc.RpcError) as e:
-                logger.warning("Failed to create real inspection system client, using mock: %s", e)
+            return GrpcInspectionSystemClient(
+                host=settings.INSPECTION_SYSTEM_HOST,
+                port=settings.INSPECTION_SYSTEM_PORT,
+            )
         return MockInspectionSystemClient()
 
     def create_document_signer_client(self) -> DocumentSignerClient:
         """Create document signer client"""
         if self.use_real_services:
-            try:
-                return GrpcDocumentSignerClient(
-                    host=settings.DOCUMENT_SIGNER_HOST, port=settings.DOCUMENT_SIGNER_PORT
-                )
-            except (ImportError, grpc.RpcError) as e:
-                logger.warning("Failed to create real document signer client, using mock: %s", e)
+            return GrpcDocumentSignerClient(
+                host=settings.DOCUMENT_SIGNER_HOST, port=settings.DOCUMENT_SIGNER_PORT
+            )
         return MockDocumentSignerClient()
 
 

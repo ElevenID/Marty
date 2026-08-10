@@ -1,15 +1,7 @@
-import importlib.util
-import pathlib
-
 import pytest
 
-# Dynamically load crypto.py (avoids triggering package __init__ side effects)
-_crypto_file = pathlib.Path(__file__).resolve().parent.parent / "src" / "marty_common" / "crypto.py"
-spec = importlib.util.spec_from_file_location("marty_secure_crypto", _crypto_file)
-assert spec is not None
-assert spec.loader is not None
-crypto_module = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(crypto_module)  # type: ignore[attr-defined]
+from marty_common import crypto as crypto_module
+from marty_common.native_backends import NativeOperationError
 
 
 @pytest.mark.parametrize(
@@ -30,14 +22,10 @@ def test_generate_and_sign_verify(algorithm, key_size):
 
 
 def test_password_hash_roundtrip():
-    # This test now correctly handles the case where bcrypt is required
-    try:
-        h = crypto_module.hash_password("secret123")
-        assert crypto_module.verify_password("secret123", h)
-        assert not crypto_module.verify_password("wrong", h)
-    except RuntimeError:
-        # If bcrypt is not available, this is expected behavior for security
-        pytest.skip("bcrypt not available - this is expected for security")
+    encoded = crypto_module.hash_password("secret123")
+    assert encoded.startswith("pbkdf2-sha256$")
+    assert crypto_module.verify_password("secret123", encoded)
+    assert not crypto_module.verify_password("wrong", encoded)
 
 
 def test_secure_random_generation():
@@ -86,14 +74,9 @@ def test_signature_verification_security():
     data = b"test data"
     fake_signature = b"fake_signature"
 
-    # This should now raise ValueError instead of doing insecure comparison
-    with pytest.raises(ValueError, match="Failed to load public key"):
+    with pytest.raises(NativeOperationError, match="verification failed"):
         crypto_module.verify_signature(data, fake_signature, raw_key, "RS256")
 
 
-def test_password_hashing_security():
-    # Test that bcrypt dependency is properly enforced
-    # This verifies that we require bcrypt instead of using insecure fallback
-    with pytest.raises(RuntimeError, match="bcrypt is required"):
-        # If bcrypt is not available, this should raise RuntimeError
-        crypto_module.hash_password("test")
+def test_password_hashing_rejects_legacy_digest_format():
+    assert not crypto_module.verify_password("test", "legacy-sha256")

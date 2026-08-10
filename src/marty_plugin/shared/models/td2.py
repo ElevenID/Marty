@@ -72,17 +72,17 @@ class ChipData:
     """Minimal chip profile data for TD-2 documents."""
 
     # Data Groups
-    dg1_mrz: str | None = Field(None, description="DG1: MRZ data")
-    dg2_portrait: bytes | None = Field(None, description="DG2: Portrait image")
+    dg1_mrz: str | None = None
+    dg2_portrait: bytes | None = None
 
     # Security Object Document (SOD)
-    sod_signature: bytes | None = Field(None, description="SOD digital signature")
-    sod_hash_algorithm: str | None = Field("SHA-256", description="Hash algorithm used")
-    sod_cert_issuer: str | None = Field(None, description="Certificate issuer")
-    sod_cert_serial: str | None = Field(None, description="Certificate serial number")
+    sod_signature: bytes | None = None
+    sod_hash_algorithm: str | None = "SHA-256"
+    sod_cert_issuer: str | None = None
+    sod_cert_serial: str | None = None
 
     # Data Group hashes for integrity verification
-    dg_hashes: dict[str, str] | None = Field(None, description="Data group hash values")
+    dg_hashes: dict[str, str] | None = None
 
 
 class PersonalData(BaseModel):
@@ -248,7 +248,19 @@ class VerificationResult(BaseModel):
 
     # Error tracking
     errors: list[str] = Field(default_factory=list, description="List of validation errors")
+    error_codes: list[str] = Field(
+        default_factory=list, description="Stable native verification error codes"
+    )
     warnings: list[str] = Field(default_factory=list, description="List of validation warnings")
+    component_statuses: dict[str, str] = Field(
+        default_factory=dict, description="Native component verification statuses"
+    )
+    trust_anchor_subject: str | None = Field(
+        None, description="Subject of the CSCA trust anchor used for chip verification"
+    )
+    certificate_chain: list[str] = Field(
+        default_factory=list, description="Ordered DSC-to-CSCA certificate subjects"
+    )
 
     # Hash verification (for chip documents)
     dg_hash_results: dict[str, bool] | None = Field(

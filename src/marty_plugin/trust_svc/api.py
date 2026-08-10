@@ -6,7 +6,6 @@ FastAPI application providing trust status queries, snapshots, and administrativ
 
 from __future__ import annotations
 
-import hashlib
 import logging
 from datetime import datetime, timezone
 from typing import Any, Optional
@@ -15,6 +14,8 @@ import uvicorn
 from fastapi import Depends, FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+
+from marty_plugin.native_backends import NativeOperationError, require_backend
 
 from .config import TrustServiceConfig, config
 from .database import DatabaseManager
@@ -41,11 +42,84 @@ revocation_processor: RevocationProcessor | None = None
 app_start_time = datetime.now(timezone.utc)
 
 
+def _native_datetime(value: str) -> datetime:
+    return datetime.fromisoformat(value.replace("Z", "+00:00"))
+
+
+def _certificate_der(native: Any, value: bytes) -> bytes:
+    if value.lstrip().startswith(b"-----BEGIN"):
+        return bytes(native.certificate_pem_to_der(value.decode("ascii")))
+    return bytes(value)
+
+
+async def process_master_list_upload(
+    request: MasterListUploadRequest,
+    db: DatabaseManager,
+) -> MasterListUploadResponse:
+    """Parse, authenticate, and persist a CMS Master List using Rust."""
+    native = require_backend("marty_verification")
+    master_list = native.parse_master_list(request.master_list_data)
+    certificates = list(master_list.get("certificates", []))
+    if not certificates:
+        raise NativeOperationError("Master List contains no CSCA certificates")
+
+    pinned_signers = await db.get_trust_anchors(active_only=True)
+    signature_valid = False
+    for signer in pinned_signers:
+        signer_data = signer.get("certificate_data")
+        if not signer_data:
+            continue
+        signer_der = _certificate_der(native, signer_data)
+        if native.verify_master_list_signature(request.master_list_data, signer_der):
+            signature_valid = True
+            break
+    if not signature_valid:
+        raise NativeOperationError(
+            "Master List signature did not validate against a pinned trust anchor"
+        )
+
+    added = 0
+    for certificate in certificates:
+        der = bytes(certificate["der_bytes"])
+        info = native.get_certificate_info(der)
+        country = (certificate.get("country") or request.country_code).upper()
+        await db.add_trust_anchor(
+            {
+                "country_code": country,
+                "certificate_hash": info["fingerprint_sha256"],
+                "certificate_data": der,
+                "subject_dn": certificate["subject"],
+                "issuer_dn": certificate["issuer"],
+                "serial_number": certificate["serial_number"],
+                "valid_from": _native_datetime(certificate["not_before"]),
+                "valid_to": _native_datetime(certificate["not_after"]),
+                "key_usage": info.get("key_usage", []),
+                "signature_algorithm": None,
+                "public_key_algorithm": native.detect_public_key_type(
+                    native.get_certificate_public_key(der)
+                ),
+                "trust_level": "standard",
+                "status": "active",
+            }
+        )
+        added += 1
+
+    return MasterListUploadResponse(
+        success=True,
+        message=f"Verified Master List for {request.country_code.upper()}",
+        certificates_processed=len(certificates),
+        trust_anchors_added=added,
+        dscs_added=0,
+        errors=[],
+    )
+
+
 def get_db_manager() -> DatabaseManager:
     """Dependency to get database manager."""
     if not db_manager:
         raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Database not initialized"
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Database not initialized",
         )
     return db_manager
 
@@ -133,10 +207,14 @@ def create_app(config_obj: TrustServiceConfig = config) -> FastAPI:
         """Get comprehensive trust status for a certificate."""
         try:
             # Get certificate from database
-            dscs = await db.get_dsc_certificates(certificate_hash=request.certificate_hash)
+            dscs = await db.get_dsc_certificates(
+                certificate_hash=request.certificate_hash
+            )
 
             if not dscs:
-                return TrustStatusResponse(certificate_hash=request.certificate_hash, found=False)
+                return TrustStatusResponse(
+                    certificate_hash=request.certificate_hash, found=False
+                )
 
             dsc = dscs[0]
 
@@ -146,7 +224,9 @@ def create_app(config_obj: TrustServiceConfig = config) -> FastAPI:
             trust_anchor = None
 
             if request.include_chain:
-                chain_result = await db.validate_certificate_chain(request.certificate_hash)
+                chain_result = await db.validate_certificate_chain(
+                    request.certificate_hash
+                )
                 chain_valid = chain_result["valid"]
                 if chain_result["trust_anchor_id"]:
                     trust_anchor = chain_result["trust_anchor_id"]
@@ -155,8 +235,10 @@ def create_app(config_obj: TrustServiceConfig = config) -> FastAPI:
             # Check current revocation status
             if dsc["revocation_status"] == RevocationStatus.UNKNOWN.value:
                 # Trigger revocation check
-                revocation_result = await revocation.check_certificate_revocation_status(
-                    request.certificate_hash
+                revocation_result = (
+                    await revocation.check_certificate_revocation_status(
+                        request.certificate_hash
+                    )
                 )
                 if revocation_result["found"]:
                     dsc["revocation_status"] = revocation_result["current_status"]
@@ -185,8 +267,12 @@ def create_app(config_obj: TrustServiceConfig = config) -> FastAPI:
                 detail="Trust status check failed",
             )
 
-    @app.get("/api/v1/trust/anchors/{country_code}", response_model=TrustAnchorListResponse)
-    async def get_trust_anchors(country_code: str, db: DatabaseManager = Depends(get_db_manager)):
+    @app.get(
+        "/api/v1/trust/anchors/{country_code}", response_model=TrustAnchorListResponse
+    )
+    async def get_trust_anchors(
+        country_code: str, db: DatabaseManager = Depends(get_db_manager)
+    ):
         """Get trust anchors for a specific country."""
         try:
             trust_anchors_data = await db.get_trust_anchors(
@@ -199,7 +285,9 @@ def create_app(config_obj: TrustServiceConfig = config) -> FastAPI:
             trust_anchors = [TrustAnchor(**ta) for ta in trust_anchors_data]
 
             total_count = len(trust_anchors)
-            valid_count = sum(1 for ta in trust_anchors if ta.valid_to > datetime.now(timezone.utc))
+            valid_count = sum(
+                1 for ta in trust_anchors if ta.valid_to > datetime.now(timezone.utc)
+            )
             expired_count = total_count - valid_count
 
             return TrustAnchorListResponse(
@@ -247,8 +335,8 @@ def create_app(config_obj: TrustServiceConfig = config) -> FastAPI:
             # Calculate status counts
             status_counts = {}
             for cert in certificates:
-                status = cert.revocation_status.value
-                status_counts[status] = status_counts.get(status, 0) + 1
+                cert_status = cert.revocation_status.value
+                status_counts[cert_status] = status_counts.get(cert_status, 0) + 1
 
             return DSCListResponse(
                 country_code=country_code.upper(),
@@ -274,7 +362,8 @@ def create_app(config_obj: TrustServiceConfig = config) -> FastAPI:
 
             if not snapshot_data:
                 raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND, detail="No trust snapshots available"
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="No trust snapshots available",
                 )
 
             from .models import TrustSnapshot
@@ -282,13 +371,23 @@ def create_app(config_obj: TrustServiceConfig = config) -> FastAPI:
             snapshot = TrustSnapshot(**snapshot_data)
 
             # Calculate age
-            age_seconds = int((datetime.now(timezone.utc) - snapshot.snapshot_time).total_seconds())
+            age_seconds = int(
+                (datetime.now(timezone.utc) - snapshot.snapshot_time).total_seconds()
+            )
 
-            # TODO: Verify signature
-            signature_valid = snapshot.signature is not None
+            # Snapshot verification is deliberately unavailable until the
+            # signer key identifier and public verification key are persisted.
+            signature_valid = False
+            if config_obj.service.snapshot_signature_required:
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail="Trust snapshot signature verification is not configured",
+                )
 
             return SnapshotResponse(
-                snapshot=snapshot, signature_valid=signature_valid, age_seconds=age_seconds
+                snapshot=snapshot,
+                signature_valid=signature_valid,
+                age_seconds=age_seconds,
             )
 
         except HTTPException:
@@ -296,27 +395,20 @@ def create_app(config_obj: TrustServiceConfig = config) -> FastAPI:
         except Exception as e:
             logger.error(f"Snapshot query failed: {e}")
             raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Snapshot query failed"
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Snapshot query failed",
             )
 
     # Administrative endpoints
-    @app.post("/api/v1/admin/masterlist/upload", response_model=MasterListUploadResponse)
+    @app.post(
+        "/api/v1/admin/masterlist/upload", response_model=MasterListUploadResponse
+    )
     async def upload_master_list(
         request: MasterListUploadRequest, db: DatabaseManager = Depends(get_db_manager)
     ):
         """Upload and process a master list."""
         try:
-            # TODO: Implement master list parsing using existing PKD service logic
-            # For now, return a mock response
-
-            return MasterListUploadResponse(
-                success=True,
-                message=f"Master list uploaded for {request.country_code}",
-                certificates_processed=0,
-                trust_anchors_added=0,
-                dscs_added=0,
-                errors=[],
-            )
+            return await process_master_list_upload(request, db)
 
         except Exception as e:
             logger.error(f"Master list upload failed: {e}")
@@ -359,41 +451,20 @@ def create_app(config_obj: TrustServiceConfig = config) -> FastAPI:
     @app.post("/api/v1/admin/snapshot/create")
     async def create_trust_snapshot(db: DatabaseManager = Depends(get_db_manager)):
         """Create a new trust snapshot."""
-        try:
-            # Generate snapshot hash
-            timestamp = datetime.now(timezone.utc)
-            snapshot_content = f"TRUST_SNAPSHOT_{timestamp.isoformat()}"
-            snapshot_hash = hashlib.sha256(snapshot_content.encode()).hexdigest()
-
-            # TODO: Generate KMS signature
-            signature = f"MOCK_KMS_SIGNATURE_{int(timestamp.timestamp())}"
-
-            # Create snapshot
-            snapshot_id = await db.create_trust_snapshot(
-                snapshot_hash=snapshot_hash,
-                signature=signature,
-                metadata={"created_by": "api_request", "timestamp": timestamp.isoformat()},
-            )
-
-            return {
-                "success": True,
-                "snapshot_id": snapshot_id,
-                "snapshot_hash": snapshot_hash,
-                "created_at": timestamp.isoformat(),
-            }
-
-        except Exception as e:
-            logger.error(f"Snapshot creation failed: {e}")
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Snapshot creation failed"
-            )
+        del db
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Trust snapshot signing is unavailable until a KMS signer is configured",
+        )
 
     @app.get("/api/v1/admin/status", response_model=ServiceStatusResponse)
     async def get_service_status(db: DatabaseManager = Depends(get_db_manager)):
         """Get comprehensive service status."""
         try:
             # Get uptime
-            uptime_seconds = int((datetime.now(timezone.utc) - app_start_time).total_seconds())
+            uptime_seconds = int(
+                (datetime.now(timezone.utc) - app_start_time).total_seconds()
+            )
 
             # Check subsystems
             db_connected = await db.health_check()
@@ -403,7 +474,9 @@ def create_app(config_obj: TrustServiceConfig = config) -> FastAPI:
             last_snapshot_age = None
             if latest_snapshot:
                 last_snapshot_age = int(
-                    (datetime.now(timezone.utc) - latest_snapshot["snapshot_time"]).total_seconds()
+                    (
+                        datetime.now(timezone.utc) - latest_snapshot["snapshot_time"]
+                    ).total_seconds()
                 )
 
             # Get certificate counts
@@ -416,9 +489,15 @@ def create_app(config_obj: TrustServiceConfig = config) -> FastAPI:
                 "active_trust_anchors": len(
                     [ta for ta in trust_anchors if ta["status"] == "active"]
                 ),
-                "good_dscs": len([dsc for dsc in dscs if dsc["revocation_status"] == "good"]),
-                "bad_dscs": len([dsc for dsc in dscs if dsc["revocation_status"] == "bad"]),
-                "unknown_dscs": len([dsc for dsc in dscs if dsc["revocation_status"] == "unknown"]),
+                "good_dscs": len(
+                    [dsc for dsc in dscs if dsc["revocation_status"] == "good"]
+                ),
+                "bad_dscs": len(
+                    [dsc for dsc in dscs if dsc["revocation_status"] == "bad"]
+                ),
+                "unknown_dscs": len(
+                    [dsc for dsc in dscs if dsc["revocation_status"] == "unknown"]
+                ),
             }
 
             # TODO: Get recent job executions
@@ -439,7 +518,8 @@ def create_app(config_obj: TrustServiceConfig = config) -> FastAPI:
         except Exception as e:
             logger.error(f"Status check failed: {e}")
             raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Status check failed"
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Status check failed",
             )
 
     return app

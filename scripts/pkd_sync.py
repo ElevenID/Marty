@@ -20,26 +20,24 @@ import asyncio
 import hashlib
 import json
 import logging
-import os
+import re
 import sys
 import tempfile
 import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 from urllib.parse import urljoin, urlparse
 
 import click
 import httpx
-from cryptography import x509
-from cryptography.hazmat.primitives import serialization
 
 # Add src to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from marty_common.config import load_config
-from marty_common.database import get_database_manager
-from marty_common.infrastructure import ObjectStorageClient, build_key_vault_client
+
+from marty_plugin.native_backends import require_backend
 
 logger = logging.getLogger(__name__)
 
@@ -147,8 +145,10 @@ class PKDCache:
 class CertificateParser:
     """Parses certificates from various formats."""
 
-    @staticmethod
-    def parse_pem_certificates(pem_data: bytes) -> list[x509.Certificate]:
+    def __init__(self) -> None:
+        self.native = require_backend("marty_verification")
+
+    def parse_pem_certificates(self, pem_data: bytes) -> list[bytes]:
         """Parse PEM certificate data."""
         certificates = []
         pem_text = pem_data.decode("utf-8", errors="ignore")
@@ -174,79 +174,52 @@ class CertificateParser:
         # Parse each certificate block
         for cert_block in cert_blocks:
             try:
-                cert = x509.load_pem_x509_certificate(cert_block.encode())
-                certificates.append(cert)
+                certificates.append(bytes(self.native.certificate_pem_to_der(cert_block)))
             except Exception as e:
                 logger.warning("Failed to parse certificate: %s", e)
 
         return certificates
 
-    @staticmethod
-    def parse_der_certificate(der_data: bytes) -> x509.Certificate | None:
+    def parse_der_certificate(self, der_data: bytes) -> bytes | None:
         """Parse DER certificate data."""
         try:
-            return x509.load_der_x509_certificate(der_data)
+            return bytes(self.native.load_certificate_der(der_data))
         except Exception as e:
             logger.warning("Failed to parse DER certificate: %s", e)
             return None
 
-    @staticmethod
-    def extract_certificate_info(cert: x509.Certificate) -> dict[str, Any]:
+    def extract_certificate_info(self, cert_der: bytes) -> dict[str, Any]:
         """Extract relevant information from a certificate."""
         try:
-            # Basic certificate info - use UTC-aware attributes
+            native_info = self.native.get_certificate_info(cert_der)
+            serial_hex = str(native_info["serial_number"])
             info = {
-                "subject": cert.subject.rfc4514_string(),
-                "issuer": cert.issuer.rfc4514_string(),
-                "serial_number": str(cert.serial_number),
-                "not_before": cert.not_valid_before_utc.isoformat().replace("+00:00", "Z"),
-                "not_after": cert.not_valid_after_utc.isoformat().replace("+00:00", "Z"),
-                "signature_algorithm": cert.signature_algorithm_oid._name,
+                "subject": str(native_info["subject"]),
+                "issuer": str(native_info["issuer"]),
+                "serial_number": str(int(serial_hex, 16)),
+                "not_before": str(native_info["not_before"]),
+                "not_after": str(native_info["not_after"]),
+                "signature_algorithm": str(native_info["signature_algorithm"]),
+                "sha256_fingerprint": str(native_info["fingerprint_sha256"]),
+                "sha1_fingerprint": str(native_info["fingerprint_sha1"]),
             }
 
-            # Subject Key Identifier
-            try:
-                ski_ext = cert.extensions.get_extension_for_oid(
-                    x509.oid.ExtensionOID.SUBJECT_KEY_IDENTIFIER
-                )
-                info["subject_key_identifier"] = ski_ext.value.digest.hex()
-            except x509.ExtensionNotFound:
-                pass
+            for field in ("subject_key_identifier", "authority_key_identifier"):
+                value = native_info.get(field)
+                if value:
+                    info[field] = str(value)
 
-            # Authority Key Identifier
-            try:
-                aki_ext = cert.extensions.get_extension_for_oid(
-                    x509.oid.ExtensionOID.AUTHORITY_KEY_IDENTIFIER
-                )
-                if aki_ext.value.key_identifier:
-                    info["authority_key_identifier"] = aki_ext.value.key_identifier.hex()
-            except x509.ExtensionNotFound:
-                pass
-
-            # Key Usage
-            try:
-                ku_ext = cert.extensions.get_extension_for_oid(x509.oid.ExtensionOID.KEY_USAGE)
+            key_usage = set(native_info.get("key_usage") or [])
+            if key_usage:
                 info["key_usage"] = {
-                    "digital_signature": ku_ext.value.digital_signature,
-                    "key_cert_sign": ku_ext.value.key_cert_sign,
-                    "crl_sign": ku_ext.value.crl_sign,
+                    "digital_signature": "digitalSignature" in key_usage,
+                    "key_cert_sign": "keyCertSign" in key_usage,
+                    "crl_sign": "cRLSign" in key_usage,
                 }
-            except x509.ExtensionNotFound:
-                pass
 
-            # Country from subject
-            try:
-                for attribute in cert.subject:
-                    if attribute.oid == x509.NameOID.COUNTRY_NAME:
-                        info["country"] = attribute.value
-                        break
-            except Exception:
-                pass
-
-            # Calculate certificate hash
-            cert_der = cert.public_bytes(serialization.Encoding.DER)
-            info["sha256_fingerprint"] = hashlib.sha256(cert_der).hexdigest()
-            info["sha1_fingerprint"] = hashlib.sha1(cert_der).hexdigest()
+            country = re.search(r"(?:^|,)\s*C=([^,]+)", info["subject"])
+            if country:
+                info["country"] = country.group(1).strip()
 
             return info
 
@@ -457,9 +430,9 @@ class PKDSync:
         try:
             # Try PEM format first
             if b"-----BEGIN CERTIFICATE-----" in content:
-                x509_certs = self.parser.parse_pem_certificates(content)
-                for cert in x509_certs:
-                    cert_info = self.parser.extract_certificate_info(cert)
+                certificate_der_values = self.parser.parse_pem_certificates(content)
+                for certificate_der in certificate_der_values:
+                    cert_info = self.parser.extract_certificate_info(certificate_der)
                     if cert_info:
                         certificates.append(cert_info)
 
@@ -473,10 +446,10 @@ class PKDSync:
 
             # Try to parse as text list (some PKD sources provide lists)
             elif filename.lower().endswith(".txt"):
-                # This could be a list of certificate URLs or base64 data
-                # Implementation depends on specific source format
-                pass
+                raise PKDSyncError("Text certificate lists are not a supported PKD input format")
 
+        except PKDSyncError:
+            raise
         except Exception as e:
             logger.warning("Failed to parse %s: %s", filename, e)
 
@@ -486,16 +459,10 @@ class PKDSync:
         """Store certificates in database and object storage."""
         if not certificates:
             return
-
-        try:
-            # TODO: Implement database storage
-            # This would integrate with the PKD service database
-            logger.info("Storing %d certificates (storage not implemented)", len(certificates))
-            self.stats["certificates_stored"] += len(certificates)
-
-        except Exception as e:
-            self.stats["errors"] += 1
-            logger.exception("Failed to store certificates: %s", e)
+        self.stats["errors"] += 1
+        raise PKDSyncError(
+            "PKD synchronization storage is not configured; refusing to report certificates as stored"
+        )
 
     async def sync_source(self, source_name: str, token: str) -> None:
         """Synchronize data from a single PKD source."""
@@ -620,7 +587,6 @@ def main(config: str | None, source: tuple[str, ...], dry_run: bool, verbose: bo
             # Run synchronization
             if dry_run:
                 # Override store method for dry run
-                original_store = pkd_sync.store_certificates
                 pkd_sync.store_certificates = lambda certs: asyncio.sleep(0)
 
             await pkd_sync.sync_all(tokens)

@@ -14,12 +14,13 @@ from app.core.config import settings
 from app.db.database import DatabaseManager
 from app.models.pkd_models import (
     Certificate,
-    CertificateStatus,
     DSCListResponse,
     DSCListUploadResponse,
     UploadStatus,
 )
 from app.utils.asn1_utils import ASN1Decoder, ASN1Encoder
+
+from marty_plugin.native_backends import NativeOperationError, require_backend
 
 logger = logging.getLogger(__name__)
 
@@ -27,9 +28,14 @@ logger = logging.getLogger(__name__)
 class DSCListService:
     """Service for managing DSC Lists"""
 
-    def __init__(self, db_connection: aiosqlite.Connection | None = None) -> None:
+    def __init__(
+        self,
+        db_connection: aiosqlite.Connection | None = None,
+        signer_certificate_der: bytes | None = None,
+    ) -> None:
         """Initialize with optional database connection"""
         self.db_connection = db_connection
+        self.signer_certificate_der = signer_certificate_der
 
     async def get_dsc_list(self, country: str | None = None) -> DSCListResponse:
         """
@@ -39,10 +45,7 @@ class DSCListService:
         certificates = []
         cert_dicts = await DatabaseManager.get_certificates("DSC", country)
 
-        if not cert_dicts:
-            # Fallback to mock data if database is empty
-            certificates = await self._get_dsc_certificates(country)
-        else:
+        if cert_dicts:
             # Convert dictionaries to Certificate objects
             for cert_dict in cert_dicts:
                 certificates.append(
@@ -88,6 +91,15 @@ class DSCListService:
         Process and store an uploaded DSC list.
         """
         try:
+            if self.signer_certificate_der is None:
+                raise NativeOperationError(
+                    "DSC List signer certificate is not configured"
+                )
+            native = require_backend("marty_verification")
+            if not native.verify_master_list_signature(
+                dsc_list_data, self.signer_certificate_der
+            ):
+                raise NativeOperationError("DSC List signature verification failed")
             # Parse the ASN.1 DSC list data
             certificates = ASN1Decoder.decode_dsc_list(dsc_list_data)
 
@@ -140,65 +152,3 @@ class DSCListService:
                 status=UploadStatus.ERROR,
                 certificate_count=0,
             )
-
-    async def _get_dsc_certificates(self, country: str | None = None) -> list[Certificate]:
-        """
-        Helper method to get DSC certificates.
-        This is a fallback when the database is empty.
-        """
-        # This is a simplified mock implementation with sample data
-        certificates = [
-            Certificate(
-                id=uuid.uuid4(),
-                subject="CN=DS-USA-001,O=Department of State,C=US",
-                issuer="CN=CSCA-USA,O=Department of State,C=US",
-                valid_from=datetime(2023, 1, 1),
-                valid_to=datetime(2025, 1, 1),
-                serial_number="DSC00001",
-                certificate_data=b"MOCK_DSC_DATA_USA_1",
-                status=CertificateStatus.ACTIVE,
-                country_code="USA",
-            ),
-            Certificate(
-                id=uuid.uuid4(),
-                subject="CN=DS-USA-002,O=Department of State,C=US",
-                issuer="CN=CSCA-USA,O=Department of State,C=US",
-                valid_from=datetime(2023, 6, 1),
-                valid_to=datetime(2025, 6, 1),
-                serial_number="DSC00002",
-                certificate_data=b"MOCK_DSC_DATA_USA_2",
-                status=CertificateStatus.ACTIVE,
-                country_code="USA",
-            ),
-            Certificate(
-                id=uuid.uuid4(),
-                subject="CN=DS-CAN-001,O=Passport Canada,C=CA",
-                issuer="CN=CSCA-CAN,O=Passport Canada,C=CA",
-                valid_from=datetime(2023, 3, 1),
-                valid_to=datetime(2025, 3, 1),
-                serial_number="DSC00003",
-                certificate_data=b"MOCK_DSC_DATA_CAN",
-                status=CertificateStatus.ACTIVE,
-                country_code="CAN",
-            ),
-            Certificate(
-                id=uuid.uuid4(),
-                subject="CN=DS-GBR-001,O=HM Passport Office,C=GB",
-                issuer="CN=CSCA-GBR,O=HM Passport Office,C=GB",
-                valid_from=datetime(2023, 2, 1),
-                valid_to=datetime(2025, 2, 1),
-                serial_number="DSC00004",
-                certificate_data=b"MOCK_DSC_DATA_GBR",
-                status=CertificateStatus.ACTIVE,
-                country_code="GBR",
-            ),
-        ]
-
-        # Generate mock certificate data for demo
-        for cert in certificates:
-            if cert.certificate_data.startswith(b"MOCK_DSC_DATA_"):
-                cert.certificate_data = ASN1Encoder._create_mock_certificate(cert)
-
-        if country:
-            return [cert for cert in certificates if cert.country_code == country]
-        return certificates

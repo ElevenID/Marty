@@ -14,12 +14,13 @@ from app.core.config import settings
 from app.db.database import DatabaseManager
 from app.models.pkd_models import (
     Certificate,
-    CertificateStatus,
     MasterListResponse,
     MasterListUploadResponse,
     UploadStatus,
 )
 from app.utils.asn1_utils import ASN1Decoder, ASN1Encoder
+
+from marty_plugin.native_backends import NativeOperationError, require_backend
 
 logger = logging.getLogger(__name__)
 
@@ -27,9 +28,14 @@ logger = logging.getLogger(__name__)
 class MasterListService:
     """Service for managing CSCA Master Lists"""
 
-    def __init__(self, db_connection: aiosqlite.Connection | None = None) -> None:
+    def __init__(
+        self,
+        db_connection: aiosqlite.Connection | None = None,
+        signer_certificate_der: bytes | None = None,
+    ) -> None:
         """Initialize with optional database connection"""
         self.db_connection = db_connection
+        self.signer_certificate_der = signer_certificate_der
 
     async def get_master_list(self, country: str | None = None) -> MasterListResponse:
         """
@@ -39,10 +45,7 @@ class MasterListService:
         certificates = []
         cert_dicts = await DatabaseManager.get_certificates("CSCA", country)
 
-        if not cert_dicts:
-            # Fallback to mock data if database is empty
-            certificates = await self._get_certificates(country)
-        else:
+        if cert_dicts:
             # Convert dictionaries to Certificate objects
             for cert_dict in cert_dicts:
                 certificates.append(
@@ -83,11 +86,22 @@ class MasterListService:
         # Encode as ASN.1 master list
         return ASN1Encoder.encode_master_list(certificates)
 
-    async def upload_master_list(self, master_list_data: bytes) -> MasterListUploadResponse:
+    async def upload_master_list(
+        self, master_list_data: bytes
+    ) -> MasterListUploadResponse:
         """
         Process and store an uploaded master list.
         """
         try:
+            if self.signer_certificate_der is None:
+                raise NativeOperationError(
+                    "Master List signer certificate is not configured"
+                )
+            native = require_backend("marty_verification")
+            if not native.verify_master_list_signature(
+                master_list_data, self.signer_certificate_der
+            ):
+                raise NativeOperationError("Master List signature verification failed")
             # Parse the ASN.1 master list data
             certificates = ASN1Decoder.decode_master_list(master_list_data)
 
@@ -140,58 +154,3 @@ class MasterListService:
                 status=UploadStatus.ERROR,
                 certificate_count=0,
             )
-
-    async def _get_certificates(self, country: str | None = None) -> list[Certificate]:
-        """
-        Helper method to get certificates for the master list.
-        This is a fallback when the database is empty.
-        """
-        # This is a simplified mock implementation with sample data
-        certificates = [
-            Certificate(
-                id=uuid.uuid4(),
-                subject="CN=CSCA-USA,O=Department of State,C=US",
-                issuer="CN=CSCA-USA,O=Department of State,C=US",
-                valid_from=datetime(2020, 1, 1),
-                valid_to=datetime(2030, 1, 1),
-                serial_number="01234567",
-                certificate_data=b"MOCK_CERTIFICATE_DATA_USA",
-                status=CertificateStatus.ACTIVE,
-                country_code="USA",
-            ),
-            Certificate(
-                id=uuid.uuid4(),
-                subject="CN=CSCA-CAN,O=Passport Canada,C=CA",
-                issuer="CN=CSCA-CAN,O=Passport Canada,C=CA",
-                valid_from=datetime(2020, 1, 1),
-                valid_to=datetime(2030, 1, 1),
-                serial_number="89012345",
-                certificate_data=b"MOCK_CERTIFICATE_DATA_CAN",
-                status=CertificateStatus.ACTIVE,
-                country_code="CAN",
-            ),
-            Certificate(
-                id=uuid.uuid4(),
-                subject="CN=CSCA-GBR,O=HM Passport Office,C=GB",
-                issuer="CN=CSCA-GBR,O=HM Passport Office,C=GB",
-                valid_from=datetime(2020, 1, 1),
-                valid_to=datetime(2030, 1, 1),
-                serial_number="67890123",
-                certificate_data=b"MOCK_CERTIFICATE_DATA_GBR",
-                status=CertificateStatus.ACTIVE,
-                country_code="GBR",
-            ),
-        ]
-
-        # Generate mock certificate data for demo
-        for cert in certificates:
-            if cert.certificate_data in (
-                b"MOCK_CERTIFICATE_DATA_USA",
-                b"MOCK_CERTIFICATE_DATA_CAN",
-                b"MOCK_CERTIFICATE_DATA_GBR",
-            ):
-                cert.certificate_data = ASN1Encoder._create_mock_certificate(cert)
-
-        if country:
-            return [cert for cert in certificates if cert.country_code == country]
-        return certificates

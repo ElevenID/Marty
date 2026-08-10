@@ -14,13 +14,13 @@ from pathlib import Path
 from typing import Any
 
 from digital_identity.application.ports.trust_profile import (
-    TrustProfilePort,
-    TrustAnchor,
     ChainValidationResult,
-    RevocationCheckResult,
     RefreshResult,
-    ValidationStatus,
+    RevocationCheckResult,
     RevocationStatus,
+    TrustAnchor,
+    TrustProfilePort,
+    ValidationStatus,
 )
 from marty_plugin.native_backends import require_backend
 
@@ -142,16 +142,13 @@ class AamvaTrustProfile:
             )
 
         try:
-            from marty_verification import (  # type: ignore
-                ChainValidator,
-                certificate_der_to_pem,
-            )
+            native = require_backend("marty_verification")
 
             if certificate_der and not certificate_pem:
-                certificate_pem = certificate_der_to_pem(certificate_der)
+                certificate_pem = native.certificate_der_to_pem(certificate_der)
 
             # Build a ChainValidator loaded with IACA anchors
-            validator = ChainValidator()
+            validator = native.ChainValidator()
             for pem in self._rust_registry.get_anchors_pem():
                 validator.add_trust_anchor(pem)
 
@@ -167,7 +164,9 @@ class AamvaTrustProfile:
             else:
                 return ChainValidationResult(
                     status=ValidationStatus.INVALID,
-                    errors=list(result.errors) if result.errors else ["Chain validation failed"],
+                    errors=list(result.errors)
+                    if result.errors
+                    else ["Chain validation failed"],
                 )
 
         except Exception as e:
@@ -190,21 +189,19 @@ class AamvaTrustProfile:
             )
 
         try:
-            from marty_verification import (  # type: ignore
-                certificate_pem_to_der,
-                get_certificate_info,
-                get_ocsp_responder_url,
-            )
+            native = require_backend("marty_verification")
 
             if certificate_pem and not certificate_der:
-                certificate_der = bytes(certificate_pem_to_der(certificate_pem))
+                certificate_der = bytes(native.certificate_pem_to_der(certificate_pem))
+            if certificate_der is None:
+                raise ValueError("No certificate provided")
 
-            info = get_certificate_info(certificate_der)
-
-            # Check if OCSP responder URL is embedded
-            ocsp_url = get_ocsp_responder_url(certificate_der)
+            ocsp_url = native.get_ocsp_responder_url(certificate_der)
+            crl_urls = list(native.get_crl_distribution_points(certificate_der))
             if ocsp_url:
                 logger.debug("OCSP responder found: %s (not yet fetched)", ocsp_url)
+            if crl_urls:
+                logger.debug("CRL distribution points found: %s", crl_urls)
 
             # CRL-based revocation requires fetching from distribution points,
             # which are jurisdiction-specific.  Return UNKNOWN until CRL/OCSP
@@ -235,8 +232,9 @@ class AamvaTrustProfile:
         anchors_after = len(self._rust_registry)
 
         return RefreshResult(
-            success=True,
+            success=False,
             anchors_added=max(0, anchors_after - anchors_before),
+            errors=["AAMVA DTS/VICAL refresh provider is not configured"],
         )
 
     async def is_issuer_trusted(self, issuer_id: str) -> bool:

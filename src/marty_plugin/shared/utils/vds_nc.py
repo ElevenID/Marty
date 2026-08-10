@@ -35,22 +35,22 @@ except ImportError:
 
 # Use crypto_bridge for Rust-backed cryptographic operations
 from marty_common.crypto_bridge import (
-    sha256,
     ecdsa_p256_sign,
     ecdsa_p256_verify,
     ecdsa_p384_sign,
     ecdsa_p384_verify,
     ecdsa_p521_sign,
     ecdsa_p521_verify,
+    load_private_key_pem,
+    load_public_key_pem,
+    pkcs8_to_raw_private_key,
     rsa_pss_sha256_sign,
     rsa_pss_sha256_verify,
     rsa_pss_sha384_sign,
     rsa_pss_sha384_verify,
     rsa_pss_sha512_sign,
     rsa_pss_sha512_verify,
-    load_private_key_pem,
-    pkcs8_to_raw_private_key,
-    detect_private_key_type,
+    sha256,
 )
 
 from marty_plugin.shared.models.visa import VDSNCData, Visa
@@ -171,13 +171,19 @@ class VDSNCEncoder:
             constraints = {}
 
             if visa.policy_constraints.allowed_countries:
-                constraints["allowed_countries"] = visa.policy_constraints.allowed_countries
+                constraints["allowed_countries"] = (
+                    visa.policy_constraints.allowed_countries
+                )
 
             if visa.policy_constraints.restricted_countries:
-                constraints["restricted_countries"] = visa.policy_constraints.restricted_countries
+                constraints["restricted_countries"] = (
+                    visa.policy_constraints.restricted_countries
+                )
 
             if visa.policy_constraints.employment_authorized:
-                constraints["employment"] = visa.policy_constraints.employment_authorized
+                constraints["employment"] = (
+                    visa.policy_constraints.employment_authorized
+                )
 
             if visa.policy_constraints.study_authorized:
                 constraints["study"] = visa.policy_constraints.study_authorized
@@ -239,17 +245,10 @@ class VDSNCEncoder:
         Returns:
             Signature bytes
         """
-        # For testing with mock keys, return a mock signature
-        if "1234567890abcdef" in private_key_pem or private_key_pem.strip() == "":
-            return sha256(signature_input)[:32]  # Mock signature
-
         try:
-            # Load key using Rust crypto_bridge
             private_der = load_private_key_pem(private_key_pem)
-            key_type = detect_private_key_type(private_der)
-        except Exception:
-            # Fallback to mock signature for invalid keys
-            return sha256(signature_input)[:32]
+        except Exception as exc:
+            raise ValueError("Invalid private key; native signing failed") from exc
 
         if algorithm in [
             SignatureAlgorithm.ES256,
@@ -258,13 +257,13 @@ class VDSNCEncoder:
         ]:
             # ECDSA signing using Rust
             raw_key, _ = pkcs8_to_raw_private_key(private_der)
-            
+
             if algorithm == SignatureAlgorithm.ES256:
                 return ecdsa_p256_sign(raw_key, signature_input)
             elif algorithm == SignatureAlgorithm.ES384:
                 return ecdsa_p384_sign(raw_key, signature_input)
-            else:  # ES512 - not yet supported in Rust, fallback
-                return sha256(signature_input)[:32]
+            else:
+                return ecdsa_p521_sign(raw_key, signature_input)
 
         elif algorithm in [
             SignatureAlgorithm.PS256,
@@ -383,15 +382,7 @@ class VDSNCDecoder:
             True if signature is valid
         """
         try:
-            # Extract raw public key bytes from PEM
-            from cryptography.hazmat.primitives.serialization import (
-                Encoding,
-                PublicFormat,
-                load_pem_public_key,
-            )
-
-            public_key = load_pem_public_key(public_key_pem.encode())
-            public_key_bytes = public_key.public_bytes(Encoding.DER, PublicFormat.SubjectPublicKeyInfo)
+            public_key_bytes = load_public_key_pem(public_key_pem)
 
             if algorithm in [
                 SignatureAlgorithm.ES256,
@@ -400,11 +391,17 @@ class VDSNCDecoder:
             ]:
                 # ECDSA verification via Rust
                 if algorithm == SignatureAlgorithm.ES256:
-                    return ecdsa_p256_verify(public_key_bytes, signature_input, signature)
+                    return ecdsa_p256_verify(
+                        public_key_bytes, signature_input, signature
+                    )
                 elif algorithm == SignatureAlgorithm.ES384:
-                    return ecdsa_p384_verify(public_key_bytes, signature_input, signature)
+                    return ecdsa_p384_verify(
+                        public_key_bytes, signature_input, signature
+                    )
                 else:  # ES512
-                    return ecdsa_p521_verify(public_key_bytes, signature_input, signature)
+                    return ecdsa_p521_verify(
+                        public_key_bytes, signature_input, signature
+                    )
 
             elif algorithm in [
                 SignatureAlgorithm.PS256,
@@ -413,11 +410,17 @@ class VDSNCDecoder:
             ]:
                 # RSA-PSS verification via Rust
                 if algorithm == SignatureAlgorithm.PS256:
-                    return rsa_pss_sha256_verify(public_key_bytes, signature_input, signature)
+                    return rsa_pss_sha256_verify(
+                        public_key_bytes, signature_input, signature
+                    )
                 elif algorithm == SignatureAlgorithm.PS384:
-                    return rsa_pss_sha384_verify(public_key_bytes, signature_input, signature)
+                    return rsa_pss_sha384_verify(
+                        public_key_bytes, signature_input, signature
+                    )
                 else:  # PS512
-                    return rsa_pss_sha512_verify(public_key_bytes, signature_input, signature)
+                    return rsa_pss_sha512_verify(
+                        public_key_bytes, signature_input, signature
+                    )
             else:
                 return False
 
@@ -501,7 +504,9 @@ class BarcodeGenerator:
 
         qr = qrcode.QRCode(
             version=1,
-            error_correction=error_levels.get(error_correction, qrcode.constants.ERROR_CORRECT_M),
+            error_correction=error_levels.get(
+                error_correction, qrcode.constants.ERROR_CORRECT_M
+            ),
             box_size=box_size,
             border=border,
         )
@@ -710,7 +715,9 @@ class VDSNCValidator:
             # Validate date formats and logic
             try:
                 if "from" in val and "to" in val:
-                    from_date = datetime.fromisoformat(val["from"].replace("Z", "+00:00"))
+                    from_date = datetime.fromisoformat(
+                        val["from"].replace("Z", "+00:00")
+                    )
                     to_date = datetime.fromisoformat(val["to"].replace("Z", "+00:00"))
 
                     if from_date >= to_date:
@@ -773,7 +780,9 @@ class VDSNCValidator:
 
             if "dob" in subj:
                 try:
-                    vds_dob = datetime.fromisoformat(subj["dob"].replace("Z", "+00:00")).date()
+                    vds_dob = datetime.fromisoformat(
+                        subj["dob"].replace("Z", "+00:00")
+                    ).date()
                     if vds_dob != visa.personal_data.date_of_birth:
                         errors.append("Date of birth mismatch")
                 except ValueError:
@@ -785,7 +794,9 @@ class VDSNCValidator:
 
             if "from" in val:
                 try:
-                    vds_from = datetime.fromisoformat(val["from"].replace("Z", "+00:00")).date()
+                    vds_from = datetime.fromisoformat(
+                        val["from"].replace("Z", "+00:00")
+                    ).date()
                     if vds_from != visa.document_data.date_of_issue:
                         errors.append("Issue date mismatch")
                 except ValueError:
@@ -793,7 +804,9 @@ class VDSNCValidator:
 
             if "to" in val:
                 try:
-                    vds_to = datetime.fromisoformat(val["to"].replace("Z", "+00:00")).date()
+                    vds_to = datetime.fromisoformat(
+                        val["to"].replace("Z", "+00:00")
+                    ).date()
                     if vds_to != visa.document_data.date_of_expiry:
                         errors.append("Expiry date mismatch")
                 except ValueError:

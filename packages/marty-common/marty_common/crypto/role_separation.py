@@ -20,16 +20,8 @@ MMF handles auth:* keys separately via IAuthKeyManager.
 
 from __future__ import annotations
 
-import json
-from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from datetime import datetime, timezone
 from enum import Enum, auto
-from typing import Any, Dict, Optional, Protocol, Union
-
-from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.hazmat.primitives.asymmetric import ec, rsa
-
 
 # Key ID namespace constants
 CREDENTIAL_KEY_PREFIX = "cred:"
@@ -177,13 +169,13 @@ ROLE_POLICIES: dict[CryptoRole, RoleKeyPolicy] = {
 }
 
 
-class RoleBoundaryViolation(Exception):
+class RoleBoundaryViolation(Exception):  # noqa: N818
     """Raised when attempting to use keys across role boundaries."""
 
     pass
 
 
-class KeyPurposeMismatch(Exception):
+class KeyPurposeMismatch(Exception):  # noqa: N818
     """Raised when using a key for an incompatible purpose."""
 
     pass
@@ -220,17 +212,12 @@ class RoleSeparationEnforcer:
     """Enforces strict separation between cryptographic roles."""
 
     @staticmethod
-    def validate_key_operation(
-        key_identity: KeyIdentity, operation: str, requesting_role: CryptoRole
-    ) -> None:
+    def validate_key_operation(key_identity: KeyIdentity, operation: str, requesting_role: CryptoRole) -> None:
         """Validate that a key operation respects role boundaries."""
 
         # Check if the requesting role can use this key
-        if key_identity.role != requesting_role:
-            if not ROLE_POLICIES[key_identity.role].can_cross_boundaries:
-                raise RoleBoundaryViolation(
-                    f"Role {requesting_role} cannot use {key_identity.role} keys"
-                )
+        if key_identity.role != requesting_role and not ROLE_POLICIES[key_identity.role].can_cross_boundaries:
+            raise RoleBoundaryViolation(f"Role {requesting_role} cannot use {key_identity.role} keys")
 
         # Check specific operation constraints
         if operation == "sign" and key_identity.role in [CryptoRole.READER, CryptoRole.VERIFIER]:
@@ -241,26 +228,26 @@ class RoleSeparationEnforcer:
             pass
 
     @staticmethod
-    def validate_key_sharing(
-        source_role: CryptoRole, target_role: CryptoRole, key_purpose: KeyPurpose
-    ) -> None:
+    def validate_key_sharing(source_role: CryptoRole, target_role: CryptoRole, key_purpose: KeyPurpose) -> None:
         """Validate if key material can be shared between roles."""
 
         # Issuing authority private keys must never be shared
-        if source_role in [CryptoRole.CSCA, CryptoRole.DSC]:
-            if key_purpose in [KeyPurpose.CERTIFICATE_SIGNING, KeyPurpose.DOCUMENT_SIGNING]:
-                raise RoleBoundaryViolation(f"Private keys from {source_role} cannot be shared")
+        if source_role in [CryptoRole.CSCA, CryptoRole.DSC] and key_purpose in [
+            KeyPurpose.CERTIFICATE_SIGNING,
+            KeyPurpose.DOCUMENT_SIGNING,
+        ]:
+            raise RoleBoundaryViolation(f"Private keys from {source_role} cannot be shared")
 
         # Public keys can be shared for verification
         if key_purpose in [KeyPurpose.SIGNATURE_VERIFICATION, KeyPurpose.CERTIFICATE_VALIDATION]:
             return  # Public key sharing is OK
 
         # Wallet/Holder keys must remain isolated
-        if source_role in [CryptoRole.WALLET, CryptoRole.HOLDER]:
-            if target_role not in [CryptoRole.WALLET, CryptoRole.HOLDER]:
-                raise RoleBoundaryViolation(
-                    f"Wallet/Holder keys cannot be shared with {target_role}"
-                )
+        if source_role in [
+            CryptoRole.WALLET,
+            CryptoRole.HOLDER,
+        ] and target_role not in [CryptoRole.WALLET, CryptoRole.HOLDER]:
+            raise RoleBoundaryViolation(f"Wallet/Holder keys cannot be shared with {target_role}")
 
 
 def get_role_policy(role: CryptoRole) -> RoleKeyPolicy:
@@ -407,4 +394,3 @@ def make_credential_key_id(
         make_credential_key_id("holder", "device123", "cred456") -> "cred:holder:device123:cred456"
     """
     return f"{CREDENTIAL_KEY_PREFIX}{key_type}:{':'.join(parts)}"
-

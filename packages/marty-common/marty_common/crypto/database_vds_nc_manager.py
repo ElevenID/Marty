@@ -9,21 +9,17 @@ This service provides complete VDS-NC key lifecycle management including:
 
 from __future__ import annotations
 
+import base64
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from cryptography.hazmat.primitives import serialization
-from cryptography.hazmat.primitives.asymmetric import ec
-from cryptography.hazmat.primitives.asymmetric.ec import (
-    EllipticCurvePrivateKey,
-    EllipticCurvePublicKey,
-)
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
 from marty_common.crypto.vds_nc_keys import KeyRole, KeyStatus, VDSNCKeyMetadata
 from marty_common.infrastructure.trust_models import KeyRotationLog, VDSNCKeyModel
+from marty_common.native_backends import NativeOperationError, load_native_backend
 from marty_common.security.encryption import SymmetricEncryption
 
 logger = logging.getLogger(__name__)
@@ -54,13 +50,14 @@ class DatabaseVDSNCKeyManager:
         role: KeyRole,
         validity_days: int = 730,
         metadata: dict[str, Any] | None = None,
-    ) -> tuple[EllipticCurvePrivateKey, EllipticCurvePublicKey]:
+    ) -> tuple[bytes, bytes]:
         """Generate new VDS-NC key pair."""
         self.logger.info(f"Generating VDS-NC key pair: {kid}")
 
-        # Generate EC P-256 key pair
-        private_key = ec.generate_private_key(ec.SECP256R1())
-        public_key = private_key.public_key()
+        native = load_native_backend("marty_verification", ("ecdsa_p256_generate",))
+        private_key, public_key = native.ecdsa_p256_generate()
+        private_key = bytes(private_key)
+        public_key = bytes(public_key)
 
         # Store in database
         await self._store_key_pair(
@@ -89,7 +86,7 @@ class DatabaseVDSNCKeyManager:
         new_kid: str,
         overlap_days: int = 30,
         metadata: dict[str, Any] | None = None,
-    ) -> tuple[EllipticCurvePrivateKey, EllipticCurvePublicKey]:
+    ) -> tuple[bytes, bytes]:
         """Rotate VDS-NC key with overlap period."""
         self.logger.info(f"Rotating VDS-NC key: {old_kid} -> {new_kid}")
 
@@ -132,9 +129,7 @@ class DatabaseVDSNCKeyManager:
 
         try:
             # Get existing key
-            result = await self.session.execute(
-                select(VDSNCKeyModel).where(VDSNCKeyModel.kid == kid)
-            )
+            result = await self.session.execute(select(VDSNCKeyModel).where(VDSNCKeyModel.kid == kid))
             key_model = result.scalar_one_or_none()
 
             if not key_model:
@@ -143,12 +138,12 @@ class DatabaseVDSNCKeyManager:
 
             # Update status and revocation info
             key_model.status = KeyStatus.REVOKED
-            key_model.revoked_at = datetime.now(timezone.utc)
+            key_model.revoked_at = datetime.now(UTC)
             key_model.revocation_reason = reason
 
             if immediate:
                 # Immediate revocation - set not_after to now
-                key_model.not_after = datetime.now(timezone.utc)
+                key_model.not_after = datetime.now(UTC)
 
             # Disable distribution
             key_model.distribution_enabled = False
@@ -216,7 +211,7 @@ class DatabaseVDSNCKeyManager:
     ) -> list[VDSNCKeyModel]:
         """Get keys that are valid for verification at given timestamp."""
         if timestamp is None:
-            timestamp = datetime.now(timezone.utc)
+            timestamp = datetime.now(UTC)
 
         query = select(VDSNCKeyModel).where(
             VDSNCKeyModel.status == KeyStatus.ACTIVE,
@@ -234,7 +229,7 @@ class DatabaseVDSNCKeyManager:
         warning_days: int = 30,
     ) -> list[VDSNCKeyModel]:
         """Get keys expiring within warning period."""
-        warning_date = datetime.now(timezone.utc) + timedelta(days=warning_days)
+        warning_date = datetime.now(UTC) + timedelta(days=warning_days)
 
         query = select(VDSNCKeyModel).where(
             VDSNCKeyModel.status == KeyStatus.ACTIVE,
@@ -280,15 +275,15 @@ class DatabaseVDSNCKeyManager:
         return {
             "keys": jwks_keys,
             "metadata": {
-                "last_updated": datetime.now(timezone.utc).isoformat(),
+                "last_updated": datetime.now(UTC).isoformat(),
                 "total_count": len(jwks_keys),
                 "country_filter": issuer_country,
                 "role_filter": role.value if role else None,
             },
         }
 
-    async def get_private_key(self, kid: str) -> EllipticCurvePrivateKey | None:
-        """Get private key for signing (requires encryption service)."""
+    async def get_private_key(self, kid: str) -> bytes | None:
+        """Get native PKCS#8 private-key DER for a configured signer."""
         if not self.encryption_service:
             msg = "Encryption service required for private key access"
             raise ValueError(msg)
@@ -301,19 +296,14 @@ class DatabaseVDSNCKeyManager:
             # Decrypt private key
             private_key_pem = self.encryption_service.decrypt(key_model.private_key_encrypted)
 
-            # Load private key
-            private_key = serialization.load_pem_private_key(
-                private_key_pem.encode(),
-                password=None,
+            native = load_native_backend(
+                "marty_verification",
+                ("load_private_key_pem",),
             )
-
-            if isinstance(private_key, EllipticCurvePrivateKey):
-                return private_key
+            return bytes(native.load_private_key_pem(private_key_pem))
 
         except Exception:
             self.logger.exception(f"Error loading private key {kid}")
-            return None
-        else:
             return None
 
     async def schedule_rotation(
@@ -356,15 +346,15 @@ class DatabaseVDSNCKeyManager:
     async def _store_key_pair(
         self,
         kid: str,
-        private_key: EllipticCurvePrivateKey,
-        public_key: EllipticCurvePublicKey,
+        private_key: bytes,
+        public_key: bytes,
         issuer_country: str,
         role: KeyRole,
         validity_days: int,
         metadata: dict[str, Any],
     ) -> None:
         """Store key pair in database."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
 
         # Convert public key to JWK
         public_jwk = self._public_key_to_jwk(public_key)
@@ -372,12 +362,13 @@ class DatabaseVDSNCKeyManager:
         # Encrypt private key if encryption service available
         private_key_encrypted = None
         if self.encryption_service:
-            private_key_pem = private_key.private_bytes(
-                encoding=serialization.Encoding.PEM,
-                format=serialization.PrivateFormat.PKCS8,
-                encryption_algorithm=serialization.NoEncryption(),
+            native = load_native_backend(
+                "marty_verification",
+                ("raw_private_key_to_pkcs8", "save_private_key_pem"),
             )
-            private_key_encrypted = self.encryption_service.encrypt(private_key_pem.decode())
+            private_key_der = native.raw_private_key_to_pkcs8(private_key, "P256")
+            private_key_pem = native.save_private_key_pem(private_key_der)
+            private_key_encrypted = self.encryption_service.encrypt(private_key_pem)
 
         # Create model
         key_model = VDSNCKeyModel(
@@ -421,13 +412,13 @@ class DatabaseVDSNCKeyManager:
         # Update old key status and validity
         if overlap_days > 0:
             # Keep old key active during overlap
-            overlap_end = datetime.now(timezone.utc) + timedelta(days=overlap_days)
+            overlap_end = datetime.now(UTC) + timedelta(days=overlap_days)
             old_key.not_after = min(old_key.not_after, overlap_end)
             old_key.status = KeyStatus.DEPRECATED
         else:
             # Immediate supersession
             old_key.status = KeyStatus.DEPRECATED
-            old_key.not_after = datetime.now(timezone.utc)
+            old_key.not_after = datetime.now(UTC)
             old_key.distribution_enabled = False
 
         # Update rotation generation
@@ -463,19 +454,14 @@ class DatabaseVDSNCKeyManager:
         self.session.add(log_entry)
         await self.session.commit()
 
-    def _public_key_to_jwk(self, public_key: EllipticCurvePublicKey) -> dict[str, Any]:
+    def _public_key_to_jwk(self, public_key: bytes) -> dict[str, Any]:
         """Convert EC public key to JWK format."""
-        numbers = public_key.public_numbers()
+        raw = bytes(public_key)
+        if len(raw) != 65 or raw[0] != 4:
+            raise NativeOperationError("Native P-256 public key must be uncompressed SEC1 data")
 
-        # Get coordinate bytes (32 bytes each for P-256)
-        x_bytes = numbers.x.to_bytes(32, "big")
-        y_bytes = numbers.y.to_bytes(32, "big")
-
-        # Base64url encode
-        import base64
-
-        x_b64 = base64.urlsafe_b64encode(x_bytes).decode().rstrip("=")
-        y_b64 = base64.urlsafe_b64encode(y_bytes).decode().rstrip("=")
+        x_b64 = base64.urlsafe_b64encode(raw[1:33]).decode().rstrip("=")
+        y_b64 = base64.urlsafe_b64encode(raw[33:65]).decode().rstrip("=")
 
         return {
             "kty": "EC",
@@ -491,7 +477,7 @@ class DatabaseVDSNCKeyManager:
         generation: int,
     ) -> str:
         """Generate KID for key."""
-        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d")
+        timestamp = datetime.now(UTC).strftime("%Y%m%d")
         return f"{issuer_country}_{role.value}_{generation:03d}_{timestamp}"
 
     # Legacy compatibility methods

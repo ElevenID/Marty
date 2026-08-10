@@ -1,290 +1,207 @@
-"""
-Service for offline verification of certificates against a local trust store
-"""
+"""Offline certificate verification backed exclusively by Rust."""
 
 from __future__ import annotations
 
 import logging
-import os
-from datetime import datetime, timezone
 from pathlib import Path
 
 from app.core.config import settings
 from app.db.database import DatabaseManager
 from app.models.pkd_models import CertificateStatus, VerificationResult
 
+from marty_plugin.native_backends import require_backend
+
 logger = logging.getLogger(__name__)
 
 
 class OfflineVerifier:
-    """
-    Service for offline verification of certificates against local trust store.
-
-    This service provides functionality to:
-    - Validate certificates without internet connectivity
-    - Check certificate chains against local master lists
-    - Verify revocation status using cached CRLs
-    """
+    """Verify certificate chains and revocation against local PKD material."""
 
     def __init__(self) -> None:
-        """Initialize the offline verifier"""
-        self.trust_store_path = settings.LOCAL_TRUST_STORE_PATH
-        self.crl_path = settings.LOCAL_CRL_PATH
+        self.trust_store_path = Path(settings.LOCAL_TRUST_STORE_PATH)
+        self.crl_path = Path(settings.LOCAL_CRL_PATH)
+        self.native = require_backend("marty_verification")
 
     async def verify_certificate(self, certificate_data: bytes) -> VerificationResult:
-        """
-        Verify a certificate against the local trust store
-
-        Args:
-            certificate_data: The raw certificate data to verify
-
-        Returns:
-            VerificationResult object with verification status and details
-        """
+        """Validate a DER/PEM certificate and require current local CRL evidence."""
         try:
-            # Parse the certificate
-            cert = self._parse_certificate(certificate_data)
-
-            if not cert:
-                return VerificationResult(
-                    is_valid=False,
-                    status="INVALID_FORMAT",
-                    details="Could not parse certificate data",
+            certificate_der = self._certificate_der(certificate_data)
+            certificate_info = self.native.get_certificate_info(certificate_der)
+            trust_anchors = await self._load_trust_anchors()
+            if not trust_anchors:
+                return self._result(
+                    False, "UNTRUSTED", "No local CSCA trust anchors configured"
                 )
 
-            # Check if certificate has expired
-            now = datetime.now(tz=timezone.utc)
-            if cert["valid_to"] < now or cert["valid_from"] > now:
-                return VerificationResult(
-                    is_valid=False,
-                    status="EXPIRED" if cert["valid_to"] < now else "NOT_YET_VALID",
-                    details=f"Certificate is {'expired' if cert['valid_to'] < now else 'not yet valid'}",
-                )
-
-            # Check if certificate is in trust store
-            is_trusted = await self._is_certificate_trusted(cert)
-            if not is_trusted:
-                return VerificationResult(
-                    is_valid=False,
-                    status="UNTRUSTED",
-                    details="Certificate is not in the local trust store",
-                )
-
-            # Check if certificate is revoked
-            is_revoked = await self._is_certificate_revoked(cert)
-            if is_revoked:
-                return VerificationResult(
-                    is_valid=False, status="REVOKED", details="Certificate has been revoked"
-                )
-
-            # Certificate is valid
-            return VerificationResult(
-                is_valid=True, status="VALID", details="Certificate is valid and trusted"
+            validator = self.native.ChainValidator()
+            for anchor_der in trust_anchors:
+                validator.add_trust_anchor_der(anchor_der)
+            chain_result = validator.validate_chain(
+                [self.native.certificate_der_to_pem(certificate_der)]
             )
+            if not chain_result.valid:
+                details = "; ".join(
+                    chain_result.errors or ["Certificate chain is invalid"]
+                )
+                return self._result(False, "UNTRUSTED", details)
 
-        except Exception as e:
-            logger.exception(f"Error verifying certificate: {e}")
-            return VerificationResult(
-                is_valid=False, status="ERROR", details=f"Error during verification: {e!s}"
+            revocation = self._check_local_crls(
+                certificate_der,
+                certificate_info,
+                trust_anchors,
             )
+            if revocation is None:
+                return self._result(
+                    False,
+                    "REVOCATION_UNKNOWN",
+                    "No current issuer-signed CRL is available",
+                )
+            revoked, reason = revocation
+            if revoked:
+                suffix = f" ({reason})" if reason else ""
+                return self._result(
+                    False, "REVOKED", f"Certificate has been revoked{suffix}"
+                )
 
-    def _parse_certificate(self, certificate_data: bytes) -> dict | None:
-        """
-        Parse certificate data into a dictionary of certificate properties
+            return self._result(
+                True, "VALID", "Certificate is valid, trusted, and not revoked"
+            )
+        except Exception as exc:
+            logger.exception("Offline native certificate verification failed")
+            return self._result(False, "ERROR", f"Error during verification: {exc}")
 
-        Args:
-            certificate_data: The raw certificate data
+    async def _load_trust_anchors(self) -> list[bytes]:
+        anchors: dict[str, bytes] = {}
+        trusted = await DatabaseManager.get_certificates(
+            cert_type="CSCA", status=CertificateStatus.ACTIVE
+        )
+        for item in trusted:
+            value = item.get("certificate_data")
+            if value:
+                der = self._certificate_der(value)
+                fingerprint = self.native.get_certificate_info(der)[
+                    "fingerprint_sha256"
+                ]
+                anchors[fingerprint] = der
 
-        Returns:
-            Dictionary of certificate properties or None if parsing failed
-        """
-        try:
-            # In a real implementation, this would use cryptographic libraries
-            # like cryptography/pyOpenSSL to parse X.509 certificates
-            # For this implementation, we'll use a simplified approach
+        if self.trust_store_path.exists():
+            for path in self.trust_store_path.iterdir():
+                if path.is_file() and path.suffix.lower() in {
+                    ".cer",
+                    ".crt",
+                    ".der",
+                    ".pem",
+                }:
+                    try:
+                        der = self._certificate_der(path.read_bytes())
+                        fingerprint = self.native.get_certificate_info(der)[
+                            "fingerprint_sha256"
+                        ]
+                        anchors[fingerprint] = der
+                    except Exception as exc:
+                        logger.warning(
+                            "Ignoring malformed trust anchor %s: %s", path, exc
+                        )
+        return list(anchors.values())
 
-            # Basic check to see if this looks like a certificate
-            if b"CERTIFICATE" not in certificate_data and not certificate_data.startswith(b"0\x82"):
-                logger.warning("Data does not appear to be a certificate")
-                return None
-
-            # For a proper implementation, we would do something like:
-            # from cryptography import x509
-            # from cryptography.hazmat.backends import default_backend
-            # cert = x509.load_der_x509_certificate(certificate_data, default_backend())
-            # or
-            # cert = x509.load_pem_x509_certificate(certificate_data, default_backend())
-
-            # This is a placeholder implementation
-            # In a real implementation, we would extract these values from the certificate
-            return {
-                "subject": "CN=Example",
-                "issuer": "CN=Example CA",
-                "serial_number": "12345678",
-                "valid_from": datetime(2020, 1, 1),
-                "valid_to": datetime(2030, 1, 1),
-                "fingerprint": "01:23:45:67:89:AB:CD:EF",
-                "raw_data": certificate_data,
-            }
-
-        except Exception as e:
-            logger.exception(f"Error parsing certificate: {e}")
+    def _check_local_crls(
+        self,
+        certificate_der: bytes,
+        certificate_info: dict,
+        trust_anchors: list[bytes],
+    ) -> tuple[bool, str | None] | None:
+        if not self.crl_path.exists():
             return None
 
-    async def _is_certificate_trusted(self, cert: dict) -> bool:
-        """
-        Check if a certificate is in the local trust store
+        issuer = certificate_info["issuer"]
+        issuer_certificates = [
+            der
+            for der in trust_anchors
+            if self._normalize_dn(self.native.get_certificate_info(der)["subject"])
+            == self._normalize_dn(issuer)
+        ]
+        if not issuer_certificates:
+            return None
 
-        Args:
-            cert: The certificate to check
+        valid_evidence = False
+        for path in self.crl_path.iterdir():
+            if not path.is_file() or path.suffix.lower() not in {
+                ".crl",
+                ".der",
+                ".pem",
+            }:
+                continue
+            try:
+                crl_der = self._crl_der(path.read_bytes())
+                crl = self.native.parse_crl(crl_der)
+                if self._normalize_dn(crl.issuer) != self._normalize_dn(issuer):
+                    continue
+                validated = None
+                for issuer_der in issuer_certificates:
+                    try:
+                        validated = self.native.validate_crl_for_certificate(
+                            crl_der, certificate_der, issuer_der
+                        )
+                        break
+                    except Exception:
+                        continue
+                if validated is None:
+                    logger.warning("Ignoring unauthenticated or stale CRL: %s", path)
+                    continue
+                valid_evidence = True
+                if validated["revoked"]:
+                    return True, validated.get("reason")
+            except Exception as exc:
+                logger.warning("Ignoring invalid CRL %s: %s", path, exc)
 
-        Returns:
-            True if the certificate is trusted, False otherwise
-        """
-        try:
-            # Get all trusted certificates from the database
-            trusted_certs = await DatabaseManager.get_certificates(
-                cert_type="CSCA", status=CertificateStatus.ACTIVE
-            )
-
-            # In a real implementation, we would check if the certificate is in the trust store
-            # by comparing fingerprints or other unique identifiers
-            for trusted_cert in trusted_certs:
-                if trusted_cert.get("serial_number") == cert["serial_number"]:
-                    return True
-
-            # If not found in database, check local filesystem trust store
-            return self._check_filesystem_trust_store(cert)
-
-        except Exception as e:
-            logger.exception(f"Error checking if certificate is trusted: {e}")
-            return False
-
-    def _check_filesystem_trust_store(self, cert: dict) -> bool:
-        """
-        Check if a certificate is in the filesystem-based trust store
-
-        Args:
-            cert: The certificate to check
-
-        Returns:
-            True if the certificate is in the trust store, False otherwise
-        """
-        try:
-            if not self.trust_store_path or not os.path.exists(self.trust_store_path):
-                logger.warning(f"Trust store path {self.trust_store_path} does not exist")
-                return False
-
-            # In a real implementation, we would iterate through certificate files
-            # in the trust store directory and compare with the provided certificate
-
-            # For this implementation, we'll just check if any file exists in the directory
-            trust_store_dir = Path(self.trust_store_path)
-            if not any(trust_store_dir.glob("*.cer")) and not any(trust_store_dir.glob("*.pem")):
-                logger.warning("No certificates found in trust store directory")
-                return False
-
-            # For demo purposes, we'll assume the certificate is not in the trust store
-            # In a real implementation, we would load each certificate and compare
-
-        except Exception as e:
-            logger.exception(f"Error checking filesystem trust store: {e}")
-            return False
-        else:
-            return False
-
-    async def _is_certificate_revoked(self, cert: dict) -> bool:
-        """
-        Check if a certificate is revoked using local CRLs
-
-        Args:
-            cert: The certificate to check
-
-        Returns:
-            True if the certificate is revoked, False otherwise
-        """
-        try:
-            if not self.crl_path or not os.path.exists(self.crl_path):
-                logger.warning(f"CRL path {self.crl_path} does not exist")
-                return False
-
-            # In a real implementation, we would:
-            # 1. Load CRLs from the local cache directory
-            # 2. Check if the certificate's serial number is in any of the CRLs
-
-            # For this implementation, we'll assume the certificate is not revoked
-
-        except Exception as e:
-            logger.exception(f"Error checking if certificate is revoked: {e}")
-            return False
-        else:
-            return False
+        return (False, None) if valid_evidence else None
 
     async def build_trust_store(self) -> int:
-        """
-        Build or update local trust store from the database
-
-        Returns:
-            Number of certificates exported to the trust store
-        """
-        try:
-            # Create trust store directory if it doesn't exist
-            os.makedirs(self.trust_store_path, exist_ok=True)
-
-            # Get all active CSCA certificates
-            trusted_certs = await DatabaseManager.get_certificates(
-                cert_type="CSCA", status=CertificateStatus.ACTIVE
-            )
-
-            count = 0
-            for cert_dict in trusted_certs:
-                try:
-                    cert_id = cert_dict.get("id")
-                    cert_data = cert_dict.get("certificate_data")
-                    country = cert_dict.get("country_code", "XX")
-
-                    if not cert_data:
-                        logger.warning(f"No certificate data for {cert_id}")
-                        continue
-
-                    # Write certificate to trust store
-                    cert_path = os.path.join(self.trust_store_path, f"{country}_{cert_id}.cer")
-                    with open(cert_path, "wb") as f:
-                        f.write(cert_data)
-
-                    count += 1
-
-                except Exception as e:
-                    logger.exception(f"Error exporting certificate {cert_dict.get('id')}: {e}")
-
-            logger.info(f"Exported {count} certificates to local trust store")
-
-        except Exception as e:
-            logger.exception(f"Error building trust store: {e}")
-            return 0
-        else:
-            return count
+        """Export active database CSCAs to the local trust-store directory."""
+        self.trust_store_path.mkdir(parents=True, exist_ok=True)
+        trusted = await DatabaseManager.get_certificates(
+            cert_type="CSCA", status=CertificateStatus.ACTIVE
+        )
+        count = 0
+        for item in trusted:
+            cert_data = item.get("certificate_data")
+            if not cert_data:
+                continue
+            try:
+                der = self._certificate_der(cert_data)
+                country = item.get("country_code", "XX")
+                identifier = item.get("id", count)
+                (self.trust_store_path / f"{country}_{identifier}.cer").write_bytes(der)
+                count += 1
+            except Exception as exc:
+                logger.warning(
+                    "Skipping invalid CSCA record (%s)", type(exc).__name__
+                )
+        return count
 
     async def update_local_crls(self) -> int:
-        """
-        Update local CRL cache from the database
+        """Leave CRL synchronization to the configured persistence adapter."""
+        self.crl_path.mkdir(parents=True, exist_ok=True)
+        logger.warning("No CRL persistence adapter is configured")
+        return 0
 
-        Returns:
-            Number of CRLs exported to the local cache
-        """
-        try:
-            # Create CRL directory if it doesn't exist
-            os.makedirs(self.crl_path, exist_ok=True)
+    def _certificate_der(self, value: bytes | str) -> bytes:
+        if isinstance(value, str):
+            return bytes(self.native.certificate_pem_to_der(value))
+        raw = bytes(value)
+        if raw.lstrip().startswith(b"-----BEGIN"):
+            return bytes(self.native.certificate_pem_to_der(raw.decode("ascii")))
+        return bytes(self.native.load_certificate_der(raw))
 
-            # In a real implementation, we would:
-            # 1. Get all CRLs from the database
-            # 2. Export them to the CRL cache directory
+    def _crl_der(self, value: bytes) -> bytes:
+        if value.lstrip().startswith(b"-----BEGIN"):
+            return bytes(self.native.crl_pem_to_der(value.decode("ascii")))
+        return value
 
-            # For this implementation, we'll just return 0
-            logger.info("CRL update not implemented in this version")
+    @staticmethod
+    def _normalize_dn(value: str) -> str:
+        return value.upper().replace(" ", "").replace(",", "")
 
-        except Exception as e:
-            logger.exception(f"Error updating local CRLs: {e}")
-            return 0
-        else:
-            return 0
+    @staticmethod
+    def _result(valid: bool, status: str, details: str) -> VerificationResult:
+        return VerificationResult(is_valid=valid, status=status, details=details)

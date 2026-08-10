@@ -1,322 +1,314 @@
-"""
-Crypto Bridge - Python wrapper for credential and verification operations.
+"""Fail-closed compatibility surface for Marty Rust cryptographic bindings.
 
-This module provides access to:
-- Credential operations from marty-rs (credentials, keys, status lists)
-- Verification operations from marty-verification-py (Open Badges, mDoc, eMRTD, MRZ)
-
-Usage:
-    from marty_common.crypto_bridge import verify_jwt, generate_did_key
-    from marty_common.crypto_bridge import open_badge_ob2_issue, parse_mrz
+This module intentionally contains no cryptographic implementation.  Existing
+Python callers may continue importing their established names, but every
+security-sensitive operation is delegated to one of the canonical native
+extensions.  Retired APIs raise :class:`NativeOperationError` instead of
+falling back to Python.
 """
 
 from __future__ import annotations
 
 import json
-import logging
-from typing import Any, Optional
+from enum import StrEnum
+from typing import Any, NoReturn
 
-logger = logging.getLogger(__name__)
+from marty_common.native_backends import (
+    NativeBackendError,  # noqa: F401
+    NativeBackendUnavailable,  # noqa: F401
+    NativeOperationError,
+    load_native_backend,
+)
 
-# =============================================================================
-# Import marty-rs (credential operations)
-# =============================================================================
-_marty_rs_available = False
-try:
-    from _marty_rs import (
-        # Key generation
-        generate_did_key,
-        generate_p256_key,
-        generate_p384_key,
-        generate_rsa_key,
-        # Credential operations
-        create_verifiable_credential,
-        create_credential_offer,
-        generate_offer_uri,
-        create_presentation,
-        verify_jwt,
-        generate_issuer_metadata,
-        # Status list operations (from submodule)
-        BitstringStatusList,
-        TokenStatusList,
-        create_bitstring_credential_subject,
-        create_status_list_claim,
-        # Utility
-        check_isomdl,
-        get_ssi_version,
-        sum_as_string,
-    )
-    # BBS+ operations (from bbs submodule)
-    from _marty_rs.bbs import (
-        generate_bls12381_key,
-        bbs_sign,
-        bbs_verify,
-        bbs_create_proof,
-        bbs_verify_proof,
-    )
-    _marty_rs_available = True
-    logger.info("marty-rs FFI loaded successfully")
-except ImportError as e:
-    logger.warning(
-        f"marty-rs not available: {e}. "
-        "Install marty-credentials[ffi] for credential operations. "
-        "Some functionality will be limited."
-    )
-    # Define stubs for when marty-rs is not available
-    generate_did_key = None
-    generate_p256_key = None
-    generate_p384_key = None
-    generate_rsa_key = None
-    create_verifiable_credential = None
-    create_credential_offer = None
-    generate_offer_uri = None
-    create_presentation = None
-    verify_jwt = None
-    generate_issuer_metadata = None
-    BitstringStatusList = None
-    TokenStatusList = None
-    create_bitstring_credential_subject = None
-    create_status_list_claim = None
-    check_isomdl = None
-    get_ssi_version = None
-    sum_as_string = None
-    # BBS+ stubs
-    generate_bls12381_key = None
-    bbs_sign = None
-    bbs_verify = None
-    bbs_create_proof = None
-    bbs_verify_proof = None
+_MARTY_RS_CAPABILITIES = (
+    "BitstringStatusList",
+    "TokenStatusList",
+    "create_bitstring_credential_subject",
+    "create_status_list_claim",
+    "generate_did_key",
+    "generate_p256_key",
+    "oid4vci_sign_credential",
+    "verify_mdoc_cbor",
+    "verify_sd_jwt",
+    "verify_vcdm_jwt",
+)
 
-# =============================================================================
-# Import marty-verification-py (verification operations)
-# =============================================================================
-_marty_verification_available = False
-try:
-    from _marty_verification import (
-        # Open Badges
-        open_badge_ob2_issue,
-        open_badge_ob2_verify,
-        open_badge_ob3_issue,
-        open_badge_ob3_verify,
-        # MRZ parsing
-        parse_mrz,
-        # mDoc/mDL verification
-        verify_mdoc,
-        verify_mdl,
-        # eMRTD operations
-        verify_emrtd,
-        # Certificate operations
-        build_self_signed_certificate_with_key,
-        certificate_der_to_pem,
-        verify_certificate_chain,
-        # Crypto operations
-        verify_signature,
-        hash_data,
-    )
-    _marty_verification_available = True
-    logger.info("marty-verification-py FFI loaded successfully")
-except ImportError as e:
-    logger.warning(
-        f"marty-verification-py not available: {e}. "
-        "Install marty-verification-py for verification operations. "
-        "Some functionality will be limited."
-    )
-    # Define stubs for when marty-verification is not available
-    open_badge_ob2_issue = None
-    open_badge_ob2_verify = None
-    open_badge_ob3_issue = None
-    open_badge_ob3_verify = None
-    parse_mrz = None
-    verify_mdoc = None
-    verify_mdl = None
-    verify_emrtd = None
-    build_self_signed_certificate_with_key = None
-    certificate_der_to_pem = None
-    verify_certificate_chain = None
-    verify_signature = None
-    hash_data = None
+_MARTY_VERIFICATION_CAPABILITIES = (
+    "ChainValidator",
+    "ValidationConfig",
+    "build_self_signed_certificate_with_key",
+    "certificate_der_to_pem",
+    "certificate_pem_to_der",
+    "compute_check_digit",
+    "dtc_create",
+    "dtc_sign",
+    "dtc_verify",
+    "ecdsa_p256_generate",
+    "ecdsa_p384_generate",
+    "generate_random_bytes",
+    "get_certificate_info",
+    "get_certificate_public_key",
+    "hash_data",
+    "load_certificate_der",
+    "load_certificate_pem",
+    "load_private_key_pem",
+    "load_public_key_pem",
+    "parse_master_list",
+    "parse_mrz",
+    "parse_sod",
+    "pbkdf2_sha256",
+    "raw_private_key_to_pkcs8",
+    "raw_public_key_to_spki",
+    "save_private_key_pem",
+    "save_public_key_pem",
+    "validate_check_digit",
+    "verify_sod_data_group_hash",
+    "verify_sod_signature",
+)
 
-# MRZ check digits remain available without native bindings so that parsing and
-# validation work in source-only and bootstrap installations.
-try:
-    from _marty_verification import compute_check_digit, validate_check_digit
-except ImportError:
-    _MRZ_WEIGHTS = (7, 3, 1)
+_marty_rs = load_native_backend("_marty_rs", _MARTY_RS_CAPABILITIES)
+_marty_verification = load_native_backend(
+    "marty_verification",
+    _MARTY_VERIFICATION_CAPABILITIES,
+)
 
-    def compute_check_digit(value: str) -> str:
-        total = 0
-        for index, character in enumerate(value.upper()):
-            if character.isdigit():
-                numeric_value = int(character)
-            elif "A" <= character <= "Z":
-                numeric_value = ord(character) - ord("A") + 10
-            elif character == "<":
-                numeric_value = 0
-            else:
-                raise ValueError(f"Invalid MRZ character: {character!r}")
-            total += numeric_value * _MRZ_WEIGHTS[index % len(_MRZ_WEIGHTS)]
-        return str(total % 10)
+# These flags remain for source compatibility.  Import failure raises before a
+# partially functional module can be observed, so an imported bridge is always
+# fully native-backed.
+_marty_rs_available = True
+_marty_verification_available = True
 
-    def validate_check_digit(value: str, check_digit: str) -> bool:
-        return len(check_digit) == 1 and compute_check_digit(value) == check_digit
 
-# =============================================================================
-# Credential Operations - Direct exports from marty-rs
-# =============================================================================
+def _export_public(module: Any) -> set[str]:
+    exported: set[str] = set()
+    for name in dir(module):
+        if name.startswith("_"):
+            continue
+        globals()[name] = getattr(module, name)
+        exported.add(name)
+    return exported
 
-__all__ = [
-    # FFI availability
-    '_marty_rs_available',
-    '_marty_verification_available',
-    # Key generation (marty-rs)
-    'generate_did_key',
-    'generate_p256_key',
-    'generate_p384_key',
-    'generate_rsa_key',
-    # Credential operations (marty-rs)
-    'create_verifiable_credential',
-    'create_credential_offer',
-    'generate_offer_uri',
-    'create_presentation',
-    'verify_jwt',
-    'generate_issuer_metadata',
-    # Status list (marty-rs)
-    'BitstringStatusList',
-    'TokenStatusList',
-    'create_bitstring_credential_subject',
-    'create_status_list_claim',
-    # Utility (marty-rs)
-    'check_isomdl',
-    'get_ssi_version',
-    # BBS+ (marty-rs)
-    'generate_bls12381_key',
-    'bbs_sign',
-    'bbs_verify',
-    'bbs_create_proof',
-    'bbs_verify_proof',
-    # Open Badges (marty-verification)
-    'open_badge_ob2_issue',
-    'open_badge_ob2_verify',
-    'open_badge_ob3_issue',
-    'open_badge_ob3_verify',
-    # MRZ parsing (marty-verification)
-    'parse_mrz',
-    # mDoc/mDL verification (marty-verification)
-    'verify_mdoc',
-    'verify_mdl',
-    # eMRTD (marty-verification)
-    'verify_emrtd',
-    # Certificates (marty-verification)
-    'build_self_signed_certificate_with_key',
-    'certificate_der_to_pem',
-    'verify_certificate_chain',
-    # Crypto operations (marty-verification)
-    'verify_signature',
-    'hash_data',
-    'compute_check_digit',
-    'validate_check_digit',
-    # High-level Open Badge Operations
-    'verify_open_badge_ob2',
-    'verify_open_badge_ob3',
-    'issue_open_badge_ob2',
-    'issue_open_badge_ob3',
-]
 
-# =============================================================================
-# High-level Open Badge Operations
-# =============================================================================
+_VERIFICATION_EXPORTS = _export_public(_marty_verification)
+_MARTY_RS_EXPORTS = _export_public(_marty_rs)
+
+
+def sha256(data: bytes) -> bytes:
+    """Hash bytes with SHA-256 in Rust."""
+
+    return _marty_verification.hash_data("sha256", data)
+
+
+def sha384(data: bytes) -> bytes:
+    """Hash bytes with SHA-384 in Rust."""
+
+    return _marty_verification.hash_data("sha384", data)
+
+
+def sha512(data: bytes) -> bytes:
+    """Hash bytes with SHA-512 in Rust."""
+
+    return _marty_verification.hash_data("sha512", data)
+
+
+class Encoding(StrEnum):
+    """Serialization selector retained for compatibility adapters."""
+
+    DER = "DER"
+    PEM = "PEM"
+
+
+class PublicFormat(StrEnum):
+    """Only SPKI is supported by the native key conversion surface."""
+
+    SubjectPublicKeyInfo = "SubjectPublicKeyInfo"
+
+
+class ExtensionNotFound(LookupError):  # noqa: N818
+    """Compatibility error for retired Python extension traversal."""
+
+
+class SubjectAlternativeName:
+    """Marker retained for import compatibility only."""
+
+
+class DNSName:
+    """Marker retained for import compatibility only."""
+
+
+class UniformResourceIdentifier:
+    """Marker retained for import compatibility only."""
+
+
+class Certificate:
+    """Minimal native-backed certificate compatibility adapter."""
+
+    def __init__(self, der_data: bytes) -> None:
+        self._der = bytes(der_data)
+        _marty_verification.load_certificate_der(self._der)
+        self._info = _marty_verification.get_certificate_info(self._der)
+
+    @classmethod
+    def from_der(cls, der_data: bytes) -> Certificate:
+        return cls(der_data)
+
+    @classmethod
+    def from_pem(cls, pem_data: str | bytes) -> Certificate:
+        if isinstance(pem_data, bytes):
+            pem_data = pem_data.decode("ascii")
+        return cls(_marty_verification.load_certificate_pem(pem_data))
+
+    @property
+    def subject(self) -> str:
+        return str(self._info.get("subject", ""))
+
+    @property
+    def issuer(self) -> str:
+        return str(self._info.get("issuer", ""))
+
+    @property
+    def serial_number(self) -> str:
+        return str(self._info.get("serial_number", ""))
+
+    @property
+    def extensions(self) -> NoReturn:
+        raise NativeOperationError(
+            "Python certificate-extension traversal is retired; use native "
+            "certificate metadata or a native verification operation"
+        )
+
+    def to_der(self) -> bytes:
+        return self._der
+
+    def public_bytes(self, encoding: Encoding) -> bytes:
+        if encoding == Encoding.DER or str(encoding).upper().endswith("DER"):
+            return self._der
+        if encoding == Encoding.PEM or str(encoding).upper().endswith("PEM"):
+            return _marty_verification.certificate_der_to_pem(self._der).encode("ascii")
+        raise ValueError(f"Unsupported certificate encoding: {encoding}")
+
+    def to_cryptography(self) -> NoReturn:
+        raise NativeOperationError(
+            "Conversion to a Python cryptography certificate is disabled; "
+            "route the operation through marty-verification"
+        )
+
+
+def load_pem_x509_certificate(pem_data: str | bytes) -> Certificate:
+    """Load a certificate through the native parser."""
+
+    return Certificate.from_pem(pem_data)
+
+
+class RSAPublicKeyBridge:
+    """Retired Python RSA key-construction adapter."""
+
+    def __init__(self, _modulus: int, _public_exponent: int) -> None:
+        raise NativeOperationError(
+            "Python RSA SubjectPublicKeyInfo construction is retired; parse and "
+            "verify DG15 through the native eMRTD implementation"
+        )
+
+
+CertificateChainValidator = _marty_verification.ChainValidator
+
+
+def _unsupported(name: str):
+    def operation(*_args: Any, **_kwargs: Any) -> NoReturn:
+        raise NativeOperationError(
+            f"{name} is not exposed by the canonical Marty Rust bindings; "
+            "the former Python/provider fallback is disabled"
+        )
+
+    operation.__name__ = name
+    operation.__qualname__ = name
+    return operation
+
+
+# Historical credential helpers and BBS operations are deliberately not
+# emulated.  Canonical OID4VCI/verification entry points above replace them.
+_RETIRED_OPERATIONS = (
+    "bbs_create_proof",
+    "bbs_sign",
+    "bbs_verify",
+    "bbs_verify_proof",
+    "check_isomdl",
+    "create_credential_offer",
+    "create_presentation",
+    "generate_bls12381_key",
+    "generate_did_key",
+    "generate_issuer_metadata",
+    "generate_offer_uri",
+    "generate_rsa_key",
+    "get_ssi_version",
+    "sum_as_string",
+    "verify_certificate_chain",
+    "verify_emrtd",
+    "verify_jwt",
+    "verify_mdl",
+    "verify_mdoc",
+)
+for _name in _RETIRED_OPERATIONS:
+    globals().setdefault(_name, _unsupported(_name))
+
 
 def verify_open_badge_ob2(payload: dict[str, Any]) -> dict[str, Any]:
-    """
-    High-level OB2 verification with JSON handling.
-    """
-    if open_badge_ob2_verify is None:
-        raise RuntimeError("marty-verification-py not loaded")
-    
-    result_json = open_badge_ob2_verify(json.dumps(payload))
-    return json.loads(result_json)
+    return json.loads(_marty_verification.open_badge_ob2_verify(json.dumps(payload)))
 
 
 def verify_open_badge_ob3(payload: dict[str, Any]) -> dict[str, Any]:
-    """
-    High-level OB3 verification with JSON handling.
-    """
-    if open_badge_ob3_verify is None:
-        raise RuntimeError("marty-verification-py not loaded")
-    
-    result_json = open_badge_ob3_verify(json.dumps(payload))
-    return json.loads(result_json)
+    return json.loads(_marty_verification.open_badge_ob3_verify(json.dumps(payload)))
 
 
 def issue_open_badge_ob2(request: dict[str, Any]) -> dict[str, Any]:
-    """
-    High-level OB2 issuance with JSON handling.
-    """
-    if open_badge_ob2_issue is None:
-        raise RuntimeError("marty-verification-py not loaded")
-    
-    result_json = open_badge_ob2_issue(json.dumps(request))
-    return json.loads(result_json)
+    return json.loads(_marty_verification.open_badge_ob2_issue(json.dumps(request)))
 
 
 def issue_open_badge_ob3(request: dict[str, Any]) -> dict[str, Any]:
-    """
-    High-level OB3 issuance with JSON handling.
-    """
-    if open_badge_ob3_issue is None:
-        raise RuntimeError("marty-verification-py not loaded")
-    
-    result_json = open_badge_ob3_issue(json.dumps(request))
-    return json.loads(result_json)
-    """
-    Check if a specific function is available from either marty-rs or marty-verification.
-    
-    Args:
-        func_name: Name of the function to check
-        
-    Returns:
-        True if the function is available and not None
-    """
-    return globals().get(func_name) is not None
+    return json.loads(_marty_verification.open_badge_ob3_issue(json.dumps(request)))
 
 
 def get_available_functions() -> dict[str, list[str]]:
-    """
-    Get list of all available functions organized by module.
-    
-    Returns:
-        Dict with 'marty_rs' and 'marty_verification' keys, each containing list of available functions
-    """
-    marty_rs_functions = [
-        'generate_did_key', 'generate_p256_key', 'generate_p384_key', 'generate_rsa_key',
-        'create_verifiable_credential', 'create_credential_offer', 'generate_offer_uri',
-        'create_presentation', 'verify_jwt', 'generate_issuer_metadata',
-        'BitstringStatusList', 'TokenStatusList', 'create_bitstring_credential_subject',
-        'create_status_list_claim', 'check_isomdl', 'get_ssi_version',
-    ]
-    
-    marty_verification_functions = [
-        'open_badge_ob2_issue', 'open_badge_ob2_verify', 'open_badge_ob3_issue', 'open_badge_ob3_verify',
-        'parse_mrz', 'verify_mdoc', 'verify_mdl', 'verify_emrtd',
-        'build_self_signed_certificate_with_key', 'certificate_der_to_pem', 'verify_certificate_chain',
-        'verify_signature', 'hash_data',
-    ]
-    
+    """Return the loaded native public surfaces for diagnostics."""
+
     return {
-        'marty_rs': [name for name in marty_rs_functions if globals().get(name) is not None],
-        'marty_verification': [name for name in marty_verification_functions if globals().get(name) is not None],
+        "marty_rs": sorted(_MARTY_RS_EXPORTS),
+        "marty_verification": sorted(_VERIFICATION_EXPORTS),
     }
 
 
 def get_module_status() -> dict[str, bool]:
-    """
-    Get availability status of both FFI modules.
-    
-    Returns:
-        Dict with 'marty_rs' and 'marty_verification' keys indicating availability
-    """
-    return {
-        'marty_rs': _marty_rs_available,
-        'marty_verification': _marty_verification_available,
-    }
+    """Return availability after strict import and capability validation."""
 
+    return {"marty_rs": True, "marty_verification": True}
+
+
+__all__ = sorted(
+    _MARTY_RS_EXPORTS
+    | _VERIFICATION_EXPORTS
+    | set(_RETIRED_OPERATIONS)
+    | {
+        "Certificate",
+        "CertificateChainValidator",
+        "DNSName",
+        "Encoding",
+        "ExtensionNotFound",
+        "NativeBackendError",
+        "NativeBackendUnavailable",
+        "NativeOperationError",
+        "PublicFormat",
+        "RSAPublicKeyBridge",
+        "SubjectAlternativeName",
+        "UniformResourceIdentifier",
+        "get_available_functions",
+        "get_module_status",
+        "issue_open_badge_ob2",
+        "issue_open_badge_ob3",
+        "load_pem_x509_certificate",
+        "sha256",
+        "sha384",
+        "sha512",
+        "verify_open_badge_ob2",
+        "verify_open_badge_ob3",
+    }
+)
