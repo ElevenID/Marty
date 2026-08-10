@@ -35,6 +35,7 @@ def test_release_image_embeds_and_validates_native_wheels() -> None:
 
     metadata = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
     assert '"marty-common==0.2.7"' in metadata
+    assert 'marty-common = { path = "packages/marty-common" }' in metadata
 
 
 def test_ci_builds_all_native_wheels_from_an_immutable_core_revision() -> None:
