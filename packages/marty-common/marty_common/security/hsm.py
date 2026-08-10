@@ -143,17 +143,15 @@ class HSMInterface(ABC):
 
 
 class MockHSMService(HSMInterface):
-    """Mock HSM service for testing and development."""
+    """Retired compatibility class that cannot provide cryptographic results."""
 
     def __init__(self) -> None:
         self._keys: dict[str, dict[str, Any]] = {}
         self._initialized = False
 
     def initialize(self, config: dict[str, Any]) -> bool:
-        """Initialize mock HSM."""
-        logger.info("Initializing mock HSM service")
-        self._initialized = True
-        return True
+        del config
+        raise HSMOperationError("The mock HSM provider is disabled")
 
     def generate_key(
         self,
@@ -162,79 +160,34 @@ class MockHSMService(HSMInterface):
         key_size: int | None = None,
         curve_name: str | None = None,
     ) -> dict[str, Any]:
-        """Generate a mock key."""
-        if not self._initialized:
-            msg = "HSM not initialized"
-            raise HSMOperationError(msg)
-
-        if key_id in self._keys:
-            msg = f"Key {key_id} already exists"
-            raise HSMOperationError(msg)
-
-        key_info = {
-            "key_id": key_id,
-            "key_type": key_type.value,
-            "key_size": key_size,
-            "curve_name": curve_name,
-            "created_at": "2024-01-01T00:00:00Z",  # Mock timestamp
-            "status": "active",
-        }
-
-        self._keys[key_id] = key_info
-        logger.info("Generated mock key: %s", key_id)
-        return key_info
+        del key_id, key_type, key_size, curve_name
+        raise HSMOperationError("The mock HSM provider is disabled")
 
     def get_public_key(self, key_id: str) -> bytes:
-        """Get mock public key."""
-        if key_id not in self._keys:
-            msg = f"Key {key_id} not found"
-            raise HSMOperationError(msg)
-
-        # Return mock DER-encoded public key
-        return b"MOCK_PUBLIC_KEY_DER_DATA"
+        del key_id
+        raise HSMOperationError("The mock HSM provider is disabled")
 
     def sign(self, key_id: str, data: bytes, algorithm: str) -> bytes:
-        """Create mock signature."""
-        if key_id not in self._keys:
-            msg = f"Key {key_id} not found"
-            raise HSMOperationError(msg)
-
-        # Return mock signature
-        return b"MOCK_SIGNATURE_DATA"
+        del key_id, data, algorithm
+        raise HSMOperationError("The mock HSM provider is disabled")
 
     def verify(self, key_id: str, data: bytes, signature: bytes, algorithm: str) -> bool:
-        """Verify mock signature."""
-        if key_id not in self._keys:
-            msg = f"Key {key_id} not found"
-            raise HSMOperationError(msg)
-
-        # Mock verification always succeeds for correct mock signature
-        return signature == b"MOCK_SIGNATURE_DATA"
+        del key_id, data, signature, algorithm
+        raise HSMOperationError("The mock HSM provider is disabled")
 
     def delete_key(self, key_id: str) -> bool:
-        """Delete mock key."""
-        if key_id in self._keys:
-            del self._keys[key_id]
-            logger.info("Deleted mock key: %s", key_id)
-            return True
-        return False
+        del key_id
+        raise HSMOperationError("The mock HSM provider is disabled")
 
     def list_keys(self) -> list[str]:
-        """List mock keys."""
-        return list(self._keys.keys())
+        raise HSMOperationError("The mock HSM provider is disabled")
 
     def get_key_info(self, key_id: str) -> dict[str, Any]:
-        """Get mock key info."""
-        if key_id not in self._keys:
-            msg = f"Key {key_id} not found"
-            raise HSMOperationError(msg)
-
-        return self._keys[key_id].copy()
+        del key_id
+        raise HSMOperationError("The mock HSM provider is disabled")
 
 
-def create_hsm_service(
-    hsm_type: str = "mock", config: dict[str, Any] | None = None
-) -> HSMInterface:
+def create_hsm_service(hsm_type: str = "mock", config: dict[str, Any] | None = None) -> HSMInterface:
     """
     Factory function to create HSM service instance.
 
@@ -245,11 +198,7 @@ def create_hsm_service(
     Returns:
         HSM service instance
     """
+    del config
     if hsm_type == "mock":
-        service = MockHSMService()
-    else:
-        msg = f"Unsupported HSM type: {hsm_type}"
-        raise ValueError(msg)
-
-    service.initialize(config or {})
-    return service
+        raise HSMOperationError("The mock HSM provider is disabled")
+    raise HSMOperationError(f"Unsupported HSM type: {hsm_type}")

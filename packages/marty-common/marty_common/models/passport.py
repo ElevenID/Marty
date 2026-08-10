@@ -11,7 +11,7 @@ import json
 import logging
 import re
 from datetime import date, datetime
-from enum import Enum
+from enum import StrEnum
 from typing import Any, TypeVar
 from uuid import UUID, uuid4
 
@@ -44,7 +44,7 @@ def camel_to_snake_dict(d: dict) -> dict:
     return {camel_to_snake(k): v for k, v in d.items()}
 
 
-class Gender(str, Enum):
+class Gender(StrEnum):
     """Passport gender enum according to ICAO standards."""
 
     MALE = "M"
@@ -52,7 +52,7 @@ class Gender(str, Enum):
     UNSPECIFIED = "X"
 
 
-class SecurityFeature(str, Enum):
+class SecurityFeature(StrEnum):
     """Security feature types available in passports."""
 
     DIGITAL_SIGNATURE = "DIGITAL_SIGNATURE"
@@ -63,7 +63,7 @@ class SecurityFeature(str, Enum):
     IR_FEATURES = "IR_FEATURES"
 
 
-class DataGroupType(str, Enum):
+class DataGroupType(StrEnum):
     """Data Group types as defined in ICAO Doc 9303."""
 
     DG1 = "DG1"  # Machine Readable Zone (MRZ)
@@ -176,9 +176,9 @@ class SignedObject(BaseModel):
     def validate_signature_base64(cls, v):
         try:
             base64.b64decode(v)
-        except Exception:
+        except Exception as exc:
             msg = "Signature must be base64 encoded"
-            raise ValueError(msg)
+            raise ValueError(msg) from exc
         return v
 
     def to_string(self) -> str:
@@ -251,9 +251,9 @@ class PassportData(BaseModel):
             try:
                 # Check if it's a valid base64 string
                 base64.b64decode(v)
-            except Exception:
+            except Exception as exc:
                 msg = "Photo must be base64 encoded"
-                raise ValueError(msg)
+                raise ValueError(msg) from exc
             else:
                 return v
         return v
@@ -337,9 +337,9 @@ class ICaoPassport(BaseModel):
     def validate_date_format(cls, v):
         try:
             datetime.fromisoformat(v.replace("Z", "+00:00"))
-        except ValueError:
+        except ValueError as exc:
             msg = "Date must be in ISO format"
-            raise ValueError(msg)
+            raise ValueError(msg) from exc
         return v
 
     @field_validator("expiry_date")
@@ -391,9 +391,9 @@ class Passport(BaseModel):
             try:
                 # Check if it's a valid base64 string
                 base64.b64decode(v)
-            except Exception:
+            except Exception as exc:
                 msg = "Chip content must be base64 encoded if provided as string"
-                raise ValueError(msg)
+                raise ValueError(msg) from exc
             else:
                 return v
         return v
@@ -470,64 +470,10 @@ class Passport(BaseModel):
         Returns:
             bool: True if the SOD certificate is valid and trusted, False otherwise
         """
-        try:
-            if not self.security_object:
-                logger.warning("No SOD present in passport data")
-                return False
-
-            # First try to use our SOD parser for enhanced validation
-            try:
-                from marty_common.crypto.sod_parser import SODProcessor
-
-                processor = SODProcessor()
-                sod = processor.parse_sod_data(self.security_object)
-
-                if sod:
-                    # Extract SOD information for validation
-                    sod_info = processor.extract_sod_info(sod)
-
-                    logger.info("SOD certificate validation using enhanced parser")
-                    logger.info(f"SOD content type: {sod_info.get('content_type', 'unknown')}")
-                    logger.info(f"Has certificate: {sod_info.get('has_certificate', False)}")
-
-                    # Basic structural validation passed
-                    if sod_info.get("has_certificate"):
-                        logger.info("SOD contains certificate - structure validation passed")
-                        # In a full implementation, this would verify certificate chain
-                        # against CSCA (Country Signing Certificate Authority) roots
-                        return True
-                    logger.warning("SOD does not contain certificate")
-                    return False
-                logger.warning("SOD parsing failed, falling back to basic validation")
-
-            except ImportError:
-                logger.warning("SOD parser not available, falling back to certificate service")
-
-            # Try to use the certificate validation service
-            try:
-                from marty_common.services.certificate_validation import (
-                    validate_sod_certificate,
-                )
-
-                return validate_sod_certificate(self.security_object)
-            except ImportError:
-                logger.warning("Certificate validation service not available")
-
-            # Fallback to basic validation
-            logger.info("Using basic SOD validation")
-            if isinstance(self.security_object, str):
-                # Basic checks for valid SOD format
-                if self.security_object == "UNSIGNED.0" or not self.security_object.strip():
-                    logger.warning("SOD is unsigned or empty")
-                    return False
-                # Additional basic validations could be added here
-                return len(self.security_object) > 10  # Reasonable minimum length
-
-            return bool(self.security_object)
-
-        except Exception:
-            logger.exception("SOD certificate verification failed")
+        if not self.security_object:
             return False
+        logger.warning("SOD trust validation requires explicit CSCA trust anchors; failing closed")
+        return False
 
     def verify_data_group_integrity(self) -> bool:
         """
@@ -547,26 +493,14 @@ class Passport(BaseModel):
             # Import the new data group hash verification service
             from marty_common.crypto.data_group_hasher import verify_passport_data_groups
 
-            # Convert security_object to appropriate format
-            if isinstance(self.security_object, str):
-                # Handle string format (hex or base64)
-                sod_data = self.security_object
-            else:
-                # Handle other formats (should be converted to string/bytes)
-                sod_data = str(self.security_object)
+            if not isinstance(self.security_object, (str, bytes)):
+                logger.warning("SOD must be encoded as bytes, hexadecimal, or base64")
+                return False
 
-            # Prepare data groups for verification
-            # Convert DataGroup objects to dictionary format for verification
-            dg_dict = {}
-            for dg_key, dg_obj in self.data_groups.items():
-                if hasattr(dg_obj, "model_dump"):
-                    # Use Pydantic model serialization for consistent hashing
-                    dg_dict[f"DG{dg_key}"] = dg_obj
-                else:
-                    dg_dict[f"DG{dg_key}"] = dg_obj
+            dg_dict = {str(dg_key): dg_obj.data for dg_key, dg_obj in self.data_groups.items()}
 
             # Perform verification using the new service
-            success, errors, details = verify_passport_data_groups(sod_data, dg_dict)
+            success, errors, details = verify_passport_data_groups(self.security_object, dg_dict)
 
             if not success:
                 logger.warning(f"Data group integrity verification failed: {'; '.join(errors)}")
@@ -577,11 +511,6 @@ class Passport(BaseModel):
                 f"Verified {details.get('data_groups_verified', 0)} data groups "
                 f"using {details.get('hash_algorithm', 'unknown')} algorithm."
             )
-        except ImportError:
-            logger.warning("Data group hash verification service not available, using fallback")
-            # Fallback to basic validation
-            required_dgs = ["DG1"]  # At minimum, DG1 (MRZ) should be present
-            return all(dg_type in self.data_groups for dg_type in required_dgs)
         except Exception:
             logger.exception("Data group integrity verification failed")
             return False
@@ -598,19 +527,8 @@ class Passport(BaseModel):
         Returns:
             bool: True if active authentication succeeds, False otherwise
         """
-        try:
-            # In a full implementation, this would:
-            # 1. Generate a random challenge
-            # 2. Send the challenge to the passport chip
-            # 3. Receive and verify the cryptographic response
-            # 4. Validate the response using the chip's public key
-
-            # For now, simulate successful authentication if chip content exists
-            # This is a placeholder that needs RFID communication and cryptographic verification
-            return self.chip_content is not None
-
-        except Exception:
-            return False
+        logger.warning("Active authentication requires a native chip-session verifier; failing closed")
+        return False
 
     def read_data_groups(self) -> bool:
         """
@@ -622,33 +540,8 @@ class Passport(BaseModel):
         Returns:
             bool: True if data groups were successfully read, False otherwise
         """
-        try:
-            # In a full implementation, this would:
-            # 1. Establish RFID communication with the passport chip
-            # 2. Perform Basic Access Control (BAC) or Password Authenticated Connection Establishment (PACE)
-            # 3. Read each data group from the chip
-            # 4. Decode the ASN.1 encoded data
-            # 5. Populate the data_groups dictionary
-
-            # For now, simulate reading if MRZ is available (needed for BAC)
-            if self.mrz:
-                # Create a basic DG1 from MRZ if not already present
-                if "DG1" not in self.data_groups:
-                    dg1 = DataGroup(
-                        type=DataGroupType.DG1,
-                        data=self.mrz.encode("utf-8"),
-                        hash_algorithm="SHA-256",
-                    )
-                    self.add_data_group(dg1)
-                    result = True
-                else:
-                    result = True
-            else:
-                result = False
-        except Exception:
-            return False
-        else:
-            return result
+        logger.warning("RFID data-group reading requires a native chip transport; failing closed")
+        return False
 
     @classmethod
     def from_dict(cls, data: dict) -> Passport:
@@ -713,7 +606,7 @@ class VerificationResult(BaseModel):
 # =============================================================================
 
 
-class CMCSecurityModel(str, Enum):
+class CMCSecurityModel(StrEnum):
     """Security models supported for CMC documents."""
 
     CHIP_LDS = "CHIP_LDS"  # Chip with minimal LDS (DG1, DG2)
@@ -757,14 +650,9 @@ class CMCTD1MRZData(BaseModel):
 
     def generate_td1_mrz_string(self) -> str:
         """Generate TD-1 MRZ string compliant with ICAO Doc 9303."""
-        # Import here to avoid circular imports
-        try:
-            from marty_common.utils.mrz_utils import MRZFormatter
+        from marty_common.utils.mrz_utils import MRZFormatter
 
-            return MRZFormatter.generate_td1_mrz(self)
-        except ImportError:
-            # Fallback implementation if MRZFormatter doesn't exist yet
-            return f"{self.document_type}{self.issuing_country}{self.document_number}"
+        return MRZFormatter.generate_td1_mrz(self)
 
     def to_dict(self):
         """Convert to dictionary with camelCase keys."""
@@ -828,9 +716,9 @@ class CMCData(BaseModel):
         if v is not None and isinstance(v, str):
             try:
                 base64.b64decode(v)
-            except Exception:
+            except Exception as exc:
                 msg = "Face image must be base64 encoded"
-                raise ValueError(msg)
+                raise ValueError(msg) from exc
             else:
                 return v
         return v
@@ -1006,9 +894,9 @@ class CMCCertificate(BaseModel):
         if v is not None and isinstance(v, str):
             try:
                 base64.b64decode(v)
-            except Exception:
+            except Exception as exc:
                 msg = "Chip content must be base64 encoded if provided as string"
-                raise ValueError(msg)
+                raise ValueError(msg) from exc
             else:
                 return v
         return v

@@ -77,8 +77,121 @@ def test_trust_api_contains_no_synthetic_success_or_signature() -> None:
 
 def test_pkd_offline_verifier_does_not_log_certificate_record_values() -> None:
     source = (
-        ROOT
-        / "src/marty_plugin/pkd_service/app/services/offline_verifier.py"
+        ROOT / "src/marty_plugin/pkd_service/app/services/offline_verifier.py"
     ).read_text(encoding="utf-8")
 
-    assert 'logger.warning("Skipping invalid CSCA %s: %s", item.get("id"), exc)' not in source
+    assert (
+        'logger.warning("Skipping invalid CSCA %s: %s", item.get("id"), exc)'
+        not in source
+    )
+
+
+def test_document_and_dtc_compatibility_paths_cannot_report_synthetic_success() -> None:
+    service_clients = (
+        ROOT / "src/marty_plugin/document_processing/app/services/service_clients.py"
+    ).read_text(encoding="utf-8")
+    dtc_service = (
+        ROOT / "src/marty_plugin/dtc_engine/src/dtc_engine_service.py"
+    ).read_text(encoding="utf-8")
+    cmc_lds = (
+        ROOT / "packages/marty-common/marty_common/lds/cmc_lds_impl.py"
+    ).read_text(encoding="utf-8")
+
+    assert '"valid": True, "checksums_valid": True' not in service_clients
+    assert '"signature_valid": True, "trusted": True' not in service_clients
+    assert "mock backend is disabled" in service_clients
+    assert "signer_id as a public key placeholder" not in dtc_service
+    assert "Rust DTC verification failed; falling back" not in dtc_service
+    assert "mock_signature" not in cmc_lds
+    assert "requires a native or remote document-signer adapter" in cmc_lds
+
+
+def test_legacy_emrtd_and_vds_paths_fail_closed() -> None:
+    passport = (
+        ROOT / "packages/marty-common/marty_common/models/passport.py"
+    ).read_text()
+    cmc = (
+        ROOT / "packages/marty-common/marty_common/verification/cmc_verification.py"
+    ).read_text()
+    vds_service = (
+        ROOT / "packages/marty-common/marty_common/vds_nc/cmc_vds_nc_service.py"
+    ).read_text()
+    vds_impl = (
+        ROOT / "packages/marty-common/marty_common/vds_nc/vds_nc_impl.py"
+    ).read_text()
+
+    assert "simulate successful authentication" not in passport
+    assert "Create a basic DG1 from MRZ" not in passport
+    assert "falling back to basic validation" not in passport
+    assert "assume not revoked if status is ACTIVE" not in cmc
+    assert "SOD signature structure is valid" not in cmc
+    assert "All data group hashes are valid" not in cmc
+    assert "initialized with test keys" not in vds_service
+    assert "generate_private_key" not in vds_impl
+    assert "cryptography.hazmat" not in vds_impl
+
+
+def test_shared_verification_kernels_do_not_import_python_cryptography() -> None:
+    native_only_paths = (
+        "crypto/certificate_validator.py",
+        "crypto/csca_trust_store.py",
+        "crypto/data_group_hasher.py",
+        "crypto/dtc_verifier.py",
+        "crypto/evidence_signing.py",
+        "crypto/sod_parser.py",
+        "crypto/sod_signer.py",
+        "crypto/vds_nc_keys.py",
+        "security/passport_crypto_validator.py",
+        "services/certificate_validation.py",
+        "utils/asn1_utils.py",
+        "utils/mrz_utils.py",
+        "vc/sd_jwt_verifier.py",
+        "verification/authenticity_verification.py",
+        "verification/cmc_verification.py",
+        "verification/trust_list_manager.py",
+    )
+    common = ROOT / "packages/marty-common/marty_common"
+    sources = "\n".join(
+        (common / relative).read_text(encoding="utf-8")
+        for relative in native_only_paths
+    )
+    vds_processor = (ROOT / "src/marty_plugin/shared/vds_nc/processor.py").read_text(
+        encoding="utf-8"
+    )
+    key_management = (
+        ROOT / "src/marty_plugin/shared/services/key_management_service.py"
+    ).read_text(encoding="utf-8")
+    legacy_vds = (ROOT / "src/marty_plugin/shared/utils/vds_nc.py").read_text(
+        encoding="utf-8"
+    )
+    visa_verification = (
+        ROOT / "src/marty_plugin/shared/services/visa_verification.py"
+    ).read_text(encoding="utf-8")
+    mrz_hardened = (common / "utils/mrz_hardened.py").read_text(encoding="utf-8")
+    mrz_enhanced = (common / "utils/mrz_enhanced.py").read_text(encoding="utf-8")
+    trust_verification = (common / "verification/trust_verification.py").read_text(
+        encoding="utf-8"
+    )
+    hsm = (common / "security/hsm.py").read_text(encoding="utf-8")
+
+    assert "from cryptography" not in sources
+    assert "import cryptography" not in sources
+    assert "from cryptography" not in vds_processor
+    assert "load_private_key_pem" in vds_processor
+    assert "from cryptography" not in key_management
+    assert "import cryptography" not in key_management
+    assert "_generate_ec_key_python" not in key_management
+    assert "PKCS#12 serialization is not exposed" in key_management
+    assert "from cryptography" not in legacy_vds
+    assert "load_public_key_pem" in legacy_vds
+    assert '"signature_valid": True' not in visa_verification
+    assert "MRZParser._parse" in mrz_hardened
+    assert "def _parse_td" not in mrz_hardened
+    assert "NativeMRZParser._parse" in mrz_enhanced
+    assert "Mock Certificate" not in trust_verification
+    assert "simulated" not in trust_verification
+    assert "NativeChainValidator" in trust_verification
+    assert "verify_sod_signature" in trust_verification
+    assert "MOCK_PUBLIC_KEY_DER_DATA" not in hsm
+    assert "MOCK_SIGNATURE_DATA" not in hsm
+    assert "The mock HSM provider is disabled" in hsm

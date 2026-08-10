@@ -14,19 +14,12 @@ All private key operations are wrapped through providers to ensure:
 
 from __future__ import annotations
 
-import asyncio
-import json
 import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from enum import Enum
-from typing import Any, Dict, List, Optional, Protocol, Union
-
-from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.hazmat.primitives.asymmetric import ec, padding, rsa
-from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
-from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+from typing import Any
 
 from .role_separation import (
     CryptoRole,
@@ -83,7 +76,7 @@ class KeyMaterial:
         """Check if the key has expired."""
         if self.expires_at is None:
             return False
-        return datetime.now(timezone.utc) > self.expires_at
+        return datetime.now(UTC) > self.expires_at
 
 
 @dataclass
@@ -104,30 +97,22 @@ class KMSProviderInterface(ABC):
     """Abstract interface for KMS/HSM providers."""
 
     @abstractmethod
-    async def generate_key(
-        self, key_identity: KeyIdentity, algorithm: str, **kwargs
-    ) -> KeyMaterial:
+    async def generate_key(self, key_identity: KeyIdentity, algorithm: str, **kwargs) -> KeyMaterial:
         """Generate a new key."""
         pass
 
     @abstractmethod
-    async def sign(
-        self, key_identity: KeyIdentity, data: bytes, algorithm: str = "SHA256"
-    ) -> bytes:
+    async def sign(self, key_identity: KeyIdentity, data: bytes, algorithm: str = "SHA256") -> bytes:
         """Sign data using the specified key."""
         pass
 
     @abstractmethod
-    async def encrypt(
-        self, key_identity: KeyIdentity, plaintext: bytes, algorithm: str = "AES-256-GCM"
-    ) -> bytes:
+    async def encrypt(self, key_identity: KeyIdentity, plaintext: bytes, algorithm: str = "AES-256-GCM") -> bytes:
         """Encrypt data using the specified key."""
         pass
 
     @abstractmethod
-    async def decrypt(
-        self, key_identity: KeyIdentity, ciphertext: bytes, algorithm: str = "AES-256-GCM"
-    ) -> bytes:
+    async def decrypt(self, key_identity: KeyIdentity, ciphertext: bytes, algorithm: str = "AES-256-GCM") -> bytes:
         """Decrypt data using the specified key."""
         pass
 
@@ -159,16 +144,9 @@ class SoftwareHSMProvider(KMSProviderInterface):
         self.storage_path = storage_path
         self.logger = logging.getLogger(f"{__name__}.SoftwareHSMProvider")
         self._keys: dict[str, KeyMaterial] = {}
-        self._private_keys: dict[str, Any] = {}  # Store actual private key objects
+        self._private_keys: dict[str, bytes] = {}
 
-        # Create storage directory
-        import os
-
-        os.makedirs(storage_path, exist_ok=True)
-
-    async def generate_key(
-        self, key_identity: KeyIdentity, algorithm: str, **kwargs
-    ) -> KeyMaterial:
+    async def generate_key(self, key_identity: KeyIdentity, algorithm: str, **kwargs) -> KeyMaterial:
         """Generate a new key pair."""
 
         # Validate role permissions
@@ -176,21 +154,15 @@ class SoftwareHSMProvider(KMSProviderInterface):
         if policy.requires_hsm() and not kwargs.get("allow_software", False):
             raise ValueError(f"Role {key_identity.role} requires hardware HSM")
 
-        # Generate key based on algorithm
+        from marty_common.crypto import generate_key_pair
+
         if algorithm.upper().startswith("RSA"):
             key_size = int(algorithm.replace("RSA", "") or "2048")
-            private_key = rsa.generate_private_key(public_exponent=65537, key_size=key_size)
+            private_key, public_key_pem = generate_key_pair("RSA", key_size)
         elif algorithm.upper().startswith("EC") or algorithm == "ES256":
-            private_key = ec.generate_private_key(ec.SECP256R1())
+            private_key, public_key_pem = generate_key_pair("EC", 256)
         else:
             raise ValueError(f"Unsupported algorithm: {algorithm}")
-
-        # Extract public key
-        public_key = private_key.public_key()
-        public_key_pem = public_key.public_bytes(
-            encoding=serialization.Encoding.PEM,
-            format=serialization.PublicFormat.SubjectPublicKeyInfo,
-        )
 
         # Create key material
         key_material = KeyMaterial(
@@ -199,7 +171,7 @@ class SoftwareHSMProvider(KMSProviderInterface):
             public_key_pem=public_key_pem,
             provider=KMSProvider.SOFTWARE_HSM,
             provider_key_id=key_identity.full_key_id,
-            created_at=datetime.now(timezone.utc),
+            created_at=datetime.now(UTC),
             metadata=kwargs,
         )
 
@@ -210,9 +182,7 @@ class SoftwareHSMProvider(KMSProviderInterface):
         self.logger.info(f"Generated key for {key_identity.role}/{key_identity.purpose}")
         return key_material
 
-    async def sign(
-        self, key_identity: KeyIdentity, data: bytes, algorithm: str = "SHA256"
-    ) -> bytes:
+    async def sign(self, key_identity: KeyIdentity, data: bytes, algorithm: str = "SHA256") -> bytes:
         """Sign data using the specified key."""
 
         # Validate operation
@@ -222,30 +192,22 @@ class SoftwareHSMProvider(KMSProviderInterface):
         if not private_key:
             raise ValueError(f"Key not found: {key_identity.full_key_id}")
 
-        # Sign based on key type
-        if isinstance(private_key, rsa.RSAPrivateKey):
-            hash_alg = hashes.SHA256()
-            signature = private_key.sign(data, padding.PKCS1v15(), hash_alg)
-        elif isinstance(private_key, ec.EllipticCurvePrivateKey):
-            hash_alg = hashes.SHA256()
-            signature = private_key.sign(data, ec.ECDSA(hash_alg))
-        else:
-            raise ValueError("Unsupported key type for signing")
+        key_material = self._keys[key_identity.full_key_id]
+        from marty_common.crypto import sign_data
+
+        signing_algorithm = "ES256" if key_material.algorithm.upper().startswith(("EC", "ES")) else "RS256"
+        signature = sign_data(data, private_key, signing_algorithm)
 
         self.logger.debug(f"Signed data with key {key_identity.full_key_id}")
         return signature
 
-    async def encrypt(
-        self, key_identity: KeyIdentity, plaintext: bytes, algorithm: str = "AES-256-GCM"
-    ) -> bytes:
+    async def encrypt(self, key_identity: KeyIdentity, plaintext: bytes, algorithm: str = "AES-256-GCM") -> bytes:
         """Encrypt data using the specified key."""
         # For this implementation, we'll use the key to derive an encryption key
         # In a real HSM, this would be handled internally
         raise NotImplementedError("Encryption not implemented in SoftwareHSM")
 
-    async def decrypt(
-        self, key_identity: KeyIdentity, ciphertext: bytes, algorithm: str = "AES-256-GCM"
-    ) -> bytes:
+    async def decrypt(self, key_identity: KeyIdentity, ciphertext: bytes, algorithm: str = "AES-256-GCM") -> bytes:
         """Decrypt data using the specified key."""
         raise NotImplementedError("Decryption not implemented in SoftwareHSM")
 
@@ -286,9 +248,7 @@ class FileBasedProvider(KMSProviderInterface):
         self.logger = logging.getLogger(f"{__name__}.FileBasedProvider")
         # Implementation would extend existing FileKeyVaultClient
 
-    async def generate_key(
-        self, key_identity: KeyIdentity, algorithm: str, **kwargs
-    ) -> KeyMaterial:
+    async def generate_key(self, key_identity: KeyIdentity, algorithm: str, **kwargs) -> KeyMaterial:
         # Implementation using existing FileKeyVaultClient logic
         raise NotImplementedError("FileBasedProvider not fully implemented")
 
@@ -337,9 +297,7 @@ class KMSManager:
             return key_material
 
         except Exception as e:
-            await self._log_operation(
-                KeyOperation.GENERATE, key_identity, success=False, error_message=str(e)
-            )
+            await self._log_operation(KeyOperation.GENERATE, key_identity, success=False, error_message=str(e))
             raise
 
     async def sign_with_role_validation(
@@ -376,9 +334,7 @@ class KMSManager:
             )
             raise
 
-    async def get_public_key_for_verification(
-        self, key_identity: KeyIdentity, requesting_role: CryptoRole
-    ) -> bytes:
+    async def get_public_key_for_verification(self, key_identity: KeyIdentity, requesting_role: CryptoRole) -> bytes:
         """Get public key for verification purposes."""
 
         # Public keys can be shared for verification
@@ -402,7 +358,7 @@ class KMSManager:
         """Log a key operation for audit purposes."""
 
         log_entry = KeyOperationAuditLog(
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             operation=operation,
             key_identity=key_identity,
             provider=KMSProvider.SOFTWARE_HSM,  # Get from provider
@@ -468,56 +424,3 @@ def create_kms_manager(provider_type: KMSProvider, **config) -> KMSManager:
         raise NotImplementedError(f"Provider {provider_type} not implemented yet")
 
     return KMSManager(provider)
-
-
-# Example usage
-async def example_usage():
-    """Example of using the KMS manager with role separation."""
-
-    # Create KMS manager with software HSM for development
-    kms = create_kms_manager(KMSProvider.SOFTWARE_HSM)
-
-    # Generate CSCA key (requires HSM in production)
-    csca_key = await kms.generate_key_for_role(
-        role=CryptoRole.CSCA,
-        purpose=KeyPurpose.CERTIFICATE_SIGNING,
-        key_id="csca-us-001",
-        algorithm="RSA2048",
-        issuer_identifier="US",
-        allow_software=True,  # Override HSM requirement for dev
-    )
-
-    # Generate DSC key
-    dsc_key = await kms.generate_key_for_role(
-        role=CryptoRole.DSC,
-        purpose=KeyPurpose.DOCUMENT_SIGNING,
-        key_id="dsc-us-passport-001",
-        algorithm="ES256",
-        issuer_identifier="US",
-        allow_software=True,
-    )
-
-    # Generate evidence signing key
-    evidence_key = await kms.generate_key_for_role(
-        role=CryptoRole.EVIDENCE,
-        purpose=KeyPurpose.EVIDENCE_SIGNING,
-        key_id="evidence-verifier-001",
-        algorithm="ES256",
-    )
-
-    # Example: Sign some data with DSC key
-    data_to_sign = b"Document data to be signed"
-    signature = await kms.sign_with_role_validation(
-        key_identity=dsc_key.key_identity, data=data_to_sign, requesting_role=CryptoRole.DSC
-    )
-
-    # Example: Verifier getting public key (allowed)
-    public_key = await kms.get_public_key_for_verification(
-        key_identity=dsc_key.key_identity, requesting_role=CryptoRole.VERIFIER
-    )
-
-    print(f"Generated {len(await kms.list_keys_by_role(CryptoRole.DSC))} DSC keys")
-
-
-if __name__ == "__main__":
-    asyncio.run(example_usage())

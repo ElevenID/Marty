@@ -20,26 +20,13 @@ import enum
 import json
 import logging
 import os
-import shutil
-import tempfile
 import uuid
-import zipfile
 from dataclasses import dataclass
 from typing import Any
 
-from cryptography import x509
-from cryptography.hazmat.primitives import serialization
-from cryptography.hazmat.primitives.asymmetric import ec, rsa
-from cryptography.hazmat.primitives.serialization import pkcs12
-
-# Import Rust bindings for key generation (required)
-from marty_common.crypto_bridge import (
-    generate_key as rust_generate_key,
-    rsa_generate as rust_rsa_generate,
-    ecdsa_p256_generate as rust_ecdsa_p256_generate,
-    ecdsa_p384_generate as rust_ecdsa_p384_generate,
-    ed25519_generate as rust_ed25519_generate,
-)
+from marty_common import crypto_bridge
+from marty_common.crypto_bridge import Certificate
+from marty_common.native_backends import NativeOperationError
 
 # Configure logging
 logging.basicConfig(
@@ -147,7 +134,9 @@ class KeyManagementService:
         if not os.path.exists(self.key_store_path):
             os.makedirs(self.key_store_path, exist_ok=True)
 
-        logger.info(f"Initialized Key Management Service with store at {self.key_store_path}")
+        logger.info(
+            f"Initialized Key Management Service with store at {self.key_store_path}"
+        )
         logger.info(f"HSM integration {'enabled' if use_hsm else 'disabled'}")
         logger.info("Using Rust bindings for key generation")
 
@@ -213,28 +202,41 @@ class KeyManagementService:
 
         else:
             # Generate key in software using Rust
-            private_key_pem: bytes
-            public_key_pem: bytes
-            
             if key_type == KeyType.RSA:
                 key_info["key_size"] = key_size
-                private_key_pem, public_key_pem = rust_rsa_generate(key_size)
-                
+                private_key_der, public_key_der = crypto_bridge.rsa_generate(key_size)
             elif key_type == KeyType.EC:
                 key_info["curve_name"] = curve_name
-                if curve_name == "secp256r1":
-                    private_key_pem, public_key_pem = rust_ecdsa_p256_generate()
-                elif curve_name == "secp384r1":
-                    private_key_pem, public_key_pem = rust_ecdsa_p384_generate()
-                elif curve_name == "secp521r1":
-                    # Use Python for secp521r1 as it's not in Rust yet
-                    private_key_pem, public_key_pem = self._generate_ec_key_python(curve_name)
-                else:
+                generators = {
+                    "secp256r1": (crypto_bridge.ecdsa_p256_generate, "P256"),
+                    "secp384r1": (crypto_bridge.ecdsa_p384_generate, "P384"),
+                }
+                if curve_name == "secp521r1":
+                    raise NativeOperationError(
+                        "P-521 key generation cannot be serialized by the required native backend"
+                    )
+                generator = generators.get(curve_name)
+                if generator is None:
                     msg = f"Unsupported EC curve: {curve_name}"
                     raise ValueError(msg)
+                generate, native_key_type = generator
+                private_key_raw, public_key_raw = generate()
+                private_key_der = crypto_bridge.raw_private_key_to_pkcs8(
+                    private_key_raw, native_key_type
+                )
+                public_key_der = crypto_bridge.raw_public_key_to_spki(
+                    public_key_raw, native_key_type
+                )
             else:
                 msg = f"Unsupported key type: {key_type}"
                 raise ValueError(msg)
+
+            private_key_pem = crypto_bridge.save_private_key_pem(
+                private_key_der
+            ).encode("ascii")
+            public_key_pem = crypto_bridge.save_public_key_pem(public_key_der).encode(
+                "ascii"
+            )
 
             # Save the private key
             private_key_path = os.path.join(self.key_store_path, f"{key_id}.key")
@@ -275,38 +277,6 @@ class KeyManagementService:
         with open(key_info_path) as f:
             return json.load(f)
 
-    def _generate_ec_key_python(self, curve_name: str) -> tuple[bytes, bytes]:
-        """
-        Generate EC key using Python cryptography library.
-        
-        Args:
-            curve_name: Name of the EC curve (secp256r1, secp384r1, secp521r1)
-            
-        Returns:
-            Tuple of (private_key_pem, public_key_pem) as bytes
-        """
-        if curve_name == "secp256r1":
-            curve = ec.SECP256R1()
-        elif curve_name == "secp384r1":
-            curve = ec.SECP384R1()
-        elif curve_name == "secp521r1":
-            curve = ec.SECP521R1()
-        else:
-            msg = f"Unsupported EC curve: {curve_name}"
-            raise ValueError(msg)
-
-        private_key = ec.generate_private_key(curve)
-        private_key_pem = private_key.private_bytes(
-            encoding=serialization.Encoding.PEM,
-            format=serialization.PrivateFormat.PKCS8,
-            encryption_algorithm=serialization.NoEncryption(),
-        )
-        public_key_pem = private_key.public_key().public_bytes(
-            encoding=serialization.Encoding.PEM,
-            format=serialization.PublicFormat.SubjectPublicKeyInfo,
-        )
-        return private_key_pem, public_key_pem
-
     def _save_key_info(self, key_id: str, key_info: dict[str, Any]) -> None:
         """
         Save key information to storage.
@@ -319,7 +289,9 @@ class KeyManagementService:
         with open(key_info_path, "w") as f:
             json.dump(key_info, f, indent=2)
 
-    def list_keys(self, usage: KeyUsage = None, key_type: KeyType = None) -> list[dict[str, Any]]:
+    def list_keys(
+        self, usage: KeyUsage = None, key_type: KeyType = None
+    ) -> list[dict[str, Any]]:
         """
         List all keys or filter by usage/type.
 
@@ -389,7 +361,9 @@ class KeyManagementService:
             raise KeyNotFoundException(msg)
 
         with open(private_key_path, "rb") as f:
-            return serialization.load_pem_private_key(f.read(), password=None)
+            private_key_pem = f.read()
+        crypto_bridge.load_private_key_pem(private_key_pem.decode("ascii"))
+        return private_key_pem
 
     def load_public_key(self, key_id: str):
         """
@@ -410,7 +384,9 @@ class KeyManagementService:
             raise KeyNotFoundException(msg)
 
         with open(public_key_path, "rb") as f:
-            return serialization.load_pem_public_key(f.read())
+            public_key_pem = f.read()
+        crypto_bridge.load_public_key_pem(public_key_pem.decode("ascii"))
+        return public_key_pem
 
     def export_key_as_pem(self, key_id: str, include_private: bool = False) -> bytes:
         """
@@ -434,23 +410,16 @@ class KeyManagementService:
 
         # Add audit entry
         self._add_audit_entry(
-            key_id, "key_exported", {"format": "PEM", "include_private": include_private}
+            key_id,
+            "key_exported",
+            {"format": "PEM", "include_private": include_private},
         )
 
         if include_private:
-            private_key = self.load_private_key(key_id)
-            return private_key.private_bytes(
-                encoding=serialization.Encoding.PEM,
-                format=serialization.PrivateFormat.PKCS8,
-                encryption_algorithm=serialization.NoEncryption(),
-            )
-        public_key = self.load_public_key(key_id)
-        return public_key.public_bytes(
-            encoding=serialization.Encoding.PEM,
-            format=serialization.PublicFormat.SubjectPublicKeyInfo,
-        )
+            return self.load_private_key(key_id)
+        return self.load_public_key(key_id)
 
-    def get_certificate(self, key_id: str) -> x509.Certificate | None:
+    def get_certificate(self, key_id: str) -> Certificate | None:
         """
         Get a certificate associated with a key.
 
@@ -467,7 +436,7 @@ class KeyManagementService:
         if os.path.exists(cert_path):
             with open(cert_path, "rb") as f:
                 cert_data = f.read()
-                return x509.load_pem_x509_certificate(cert_data)
+                return Certificate.from_pem(cert_data)
         return None
 
     def export_key_as_pkcs12(self, key_id: str, password: bytes) -> bytes:
@@ -484,22 +453,10 @@ class KeyManagementService:
         Raises:
             KeyNotFoundException: If the key does not exist
         """
-        private_key = self.load_private_key(key_id)
-        certificate = self.get_certificate(key_id)
-
-        if certificate is None:
-            msg = f"No certificate available for key {key_id}"
-            raise KeyManagementError(msg)
-
-        # Add audit entry
-        self._add_audit_entry(key_id, "key_exported", {"format": "PKCS12"})
-
-        return pkcs12.serialize_key_and_certificates(
-            name=key_id.encode("utf-8"),
-            key=private_key,
-            cert=certificate,
-            cas=None,
-            encryption_algorithm=serialization.BestAvailableEncryption(password),
+        del password
+        self.get_key_info(key_id)
+        raise NativeOperationError(
+            "PKCS#12 serialization is not exposed by the required native backend"
         )
 
     def set_rotation_policy(self, key_id: str, policy: KeyRotationPolicy) -> None:
@@ -521,7 +478,9 @@ class KeyManagementService:
 
         # Add audit entry
         self._add_audit_entry(
-            key_id, "rotation_policy_set", {"interval_days": policy.rotation_interval_days}
+            key_id,
+            "rotation_policy_set",
+            {"interval_days": policy.rotation_interval_days},
         )
 
         logger.info(
@@ -553,7 +512,9 @@ class KeyManagementService:
         # Get rotation policy if it exists
         rotation_policy = None
         if "rotation_policy" in old_key_info:
-            rotation_policy = KeyRotationPolicy.from_dict(old_key_info["rotation_policy"])
+            rotation_policy = KeyRotationPolicy.from_dict(
+                old_key_info["rotation_policy"]
+            )
 
         # Prepare parameters for new key
         kwargs = {"key_id": new_key_id, "key_type": key_type, "key_usage": key_usage}
@@ -563,12 +524,16 @@ class KeyManagementService:
             if rotation_policy and rotation_policy.min_key_size:
                 kwargs["key_size"] = rotation_policy.min_key_size
             else:
-                kwargs["key_size"] = old_key_info.get("key_size", self.DEFAULT_RSA_KEY_SIZE)
+                kwargs["key_size"] = old_key_info.get(
+                    "key_size", self.DEFAULT_RSA_KEY_SIZE
+                )
         elif key_type == KeyType.EC:
             if rotation_policy and rotation_policy.curve_name:
                 kwargs["curve_name"] = rotation_policy.curve_name
             else:
-                kwargs["curve_name"] = old_key_info.get("curve_name", self.DEFAULT_EC_CURVE)
+                kwargs["curve_name"] = old_key_info.get(
+                    "curve_name", self.DEFAULT_EC_CURVE
+                )
 
         # Copy over metadata and add rotation info
         metadata = old_key_info.get("metadata", {}).copy()
@@ -586,116 +551,35 @@ class KeyManagementService:
 
         # Add audit entries
         self._add_audit_entry(old_key_id, "key_rotated", {"new_key_id": new_key_id})
-        self._add_audit_entry(new_key_id, "key_created_by_rotation", {"old_key_id": old_key_id})
+        self._add_audit_entry(
+            new_key_id, "key_created_by_rotation", {"old_key_id": old_key_id}
+        )
 
         logger.info(f"Rotated key {old_key_id} to new key {new_key_id}")
 
         return new_key_info
 
-    def backup_keys(self, backup_path: str, encryption_password: bytes) -> dict[str, Any]:
-        """
-        Create an encrypted backup of all keys.
+    def backup_keys(
+        self, backup_path: str, encryption_password: bytes
+    ) -> dict[str, Any]:
+        """Reject the retired ZIP backup path, which did not encrypt key material."""
+        del backup_path, encryption_password
+        raise NativeOperationError(
+            "Encrypted key backup is unavailable without a native or HSM-backed implementation"
+        )
 
-        Args:
-            backup_path: Path to save the backup file
-            encryption_password: Password to encrypt the backup
+    def restore_keys(
+        self, backup_path: str, encryption_password: bytes
+    ) -> dict[str, Any]:
+        """Reject archives from the retired unauthenticated ZIP restore path."""
+        del backup_path, encryption_password
+        raise NativeOperationError(
+            "Encrypted key restore is unavailable without a native or HSM-backed implementation"
+        )
 
-        Returns:
-            Dictionary with backup information
-        """
-        backed_up_keys = []
-
-        # Create a temporary directory for key files
-        with tempfile.TemporaryDirectory() as temp_dir:
-            # Copy all key files to the temp directory
-            for filename in os.listdir(self.key_store_path):
-                key_id = filename.split(".")[0]
-                if key_id not in backed_up_keys and filename.endswith((".key", ".pub", ".json")):
-                    src_path = os.path.join(self.key_store_path, filename)
-                    dst_path = os.path.join(temp_dir, filename)
-                    shutil.copy2(src_path, dst_path)
-
-                    # Add key_id to the list if we haven't seen it yet
-                    if filename.endswith(".json") and key_id not in backed_up_keys:
-                        backed_up_keys.append(key_id)
-
-            # Create the backup zip file with password protection
-            with zipfile.ZipFile(backup_path, "w", zipfile.ZIP_DEFLATED) as backup_zip:
-                # Add a manifest file
-                manifest = {
-                    "backup_date": datetime.datetime.now().isoformat(),
-                    "keys": backed_up_keys,
-                }
-
-                manifest_path = os.path.join(temp_dir, "manifest.json")
-                with open(manifest_path, "w") as f:
-                    json.dump(manifest, f, indent=2)
-
-                # Add all files to the zip
-                for root, _, files in os.walk(temp_dir):
-                    for file in files:
-                        file_path = os.path.join(root, file)
-                        arcname = os.path.relpath(file_path, temp_dir)
-                        backup_zip.write(file_path, arcname)
-
-        logger.info(f"Backed up {len(backed_up_keys)} keys to {backup_path}")
-
-        return {
-            "backup_path": backup_path,
-            "backup_date": datetime.datetime.now().isoformat(),
-            "num_keys_backed_up": len(backed_up_keys),
-            "backed_up_keys": backed_up_keys,
-        }
-
-    def restore_keys(self, backup_path: str, encryption_password: bytes) -> dict[str, Any]:
-        """
-        Restore keys from a backup.
-
-        Args:
-            backup_path: Path to the backup file
-            encryption_password: Password to decrypt the backup
-
-        Returns:
-            Dictionary with restoration information
-        """
-        restored_keys = []
-
-        # Create a temporary directory to extract the backup
-        with tempfile.TemporaryDirectory() as temp_dir:
-            # Extract the backup
-            with zipfile.ZipFile(backup_path, "r") as backup_zip:
-                backup_zip.extractall(temp_dir)
-
-            # Read the manifest
-            manifest_path = os.path.join(temp_dir, "manifest.json")
-            with open(manifest_path) as f:
-                manifest = json.load(f)
-
-            # Copy key files to the key store
-            for key_id in manifest.get("keys", []):
-                key_files = [f"{key_id}.key", f"{key_id}.pub", f"{key_id}.json"]
-
-                for filename in key_files:
-                    src_path = os.path.join(temp_dir, filename)
-                    if os.path.exists(src_path):
-                        dst_path = os.path.join(self.key_store_path, filename)
-                        shutil.copy2(src_path, dst_path)
-
-                restored_keys.append(key_id)
-
-                # Add audit entry for the restored key
-                self._add_audit_entry(key_id, "key_restored", {"backup_path": backup_path})
-
-        logger.info(f"Restored {len(restored_keys)} keys from {backup_path}")
-
-        return {
-            "restored_from": backup_path,
-            "restore_date": datetime.datetime.now().isoformat(),
-            "num_keys_restored": len(restored_keys),
-            "restored_keys": restored_keys,
-        }
-
-    def _add_audit_entry(self, key_id: str, operation: str, details: dict[str, Any]) -> None:
+    def _add_audit_entry(
+        self, key_id: str, operation: str, details: dict[str, Any]
+    ) -> None:
         """
         Add an entry to the key's audit trail.
 
@@ -759,7 +643,9 @@ class KeyManagementService:
         for key_info in self.list_keys():
             if "expiry_date" in key_info:
                 try:
-                    expiry_date = datetime.datetime.fromisoformat(key_info["expiry_date"])
+                    expiry_date = datetime.datetime.fromisoformat(
+                        key_info["expiry_date"]
+                    )
 
                     # Check if key is expiring within the threshold
                     if expiry_date <= threshold_date:
@@ -769,6 +655,8 @@ class KeyManagementService:
                         expiring_keys.append(expiring_key_info)
 
                 except (ValueError, TypeError):
-                    logger.warning(f"Invalid expiry date format for key {key_info['key_id']}")
+                    logger.warning(
+                        f"Invalid expiry date format for key {key_info['key_id']}"
+                    )
 
         return expiring_keys

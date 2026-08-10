@@ -15,19 +15,17 @@ Key Features:
 
 from __future__ import annotations
 
-import hashlib
 import json
-import time
 import uuid
-from dataclasses import asdict, dataclass
-from datetime import datetime, timezone
+from dataclasses import dataclass
+from datetime import UTC, datetime
 from enum import Enum
-from typing import Any, Dict, List, Optional, Union
+from typing import Any
 
-from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.hazmat.primitives.asymmetric import ec, rsa
+from marty_common import crypto_bridge
+from marty_common.crypto import verify_signature
 
-from .kms_provider import KeyOperation, KMSManager
+from .kms_provider import KMSManager
 from .role_separation import CryptoRole, KeyIdentity, KeyPurpose, create_evidence_key_identity
 
 
@@ -195,7 +193,7 @@ class EvidenceChain:
     def _compute_evidence_hash(self, evidence: VerificationEvidence) -> str:
         """Compute SHA-256 hash of evidence data."""
         evidence_json = evidence.to_json()
-        return hashlib.sha256(evidence_json.encode("utf-8")).hexdigest()
+        return crypto_bridge.sha256(evidence_json.encode("utf-8")).hex()
 
     def get_evidence_by_id(self, evidence_id: str) -> SignedEvidence | None:
         """Find evidence by ID."""
@@ -206,11 +204,7 @@ class EvidenceChain:
 
     def get_evidence_by_correlation(self, correlation_id: str) -> list[SignedEvidence]:
         """Find all evidence with the same correlation ID."""
-        return [
-            entry
-            for entry in self.entries
-            if entry.evidence.metadata.correlation_id == correlation_id
-        ]
+        return [entry for entry in self.entries if entry.evidence.metadata.correlation_id == correlation_id]
 
 
 class EvidenceSigner:
@@ -251,7 +245,7 @@ class EvidenceSigner:
 
         # Create evidence metadata
         evidence_id = str(uuid.uuid4())
-        timestamp = datetime.now(timezone.utc)
+        timestamp = datetime.now(UTC)
 
         metadata = EvidenceMetadata(
             evidence_id=evidence_id,
@@ -274,7 +268,7 @@ class EvidenceSigner:
         )
 
         # Compute evidence hash
-        evidence_hash = hashlib.sha256(evidence.to_json().encode("utf-8")).hexdigest()
+        evidence_hash = crypto_bridge.sha256(evidence.to_json().encode("utf-8")).hex()
 
         # Sign the evidence hash
         signature = await self.kms_manager.sign_with_role_validation(
@@ -307,29 +301,12 @@ class EvidenceSigner:
                 key_identity=self.evidence_key_identity, requesting_role=CryptoRole.VERIFIER
             )
 
-            # Load public key
-            public_key = serialization.load_pem_public_key(public_key_pem)
-
-            # Verify signature
-            if isinstance(public_key, ec.EllipticCurvePublicKey):
-                public_key.verify(
-                    signed_evidence.signature,
-                    signed_evidence.evidence_hash.encode("utf-8"),
-                    ec.ECDSA(hashes.SHA256()),
-                )
-                return True
-            elif isinstance(public_key, rsa.RSAPublicKey):
-                from cryptography.hazmat.primitives.asymmetric import padding
-
-                public_key.verify(
-                    signed_evidence.signature,
-                    signed_evidence.evidence_hash.encode("utf-8"),
-                    padding.PKCS1v15(),
-                    hashes.SHA256(),
-                )
-                return True
-            else:
-                return False
+            return verify_signature(
+                signed_evidence.evidence_hash.encode("utf-8"),
+                signed_evidence.signature,
+                public_key_pem,
+                signed_evidence.signature_algorithm,
+            )
 
         except Exception:
             return False
@@ -356,9 +333,7 @@ class EvidenceSigner:
         return await self.sign_verification_outcome(
             subject=f"{actor}:{resource}",
             verification_method="audit_logging",
-            outcome=(
-                VerificationOutcome.VALID if outcome == "success" else VerificationOutcome.ERROR
-            ),
+            outcome=(VerificationOutcome.VALID if outcome == "success" else VerificationOutcome.ERROR),
             details=audit_details,
             evidence_type=EvidenceType.AUDIT_LOG_ENTRY,
             correlation_id=correlation_id,
@@ -374,7 +349,7 @@ class EvidenceSigner:
             chain_data = {
                 "chain_metadata": {
                     "total_entries": len(self.evidence_chain.entries),
-                    "export_timestamp": datetime.now(timezone.utc).isoformat(),
+                    "export_timestamp": datetime.now(UTC).isoformat(),
                     "signer_service": self.service_id,
                 },
                 "entries": [entry.to_dict() for entry in self.evidence_chain.entries],
@@ -394,9 +369,7 @@ class EvidenceVerifier:
         """Verify a single piece of signed evidence."""
         try:
             # Recompute evidence hash
-            computed_hash = hashlib.sha256(
-                signed_evidence.evidence.to_json().encode("utf-8")
-            ).hexdigest()
+            computed_hash = crypto_bridge.sha256(signed_evidence.evidence.to_json().encode("utf-8")).hex()
 
             if computed_hash != signed_evidence.evidence_hash:
                 return False
@@ -414,28 +387,12 @@ class EvidenceVerifier:
                 key_identity=evidence_key_identity, requesting_role=CryptoRole.VERIFIER
             )
 
-            # Load and verify signature
-            public_key = serialization.load_pem_public_key(public_key_pem)
-
-            if isinstance(public_key, ec.EllipticCurvePublicKey):
-                public_key.verify(
-                    signed_evidence.signature,
-                    signed_evidence.evidence_hash.encode("utf-8"),
-                    ec.ECDSA(hashes.SHA256()),
-                )
-                return True
-            elif isinstance(public_key, rsa.RSAPublicKey):
-                from cryptography.hazmat.primitives.asymmetric import padding
-
-                public_key.verify(
-                    signed_evidence.signature,
-                    signed_evidence.evidence_hash.encode("utf-8"),
-                    padding.PKCS1v15(),
-                    hashes.SHA256(),
-                )
-                return True
-
-            return False
+            return verify_signature(
+                signed_evidence.evidence_hash.encode("utf-8"),
+                signed_evidence.signature,
+                public_key_pem,
+                signed_evidence.signature_algorithm,
+            )
 
         except Exception:
             return False
@@ -465,7 +422,7 @@ async def example_document_verification_evidence(evidence_signer: EvidenceSigner
         "issuing_country": "US",
         "document_number": "123456789",
         "security_features_checked": ["mrz", "chip", "visual_security"],
-        "verification_timestamp": datetime.now(timezone.utc).isoformat(),
+        "verification_timestamp": datetime.now(UTC).isoformat(),
         "trust_anchor": "csca:us:generation:3",
     }
 

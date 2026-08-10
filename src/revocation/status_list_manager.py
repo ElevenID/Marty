@@ -217,10 +217,15 @@ class StatusListManager:
             if status not in (0, 1):
                 raise ValueError("Bitstring status values must be 0 or 1")
             status_list = self._native.BitstringStatusList.from_base64url(
-                shard.data.decode("ascii"), shard.size
+                self._bitstring_payload(shard.data), shard.size
             )
             status_list.set(index, status == 1)
-        shard.data = status_list.to_base64url().encode("ascii")
+        encoded = status_list.to_base64url().encode("ascii")
+        shard.data = (
+            b"u" + encoded
+            if shard.format == StatusListFormat.BITSTRING_STATUS_LIST
+            else encoded
+        )
 
     def _get_status_from_shard(
         self,
@@ -234,9 +239,19 @@ class StatusListManager:
             )
             return status_list.get(index)
         status_list = self._native.BitstringStatusList.from_base64url(
-            shard.data.decode("ascii"), shard.size
+            self._bitstring_payload(shard.data), shard.size
         )
         return 1 if status_list.get(index) else 0
+
+    @staticmethod
+    def _bitstring_payload(data: bytes) -> str:
+        """Remove the W3C multibase marker before passing data to Rust."""
+        encoded = data.decode("ascii")
+        if not encoded.startswith("u"):
+            raise NativeOperationError(
+                "Bitstring status list is missing its multibase prefix"
+            )
+        return encoded[1:]
 
     @staticmethod
     def _validate_shard_binding(
@@ -272,6 +287,8 @@ class StatusListManager:
         else:
             status_list = self._native.BitstringStatusList(self._shard_size)
         data = status_list.to_base64url().encode("ascii")
+        if format_type == StatusListFormat.BITSTRING_STATUS_LIST:
+            data = b"u" + data
 
         shard = StatusListShard(
             id=shard_id,

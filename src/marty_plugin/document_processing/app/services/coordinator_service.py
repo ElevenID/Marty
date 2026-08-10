@@ -27,8 +27,8 @@ from app.models.doc_models_clean import (
     Status,
     TransactionInfo,
 )
-from app.services.service_clients import service_factory
 from app.services.document_pipeline import DocumentPipeline
+from app.services.service_clients import service_factory
 from PIL import Image
 
 logger = logging.getLogger(__name__)
@@ -89,7 +89,9 @@ class DocumentProcessingCoordinator:
             metadata={"processed_images": len(request.images), "orchestrated": True},
         )
 
-    async def _process_single_image(self, image_request: Any, index: int) -> Container | None:
+    async def _process_single_image(
+        self, image_request: Any, index: int
+    ) -> Container | None:
         """Process a single image using coordinated services"""
         try:
             # Extract image data
@@ -111,15 +113,22 @@ class DocumentProcessingCoordinator:
             )
 
             # Validate MRZ if extracted
+            mrz_valid = False
             if mrz_result:
                 validation_result = await self.inspection_system.validate_mrz(
                     mrz_result.__dict__ if hasattr(mrz_result, "__dict__") else {}
                 )
                 logger.info("MRZ validation result: %s", validation_result)
+                mrz_valid = bool(
+                    validation_result.get("valid")
+                    and validation_result.get("checksums_valid")
+                )
 
             # Create status
             status = Status(
-                overallStatus=CheckResult.POSITIVE if mrz_result else CheckResult.NEGATIVE,
+                overallStatus=CheckResult.POSITIVE
+                if mrz_valid
+                else CheckResult.NEGATIVE,
                 optical=CheckResult.POSITIVE if mrz_result else CheckResult.NEGATIVE,
                 portrait=CheckResult.NOT_PERFORMED,
                 rfid=CheckResult.NOT_PERFORMED,
@@ -131,7 +140,9 @@ class DocumentProcessingCoordinator:
                 type=ContainerType.MRZ_CONTAINER,
                 list_idx=index,
                 page_idx=image_request.pageIdx or 0,
-                light=getattr(image_request.light, "value", 1) if image_request.light else 1,
+                light=getattr(image_request.light, "value", 1)
+                if image_request.light
+                else 1,
                 result_type=1,  # MRZ result type
                 Status=status,
                 mrzResult=mrz_result,
@@ -164,7 +175,9 @@ class DocumentProcessingCoordinator:
                 mrzResult=None,
             )
 
-    async def _extract_mrz_generic(self, image_data: str, mrz_region: Image.Image | None) -> MRZResult | None:
+    async def _extract_mrz_generic(
+        self, image_data: str, mrz_region: Image.Image | None
+    ) -> MRZResult | None:
         """Extract MRZ using generic/fallback methods"""
         try:
             # Delegate to the original MRZ processing logic

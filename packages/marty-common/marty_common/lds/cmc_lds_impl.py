@@ -13,12 +13,14 @@ CMC LDS Structure:
 from __future__ import annotations
 
 import base64
-import hashlib
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
-from marty_common.models.passport import CMCCertificate, DataGroup, DataGroupType
-from marty_common.utils.mrz_utils import generate_td1_mrz
 from shared.logging_config import get_logger
+
+from marty_common import crypto_bridge
+from marty_common.models.passport import CMCCertificate, DataGroup, DataGroupType
+from marty_common.native_backends import NativeOperationError
+from marty_common.utils.mrz_utils import generate_td1_mrz
 
 logger = get_logger(__name__)
 
@@ -57,7 +59,7 @@ class CMCLDSGenerator:
             dg1_data = self._create_dg1_tlv(mrz_bytes)
 
             # Calculate hash for SOD
-            dg1_hash = hashlib.sha256(dg1_data).hexdigest()
+            dg1_hash = crypto_bridge.sha256(dg1_data).hex()
 
             dg1 = DataGroup(
                 type=DataGroupType.DG1,
@@ -109,7 +111,7 @@ class CMCLDSGenerator:
             dg2_data = self._create_dg2_tlv(face_image_bytes)
 
             # Calculate hash for SOD
-            dg2_hash = hashlib.sha256(dg2_data).hexdigest()
+            dg2_hash = crypto_bridge.sha256(dg2_data).hex()
 
             dg2 = DataGroup(
                 type=DataGroupType.DG2,
@@ -127,9 +129,7 @@ class CMCLDSGenerator:
         else:
             return dg2
 
-    def generate_chip_content(
-        self, cmc_certificate: CMCCertificate, sod_data: str | None = None
-    ) -> bytes:
+    def generate_chip_content(self, cmc_certificate: CMCCertificate, sod_data: str | None = None) -> bytes:
         """Generate complete chip content for CMC certificate.
 
         Args:
@@ -240,7 +240,7 @@ class CMCLDSGenerator:
         header.append(0x01)
 
         # Creation date/time (current time in compact format)
-        now = datetime.now(tz=timezone.utc)
+        now = datetime.now(tz=UTC)
         creation_date = now.strftime("%Y%m%d%H%M%S")
         header.extend(creation_date.encode("ascii"))
 
@@ -387,9 +387,7 @@ class CMCSODGenerator:
         else:
             return sod_b64
 
-    def _create_lds_security_object(
-        self, data_groups: dict[str, DataGroup], hash_algorithm: str
-    ) -> bytes:
+    def _create_lds_security_object(self, data_groups: dict[str, DataGroup], hash_algorithm: str) -> bytes:
         """Create LDS Security Object with data group hashes.
 
         Args:
@@ -445,43 +443,10 @@ class CMCSODGenerator:
 
         return hash_oids.get(algorithm, hash_oids["SHA-256"])
 
-    def _create_cms_signed_data(
-        self, lds_security_object: bytes, signer_certificate: str | None
-    ) -> bytes:
-        """Create CMS SignedData structure.
-
-        Args:
-            lds_security_object: LDS Security Object
-            signer_certificate: Signer certificate (base64)
-
-        Returns:
-            CMS SignedData as bytes
-        """
-        # Mock CMS SignedData structure
-        # In real implementation, this would create proper CMS structure
-        cms_data = bytearray()
-
-        # CMS ContentInfo OID (signedData)
-        cms_data.extend(b"\x30\x82")  # SEQUENCE, long form length
-
-        # Content type (signedData)
-        cms_data.extend(b"\x06\x09\x2a\x86\x48\x86\xf7\x0d\x01\x07\x02")
-
-        # Content (the LDS Security Object)
-        cms_data.extend(b"\xa0\x82")  # CONTEXT [0], long form length
-        cms_data.extend(len(lds_security_object).to_bytes(2, "big"))
-        cms_data.extend(lds_security_object)
-
-        # Add mock signature (in real implementation, this would be actual signature)
-        mock_signature = b"\x00" * 256  # 256-byte mock signature
-        cms_data.extend(b"\x04\x82\x01\x00")  # OCTET STRING, 256 bytes
-        cms_data.extend(mock_signature)
-
-        # Fix length fields
-        total_length = len(cms_data) - 4  # Exclude initial SEQUENCE header
-        cms_data[2:4] = total_length.to_bytes(2, "big")
-
-        return bytes(cms_data)
+    def _create_cms_signed_data(self, lds_security_object: bytes, signer_certificate: str | None) -> bytes:
+        """Reject unsigned Python CMS construction."""
+        del lds_security_object, signer_certificate
+        raise NativeOperationError("CMC SOD creation requires a native or remote document-signer adapter")
 
 
 class CMCLDSManager:
@@ -557,9 +522,7 @@ class CMCLDSManager:
                 raise ValueError(msg)
 
             # Create LDS data
-            data_groups, sod_b64, chip_content = self.create_chip_lds_data(
-                cmc_certificate, signer_certificate
-            )
+            data_groups, sod_b64, chip_content = self.create_chip_lds_data(cmc_certificate, signer_certificate)
 
             # Update certificate with LDS data
             for dg in data_groups.values():
@@ -568,7 +531,7 @@ class CMCLDSManager:
             # Set security object and chip content
             cmc_certificate.security_object = sod_b64
             cmc_certificate.chip_content = chip_content
-            cmc_certificate.updated_at = datetime.now(tz=timezone.utc)
+            cmc_certificate.updated_at = datetime.now(tz=UTC)
 
             logger.info(f"CMC updated with LDS data: {cmc_certificate.cmc_id}")
         except Exception as e:

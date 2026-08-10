@@ -11,25 +11,26 @@ This module provides trust list management for verifiers, including:
 from __future__ import annotations
 
 import asyncio
+import base64
 import contextlib
 import json
 import logging
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from enum import Enum
 from pathlib import Path
 from typing import Any
 
 import aiohttp
-from cryptography import x509
-from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.hazmat.primitives.asymmetric import ec
-from cryptography.hazmat.primitives.asymmetric.ec import EllipticCurvePublicKey
-# Import crypto_bridge for certificate operations
+
+from marty_common import crypto_bridge
 from marty_common.crypto_bridge import (
     Certificate as CertificateBridge,
+)
+from marty_common.crypto_bridge import (
     load_pem_x509_certificate as load_pem_certificate,
 )
+from marty_common.native_backends import NativeOperationError
 
 logger = logging.getLogger(__name__)
 
@@ -66,7 +67,7 @@ class VDSNCPublicKey:
     """VDS-NC public key with metadata."""
 
     kid: str
-    public_key: EllipticCurvePublicKey
+    public_key: bytes
     issuer_country: str
     role: str
     not_before: datetime
@@ -77,7 +78,7 @@ class VDSNCPublicKey:
 
     def is_valid_now(self) -> bool:
         """Check if key is currently valid."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         return self.status in ["active", "rotating"] and self.not_before <= now <= self.not_after
 
 
@@ -85,10 +86,10 @@ class VDSNCPublicKey:
 class TrustList:
     """Unified trust list for all verification paths."""
 
-    csca_certificates: dict[str, x509.Certificate | CertificateBridge] = field(default_factory=dict)
-    dsc_certificates: dict[str, list[x509.Certificate | CertificateBridge]] = field(default_factory=dict)
+    csca_certificates: dict[str, CertificateBridge] = field(default_factory=dict)
+    dsc_certificates: dict[str, list[CertificateBridge]] = field(default_factory=dict)
     vds_nc_keys: dict[str, VDSNCPublicKey] = field(default_factory=dict)
-    last_updated: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    last_updated: datetime = field(default_factory=lambda: datetime.now(UTC))
     next_update: datetime | None = None
     source: str = ""
     signature: bytes | None = None
@@ -99,7 +100,7 @@ class TrustList:
         Returns:
             Tuple of (is_critical, status_message)
         """
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         age = now - self.last_updated
         age_hours = age.total_seconds() / 3600
 
@@ -117,7 +118,7 @@ class TrustList:
             "dsc_count": sum(len(dscs) for dscs in self.dsc_certificates.values()),
             "vds_nc_key_count": len(self.vds_nc_keys),
             "last_updated": self.last_updated.isoformat(),
-            "age_hours": (datetime.now(timezone.utc) - self.last_updated).total_seconds() / 3600,
+            "age_hours": (datetime.now(UTC) - self.last_updated).total_seconds() / 3600,
         }
 
 
@@ -135,23 +136,18 @@ class TrustListCache:
 
     async def save(self, trust_list: TrustList) -> None:
         """Save trust list to cache."""
-        def cert_to_pem(cert) -> str:
+
+        def cert_to_pem(cert: CertificateBridge) -> str:
             """Convert certificate to PEM string."""
-            if isinstance(cert, CertificateBridge):
-                return cert.to_pem().decode('utf-8') if isinstance(cert.to_pem(), bytes) else cert.to_pem()
-            return cert.public_bytes(serialization.Encoding.PEM).decode("utf-8")
-        
+            return crypto_bridge.certificate_der_to_pem(cert.to_der())
+
         cache_data = {
             "last_updated": trust_list.last_updated.isoformat(),
             "next_update": trust_list.next_update.isoformat() if trust_list.next_update else None,
             "source": trust_list.source,
-            "csca_certificates": {
-                country: cert_to_pem(cert)
-                for country, cert in trust_list.csca_certificates.items()
-            },
+            "csca_certificates": {country: cert_to_pem(cert) for country, cert in trust_list.csca_certificates.items()},
             "dsc_certificates": {
-                country: [cert_to_pem(cert) for cert in certs]
-                for country, certs in trust_list.dsc_certificates.items()
+                country: [cert_to_pem(cert) for cert in certs] for country, certs in trust_list.dsc_certificates.items()
             },
             "vds_nc_keys": {
                 kid: {
@@ -163,10 +159,7 @@ class TrustListCache:
                     "status": key.status,
                     "rotation_generation": key.rotation_generation,
                     "algorithm": key.algorithm,
-                    "public_key_pem": key.public_key.public_bytes(
-                        encoding=serialization.Encoding.PEM,
-                        format=serialization.PublicFormat.SubjectPublicKeyInfo,
-                    ).decode("utf-8"),
+                    "public_key_pem": crypto_bridge.save_public_key_pem(key.public_key),
                 }
                 for kid, key in trust_list.vds_nc_keys.items()
             },
@@ -203,28 +196,24 @@ class TrustListCache:
             # Parse DSC certificates using crypto_bridge
             dsc_certs: dict[str, list[CertificateBridge]] = {}
             for country, pem_list in cache_data.get("dsc_certificates", {}).items():
-                dsc_certs[country] = [
-                    load_pem_certificate(pem.encode("utf-8")) for pem in pem_list
-                ]
+                dsc_certs[country] = [load_pem_certificate(pem.encode("utf-8")) for pem in pem_list]
 
             # Parse VDS-NC keys
             vds_nc_keys = {}
             for kid, key_data in cache_data.get("vds_nc_keys", {}).items():
                 public_key_pem = key_data["public_key_pem"]
-                public_key = serialization.load_pem_public_key(public_key_pem.encode("utf-8"))
-
-                if isinstance(public_key, EllipticCurvePublicKey):
-                    vds_nc_keys[kid] = VDSNCPublicKey(
-                        kid=key_data["kid"],
-                        public_key=public_key,
-                        issuer_country=key_data["issuer_country"],
-                        role=key_data["role"],
-                        not_before=datetime.fromisoformat(key_data["not_before"]),
-                        not_after=datetime.fromisoformat(key_data["not_after"]),
-                        status=key_data["status"],
-                        rotation_generation=key_data["rotation_generation"],
-                        algorithm=key_data.get("algorithm", "ES256"),
-                    )
+                public_key = bytes(crypto_bridge.load_public_key_pem(public_key_pem))
+                vds_nc_keys[kid] = VDSNCPublicKey(
+                    kid=key_data["kid"],
+                    public_key=public_key,
+                    issuer_country=key_data["issuer_country"],
+                    role=key_data["role"],
+                    not_before=datetime.fromisoformat(key_data["not_before"]),
+                    not_after=datetime.fromisoformat(key_data["not_after"]),
+                    status=key_data["status"],
+                    rotation_generation=key_data["rotation_generation"],
+                    algorithm=key_data.get("algorithm", "ES256"),
+                )
 
             trust_list = TrustList(
                 csca_certificates=csca_certs,
@@ -232,16 +221,12 @@ class TrustListCache:
                 vds_nc_keys=vds_nc_keys,
                 last_updated=datetime.fromisoformat(cache_data["last_updated"]),
                 next_update=(
-                    datetime.fromisoformat(cache_data["next_update"])
-                    if cache_data.get("next_update")
-                    else None
+                    datetime.fromisoformat(cache_data["next_update"]) if cache_data.get("next_update") else None
                 ),
                 source=cache_data.get("source", ""),
             )
 
-            logger.info(
-                f"Loaded trust list from cache (age: {trust_list.get_stats()['age_hours']:.1f} hours)"
-            )
+            logger.info(f"Loaded trust list from cache (age: {trust_list.get_stats()['age_hours']:.1f} hours)")
 
         except Exception as e:
             logger.exception(f"Failed to load trust list from cache: {e}")
@@ -278,30 +263,29 @@ class PKDClient:
             else f"{self.pkd_base_url}/api/v1/pkd/vds-nc-keys/all"
         )
 
-        async with aiohttp.ClientSession(timeout=self.timeout) as session:
-            async with session.get(url) as response:
-                response.raise_for_status()
-                data = await response.json()
+        async with aiohttp.ClientSession(timeout=self.timeout) as session, session.get(url) as response:
+            response.raise_for_status()
+            data = await response.json()
 
-                vds_nc_keys = {}
-                for key_jwk in data.get("keys", []):
-                    # Convert JWK to public key
-                    public_key = self._jwk_to_public_key(key_jwk)
+            vds_nc_keys = {}
+            for key_jwk in data.get("keys", []):
+                # Convert JWK to public key
+                public_key = self._jwk_to_public_key(key_jwk)
 
-                    vds_nc_keys[key_jwk["kid"]] = VDSNCPublicKey(
-                        kid=key_jwk["kid"],
-                        public_key=public_key,
-                        issuer_country=key_jwk["issuer"],
-                        role=key_jwk["role"],
-                        not_before=datetime.fromisoformat(key_jwk["not_before"]),
-                        not_after=datetime.fromisoformat(key_jwk["not_after"]),
-                        status=key_jwk["status"],
-                        rotation_generation=key_jwk["rotation_generation"],
-                        algorithm=key_jwk.get("alg", "ES256"),
-                    )
+                vds_nc_keys[key_jwk["kid"]] = VDSNCPublicKey(
+                    kid=key_jwk["kid"],
+                    public_key=public_key,
+                    issuer_country=key_jwk["issuer"],
+                    role=key_jwk["role"],
+                    not_before=datetime.fromisoformat(key_jwk["not_before"]),
+                    not_after=datetime.fromisoformat(key_jwk["not_after"]),
+                    status=key_jwk["status"],
+                    rotation_generation=key_jwk["rotation_generation"],
+                    algorithm=key_jwk.get("alg", "ES256"),
+                )
 
-                logger.info(f"Fetched {len(vds_nc_keys)} VDS-NC keys from PKD")
-                return vds_nc_keys
+            logger.info(f"Fetched {len(vds_nc_keys)} VDS-NC keys from PKD")
+            return vds_nc_keys
 
     async def fetch_vds_nc_key_by_kid(self, kid: str) -> VDSNCPublicKey | None:
         """Fetch single VDS-NC key by KID.
@@ -315,55 +299,41 @@ class PKDClient:
         url = f"{self.pkd_base_url}/api/v1/pkd/vds-nc-keys/key/{kid}"
 
         try:
-            async with aiohttp.ClientSession(timeout=self.timeout) as session:
-                async with session.get(url) as response:
-                    if response.status == 404:
-                        return None
+            async with aiohttp.ClientSession(timeout=self.timeout) as session, session.get(url) as response:
+                if response.status == 404:
+                    return None
 
-                    response.raise_for_status()
-                    key_jwk = await response.json()
+                response.raise_for_status()
+                key_jwk = await response.json()
 
-                    public_key = self._jwk_to_public_key(key_jwk)
+                public_key = self._jwk_to_public_key(key_jwk)
 
-                    return VDSNCPublicKey(
-                        kid=key_jwk["kid"],
-                        public_key=public_key,
-                        issuer_country=key_jwk["issuer"],
-                        role=key_jwk["role"],
-                        not_before=datetime.fromisoformat(key_jwk["not_before"]),
-                        not_after=datetime.fromisoformat(key_jwk["not_after"]),
-                        status=key_jwk["status"],
-                        rotation_generation=key_jwk["rotation_generation"],
-                        algorithm=key_jwk.get("alg", "ES256"),
-                    )
+                return VDSNCPublicKey(
+                    kid=key_jwk["kid"],
+                    public_key=public_key,
+                    issuer_country=key_jwk["issuer"],
+                    role=key_jwk["role"],
+                    not_before=datetime.fromisoformat(key_jwk["not_before"]),
+                    not_after=datetime.fromisoformat(key_jwk["not_after"]),
+                    status=key_jwk["status"],
+                    rotation_generation=key_jwk["rotation_generation"],
+                    algorithm=key_jwk.get("alg", "ES256"),
+                )
         except Exception as e:
             logger.exception(f"Failed to fetch VDS-NC key {kid}: {e}")
             return None
 
-    def _jwk_to_public_key(self, jwk: dict[str, Any]) -> EllipticCurvePublicKey:
-        """Convert JWK to EC public key."""
-        import base64
-
+    def _jwk_to_public_key(self, jwk: dict[str, Any]) -> bytes:
+        """Convert a P-256 JWK to native SPKI DER."""
         if jwk["kty"] != "EC" or jwk["crv"] != "P-256":
             msg = f"Unsupported key type: {jwk['kty']}/{jwk.get('crv')}"
             raise ValueError(msg)
 
-        # Decode coordinates
-        x_bytes = base64.urlsafe_b64decode(jwk["x"] + "==")
-        y_bytes = base64.urlsafe_b64decode(jwk["y"] + "==")
-
-        # Convert to integers
-        x = int.from_bytes(x_bytes, "big")
-        y = int.from_bytes(y_bytes, "big")
-
-        # Create public key
-        from cryptography.hazmat.primitives.asymmetric.ec import (
-            SECP256R1,
-            EllipticCurvePublicNumbers,
+        decode = lambda value: base64.urlsafe_b64decode(  # noqa: E731
+            value + "=" * (-len(value) % 4)
         )
-
-        public_numbers = EllipticCurvePublicNumbers(x, y, SECP256R1())
-        return public_numbers.public_key()
+        raw = b"\x04" + decode(jwk["x"]) + decode(jwk["y"])
+        return bytes(crypto_bridge.raw_public_key_to_spki(raw, "P256"))
 
 
 class TrustListManager:
@@ -387,6 +357,8 @@ class TrustListManager:
         self.pkd_client = pkd_client
         self.cache = cache
         self.refresh_interval = timedelta(hours=refresh_interval_hours)
+        if trust_policy != TrustPolicy.FAIL_CLOSED:
+            raise NativeOperationError("Only fail-closed trust-list policy is supported")
         self.trust_policy = trust_policy
         self.trust_list: TrustList | None = None
         self._refresh_task: asyncio.Task | None = None
@@ -425,8 +397,8 @@ class TrustListManager:
             # Create new trust list
             new_trust_list = TrustList(
                 vds_nc_keys=vds_nc_keys,
-                last_updated=datetime.now(timezone.utc),
-                next_update=datetime.now(timezone.utc) + self.refresh_interval,
+                last_updated=datetime.now(UTC),
+                next_update=datetime.now(UTC) + self.refresh_interval,
                 source=self.pkd_client.pkd_base_url,
             )
 
@@ -505,9 +477,7 @@ class TrustListManager:
 
         return key
 
-    def verify_vds_nc_signature(
-        self, kid: str, message: bytes, signature: bytes
-    ) -> ValidationResult:
+    def verify_vds_nc_signature(self, kid: str, message: bytes, signature: bytes) -> ValidationResult:
         """Verify VDS-NC signature.
 
         Args:
@@ -532,13 +502,7 @@ class TrustListManager:
                     reason=f"Unknown VDS-NC key: {kid}",
                     security_level="strict",
                 )
-            if self.trust_policy == TrustPolicy.FAIL_OPEN:
-                return ValidationResult(
-                    valid=True,
-                    reason=f"Unknown VDS-NC key: {kid}",
-                    security_level="permissive",
-                    warnings=[f"Unknown key {kid} - verification skipped"],
-                )
+            return ValidationResult(valid=False, reason=f"Unknown VDS-NC key: {kid}")
 
         # Check key validity
         if not key.is_valid_now():
@@ -549,12 +513,17 @@ class TrustListManager:
 
         # Verify signature
         try:
-            key.public_key.verify(signature, message, ec.ECDSA(hashes.SHA256()))
-            return ValidationResult(valid=True, reason="VDS-NC signature verified")
-        except Exception as e:
-            return ValidationResult(
-                valid=False, reason=f"VDS-NC signature verification failed: {e}"
+            valid = crypto_bridge.verify_signature(
+                "ecdsa-p256-sha256",
+                key.public_key,
+                message,
+                signature,
             )
+            if valid:
+                return ValidationResult(valid=True, reason="VDS-NC signature verified")
+            return ValidationResult(valid=False, reason="VDS-NC signature is invalid")
+        except Exception as e:
+            return ValidationResult(valid=False, reason=f"VDS-NC signature verification failed: {e}")
 
     def validate_trust_list_freshness(self) -> ValidationResult:
         """Validate that trust list is not stale.

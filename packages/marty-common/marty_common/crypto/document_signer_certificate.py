@@ -14,18 +14,13 @@ that key and persists it via the shared ``CertificateRepository``.
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
-from cryptography import x509
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from marty_common.crypto_bridge import Certificate
 from marty_common.infrastructure import CertificateRepository, KeyVaultClient
-
-# Import Rust bindings for certificate building
-from _marty_verification import (
-    build_self_signed_certificate_with_key as rust_build_cert_with_key,
-    certificate_der_to_pem as rust_cert_der_to_pem,
-)
+from marty_common.native_backends import NativeOperationError, load_native_backend
 
 DOCUMENT_SIGNER_CERT_ID = "document-signer-default-dsc"
 DOCUMENT_SIGNER_SUBJECT = "CN=Document Signer,O=Marty Labs"
@@ -63,8 +58,7 @@ def _map_key_type(signing_algorithm: str) -> str:
         return "ecdsa-p384"
     elif algo_lower in ("ed25519",):
         return "ed25519"
-    # Default to RSA if unknown
-    return "rsa2048"
+    raise NativeOperationError(f"Unsupported native DSC signing algorithm: {signing_algorithm}")
 
 
 async def ensure_document_signer_certificate(
@@ -75,9 +69,9 @@ async def ensure_document_signer_certificate(
     key_id: str = DOCUMENT_SIGNER_KEY_ID,
     validity_years: int = 5,
     signing_algorithm: str = "rsa2048",
-) -> x509.Certificate:
+) -> Certificate:
     """Ensure that a DSC exists for the given signing key and return it.
-    
+
     Args:
         session: Database session for certificate storage.
         key_vault: KeyVault client for key management.
@@ -86,21 +80,21 @@ async def ensure_document_signer_certificate(
         key_id: ID of the signing key in the KeyVault.
         validity_years: Certificate validity period in years.
         signing_algorithm: Key algorithm (rsa2048, ecdsa-p256, etc.).
-    
+
     Returns:
         The DSC certificate.
     """
     repository = CertificateRepository(session)
     record = await repository.get(certificate_id)
     if record:
-        return x509.load_pem_x509_certificate(record.pem.encode("utf-8"))
+        return Certificate.from_pem(record.pem)
 
     # Make sure key material exists
     await key_vault.ensure_key(key_id, signing_algorithm)
     private_key_pem = await key_vault.load_private_key(key_id)
-    
-    now = datetime.now(timezone.utc)
-    
+
+    now = datetime.now(UTC)
+
     # Use Rust implementation for certificate building
     pem_text = _build_dsc_with_rust(
         private_key_pem=private_key_pem,
@@ -108,7 +102,7 @@ async def ensure_document_signer_certificate(
         validity_years=validity_years,
         signing_algorithm=signing_algorithm,
     )
-    certificate = x509.load_pem_x509_certificate(pem_text.encode("utf-8"))
+    certificate = Certificate.from_pem(pem_text)
 
     details = {
         "issued_at": now.isoformat(),
@@ -139,15 +133,15 @@ def _build_dsc_with_rust(
     """Build a DSC using the Rust cert_builder."""
     cn, org, country = _parse_subject_dn(subject_dn)
     key_type = _map_key_type(signing_algorithm)
-    
+
     # Decode bytes to string if needed
-    if isinstance(private_key_pem, bytes):
-        private_key_pem_str = private_key_pem.decode("utf-8")
-    else:
-        private_key_pem_str = private_key_pem
-    
-    # Build self-signed certificate with existing key
-    cert_der = rust_build_cert_with_key(
+    private_key_pem_str = private_key_pem.decode("utf-8") if isinstance(private_key_pem, bytes) else private_key_pem
+
+    native = load_native_backend(
+        "marty_verification",
+        ("build_self_signed_certificate_with_key", "certificate_der_to_pem"),
+    )
+    cert_der = native.build_self_signed_certificate_with_key(
         private_key_pem=private_key_pem_str,
         common_name=cn or "Document Signer",
         validity_days=365 * validity_years,
@@ -156,22 +150,22 @@ def _build_dsc_with_rust(
         country=country,
         organization=org,
     )
-    
+
     # Convert DER to PEM
-    pem_text = rust_cert_der_to_pem(cert_der)
+    pem_text = native.certificate_der_to_pem(cert_der)
     return pem_text
 
 
 async def get_document_signer_certificate(
     session: AsyncSession,
     certificate_id: str = DOCUMENT_SIGNER_CERT_ID,
-) -> x509.Certificate | None:
+) -> Certificate | None:
     """Fetch an existing DSC from the repository if present."""
     repository = CertificateRepository(session)
     record = await repository.get(certificate_id)
     if record is None:
         return None
-    return x509.load_pem_x509_certificate(record.pem.encode("utf-8"))
+    return Certificate.from_pem(record.pem)
 
 
 async def load_or_create_document_signer_certificate(
@@ -180,15 +174,15 @@ async def load_or_create_document_signer_certificate(
     *,
     signing_algorithm: str = "rsa2048",
     key_id: str = DOCUMENT_SIGNER_KEY_ID,
-) -> x509.Certificate:
+) -> Certificate:
     """Convenience helper that loads the DSC or provisions a new one.
-    
+
     Args:
         session: Database session for certificate storage.
         key_vault: KeyVault client for key management.
         signing_algorithm: Key algorithm (rsa2048, ecdsa-p256, etc.).
         key_id: ID of the signing key in the KeyVault.
-    
+
     Returns:
         The DSC certificate.
     """

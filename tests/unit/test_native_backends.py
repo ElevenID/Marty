@@ -49,16 +49,18 @@ def test_common_crypto_bridge_uses_shared_typed_errors_and_native_mrz() -> None:
     assert crypto_bridge.NativeBackendUnavailable is NativeBackendUnavailable
     assert crypto_bridge.compute_check_digit("L898902C3") == "6"
     assert crypto_bridge.sha256(b"abc").hex() == (
-        "ba7816bf8f01cfea414140de5dae2223"
-        "b00361a396177a9cb410ff61f20015ad"
+        "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
     )
 
 
-def test_common_crypto_bridge_retired_credential_helpers_fail_closed() -> None:
+def test_common_crypto_bridge_exposes_native_did_key_generation() -> None:
     from marty_common import crypto_bridge
 
-    with pytest.raises(NativeOperationError, match="fallback is disabled"):
-        crypto_bridge.generate_did_key()
+    did, private_jwk = crypto_bridge.generate_did_key()
+
+    assert did.startswith("did:key:")
+    assert '"kty":"OKP"' in private_jwk
+    assert '"d":' in private_jwk
 
 
 def test_common_crypto_rejects_legacy_fake_signatures_and_password_hashes() -> None:

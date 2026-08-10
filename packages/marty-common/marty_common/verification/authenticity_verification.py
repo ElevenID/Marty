@@ -392,30 +392,59 @@ class AuthenticityVerifier:
                     return {"raw_data": vds_obj}
         return None
 
-    # Verification implementation methods (placeholders for now)
     def _validate_sod_structure(self, sod_data: dict[str, Any]) -> bool:
         """Validate SOD structure."""
-        # Placeholder - would validate SOD ASN.1 structure
-        raw_data = sod_data.get("raw_data")
-        return raw_data is not None and len(str(raw_data)) > 100
+        from marty_common.crypto.sod_parser import parse_sod
+
+        try:
+            parse_sod(sod_data.get("raw_data"))
+        except Exception:
+            return False
+        return True
 
     def _verify_sod_signature(self, sod_data: dict[str, Any], options: dict[str, Any]) -> bool:
         """Verify SOD signature against issuing authority."""
-        from marty_common.native_backends import NativeOperationError
+        from marty_common.crypto.sod_parser import parse_sod
+        from marty_common.crypto.sod_signer import verify_sod_signature
 
-        raise NativeOperationError("SOD authenticity requires native verification with a configured trust anchor")
+        trust_anchors = options.get("trust_anchors") or options.get("csca_certificates")
+        if not trust_anchors:
+            return False
+        try:
+            sod = parse_sod(sod_data.get("raw_data"))
+            return verify_sod_signature(sod.der, trust_anchors)
+        except Exception:
+            return False
 
     def _verify_data_group_hashes(self, document_data: dict[str, Any] | Any, sod_data: dict[str, Any]) -> bool:
         """Verify data group hashes match SOD."""
-        from marty_common.native_backends import NativeOperationError
+        from marty_common.crypto.data_group_hasher import verify_passport_data_groups
 
-        raise NativeOperationError("Data-group authenticity requires native SOD hash verification")
+        data_groups = (
+            document_data.get("data_groups", {})
+            if isinstance(document_data, dict)
+            else getattr(document_data, "data_groups", {})
+        )
+        if not data_groups:
+            return False
+        valid, _errors, _details = verify_passport_data_groups(
+            sod_data.get("raw_data"),
+            data_groups,
+        )
+        return valid
 
     def _validate_dsc_certificate(self, dsc_data: dict[str, Any], options: dict[str, Any]) -> bool:
         """Validate DSC certificate."""
-        # Placeholder - would validate certificate chain and expiry
-        raw_data = dsc_data.get("raw_data")
-        return raw_data is not None
+        from marty_common.crypto.certificate_validator import CertificateChainValidator
+
+        trust_anchors = options.get("trust_anchors") or options.get("csca_certificates")
+        if not trust_anchors:
+            return False
+        try:
+            validator = CertificateChainValidator(trust_anchors)
+            return validator.validate_certificate_chain(dsc_data.get("raw_data")).is_valid
+        except Exception:
+            return False
 
     def _verify_vds_nc_signature(self, vds_data: dict[str, Any], options: dict[str, Any]) -> bool:
         """Verify VDS-NC signature."""

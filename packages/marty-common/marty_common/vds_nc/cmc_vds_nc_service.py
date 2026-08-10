@@ -1,80 +1,62 @@
-"""VDS-NC Integration with CMC Engine
-
-This module provides integration between the VDS-NC implementation and the CMC Engine service.
-"""
+"""Fail-closed orchestration boundary for CMC VDS-NC operations."""
 
 from __future__ import annotations
 
-from marty_common.models.passport import CMCCertificate, VDSNCBarcode
-from marty_common.vds_nc.vds_nc_impl import VDSNCGenerator, VDSNCVerifier, generate_test_key_pair
-from shared.logging_config import get_logger
+from typing import Any
 
-logger = get_logger(__name__)
+from marty_common.models.passport import CMCCertificate, VDSNCBarcode
+from marty_common.native_backends import NativeOperationError
 
 
 class CMCVDSNCService:
-    """Service for handling VDS-NC operations for CMC certificates."""
+    """Delegate VDS-NC operations to an explicitly configured native provider."""
 
-    def __init__(self) -> None:
-        """Initialize the VDS-NC service with test keys."""
-        # Generate test key pair for development
-        # In production, this would load actual signing keys
-        self.private_key, self.public_key = generate_test_key_pair()
-        self.certificate_reference = "TEST-CMC-001"
-
-        # Initialize generator and verifier
-        self.generator = VDSNCGenerator(
-            signing_key=self.private_key, certificate_reference=self.certificate_reference
-        )
-        self.verifier = VDSNCVerifier(public_keys={self.certificate_reference: self.public_key})
-
-        logger.info("CMC VDS-NC service initialized with test keys")
+    def __init__(
+        self,
+        generator: Any | None = None,
+        verifier: Any | None = None,
+        certificate_reference: str | None = None,
+    ) -> None:
+        self.generator = generator
+        self.verifier = verifier
+        self.certificate_reference = certificate_reference
 
     def generate_barcode(
-        self, cmc_certificate: CMCCertificate, signature_algorithm: str = "ES256"
+        self,
+        cmc_certificate: CMCCertificate,
+        signature_algorithm: str = "ES256",
     ) -> VDSNCBarcode:
-        """Generate VDS-NC barcode for CMC certificate.
+        if self.generator is None:
+            raise NativeOperationError("CMC VDS-NC generation requires an explicitly configured native signer")
+        return self.generator.generate_vds_nc_barcode(
+            cmc_certificate,
+            signature_algorithm,
+        )
 
-        Args:
-            cmc_certificate: CMC certificate to encode
-            signature_algorithm: Signature algorithm (default: ES256)
-
-        Returns:
-            VDS-NC barcode data
-        """
-        return self.generator.generate_vds_nc_barcode(cmc_certificate, signature_algorithm)
-
-    def verify_barcode(self, barcode_data: str) -> tuple[bool, CMCCertificate | None, list[str]]:
-        """Verify VDS-NC barcode and extract CMC data.
-
-        Args:
-            barcode_data: Complete VDS-NC barcode data string
-
-        Returns:
-            Tuple of (is_valid, cmc_certificate, error_messages)
-        """
+    def verify_barcode(
+        self,
+        barcode_data: str,
+    ) -> tuple[bool, CMCCertificate | None, list[str]]:
+        if self.verifier is None:
+            return False, None, ["CMC VDS-NC verification requires an explicitly configured native verifier"]
         return self.verifier.verify_vds_nc_barcode(barcode_data)
 
     def get_certificate_reference(self) -> str:
-        """Get the certificate reference used for signing.
-
-        Returns:
-            Certificate reference string
-        """
+        if not self.certificate_reference:
+            raise NativeOperationError("No native VDS-NC signer is configured")
         return self.certificate_reference
 
 
-# Global service instance
 _vds_nc_service: CMCVDSNCService | None = None
 
 
 def get_vds_nc_service() -> CMCVDSNCService:
-    """Get or create global VDS-NC service instance.
+    """Return the process service without creating development keys."""
 
-    Returns:
-        CMC VDS-NC service instance
-    """
     global _vds_nc_service
     if _vds_nc_service is None:
         _vds_nc_service = CMCVDSNCService()
     return _vds_nc_service
+
+
+__all__ = ["CMCVDSNCService", "get_vds_nc_service"]

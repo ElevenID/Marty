@@ -50,6 +50,24 @@ def generate_hash(data: str | bytes, algorithm: HashAlgorithm = "SHA-256") -> st
     return hash_data(payload, algorithm).hex()
 
 
+def generate_secure_random_bytes(length: int = 32) -> bytes:
+    if length <= 0:
+        raise ValueError("Length must be positive")
+    return bytes(crypto_bridge.generate_random_bytes(length))
+
+
+def generate_secure_token(length: int = 32) -> str:
+    return base64.urlsafe_b64encode(generate_secure_random_bytes(length)).decode("ascii").rstrip("=")
+
+
+def generate_secure_hex(length: int = 32) -> str:
+    return generate_secure_random_bytes(length).hex()
+
+
+def generate_nonce(length: int = 16) -> bytes:
+    return generate_secure_random_bytes(length)
+
+
 def generate_key_pair(algorithm: KeyAlgorithm = "RSA", key_size: int = 2048) -> tuple[bytes, bytes]:
     if algorithm == "RSA":
         if key_size < 2048:
@@ -170,6 +188,10 @@ __all__ = [
     "extract_sod_hashes",
     "generate_hash",
     "generate_key_pair",
+    "generate_nonce",
+    "generate_secure_hex",
+    "generate_secure_random_bytes",
+    "generate_secure_token",
     "hash_data",
     "hash_password",
     "load_sod",

@@ -20,7 +20,6 @@ from app.models.doc_models_clean import (
     TokenizedCredential,
 )
 from app.services.mrz_service import MRZProcessingService
-from cryptography.hazmat.primitives import serialization
 from marty_common.infrastructure.key_vault import (
     FileKeyVaultClient,
     KeyVaultConfig,
@@ -272,10 +271,9 @@ class PreTravelVerificationService:
         if tm:
             key = await tm.get_vds_nc_key(signer_id)
             if key:
-                public_pem = key.public_key.public_bytes(
-                    encoding=serialization.Encoding.PEM,
-                    format=serialization.PublicFormat.SubjectPublicKeyInfo,
-                ).decode("utf-8")
+                from marty_common import crypto_bridge
+
+                public_pem = crypto_bridge.save_public_key_pem(key.public_key)
                 processor.public_keys[signer_id] = public_pem
                 result = processor.verify_vds_nc_document(
                     barcode_data, verify_signature=True
