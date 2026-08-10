@@ -57,7 +57,17 @@ def test_legacy_iso_modules_contain_no_python_protocol_or_transport_kernel() -> 
 
 
 def test_trust_api_contains_no_synthetic_success_or_signature() -> None:
-    source = (ROOT / "src/marty_plugin/trust_svc/api.py").read_text(encoding="utf-8")
+    source = "\n".join(
+        path.read_text(encoding="utf-8")
+        for path in (
+            ROOT / "src/marty_plugin/trust_svc/api.py",
+            ROOT
+            / "src/marty_plugin/pkd_service/app/services/masterlist_sync_service.py",
+            ROOT / "src/marty_plugin/pkd_service/app/services/deviationlist_service.py",
+        )
+    )
 
     assert "MOCK_KMS_SIGNATURE" not in source
     assert "For now, return a mock response" not in source
+    assert "encode_raw_certificates" not in source
+    assert "Fallback to mock data" not in source

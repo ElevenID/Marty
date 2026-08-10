@@ -6,13 +6,14 @@ import asyncio
 import logging
 import os
 import tempfile
-import xml.etree.ElementTree as ET
 from datetime import datetime
 from pathlib import Path
 
 import aiohttp
 from app.core.config import settings
 from app.services.masterlist_service import MasterListService
+
+from marty_plugin.native_backends import NativeOperationError
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +46,9 @@ class MasterListSyncService:
             return
 
         self.running = True
-        logger.info(f"Starting master list sync scheduler (interval: {self.sync_interval}s)")
+        logger.info(
+            f"Starting master list sync scheduler (interval: {self.sync_interval}s)"
+        )
 
         try:
             while self.running:
@@ -95,7 +98,7 @@ class MasterListSyncService:
         elif source_type == "file":
             await self._sync_with_file(config)
         else:
-            logger.warning(f"Unknown source type: {source_type}")
+            raise ValueError(f"Unknown master-list source type: {source_type}")
 
     async def _sync_with_icao_pkd(self, config: dict) -> None:
         """
@@ -106,8 +109,7 @@ class MasterListSyncService:
         """
         url = config.get("url")
         if not url:
-            logger.error("No URL configured for ICAO PKD source")
-            return
+            raise ValueError("No URL configured for ICAO PKD source")
 
         try:
             # ICAO PKD uses special authentication
@@ -116,13 +118,15 @@ class MasterListSyncService:
             async with aiohttp.ClientSession() as session:
                 # Request the master list
                 async with session.get(
-                    url, headers=auth_headers, ssl=False if config.get("ignore_ssl") else None
+                    url,
+                    headers=auth_headers,
+                    ssl=False if config.get("ignore_ssl") else None,
                 ) as response:
                     if response.status != 200:
-                        logger.error(
-                            f"Failed to retrieve master list from ICAO PKD: {response.status}"
+                        raise RuntimeError(
+                            "Failed to retrieve master list from ICAO PKD: "
+                            f"HTTP {response.status}"
                         )
-                        return
 
                     # Save the master list to a temporary file
                     master_list_data = await response.read()
@@ -155,8 +159,7 @@ class MasterListSyncService:
         """
         url = config.get("url")
         if not url:
-            logger.error("No URL configured for national site")
-            return
+            raise ValueError("No URL configured for national site")
 
         try:
             async with aiohttp.ClientSession() as session:
@@ -165,27 +168,21 @@ class MasterListSyncService:
                     url, ssl=False if config.get("ignore_ssl") else None
                 ) as response:
                     if response.status != 200:
-                        logger.error(
-                            f"Failed to retrieve master list from national site: {response.status}"
+                        raise RuntimeError(
+                            "Failed to retrieve master list from national site: "
+                            f"HTTP {response.status}"
                         )
-                        return
 
                     # Read the response based on the format
                     format_type = config.get("format", "asn1").lower()
 
                     if format_type == "asn1":
                         master_list_data = await response.read()
-                    elif format_type == "xml":
-                        # Parse XML response
-                        xml_data = await response.text()
-                        master_list_data = self._parse_xml_master_list(xml_data, config)
-                    elif format_type == "json":
-                        # Parse JSON response
-                        json_data = await response.json()
-                        master_list_data = self._parse_json_master_list(json_data, config)
                     else:
-                        logger.error(f"Unsupported format: {format_type}")
-                        return
+                        raise NativeOperationError(
+                            "Only signed CMS/ASN.1 Master Lists are accepted; "
+                            f"received format {format_type!r}"
+                        )
 
             # Process the master list
             if master_list_data:
@@ -196,7 +193,7 @@ class MasterListSyncService:
                     f"National site sync completed: {upload_response.certificate_count} certificates processed"
                 )
             else:
-                logger.warning("No master list data obtained from national site")
+                raise NativeOperationError("The Master List source returned no data")
 
         except Exception as e:
             logger.exception(f"Error syncing with national site: {e}")
@@ -211,20 +208,20 @@ class MasterListSyncService:
         """
         file_path = config.get("path")
         if not file_path:
-            logger.error("No file path configured for file source")
-            return
+            raise ValueError("No file path configured for file source")
 
         try:
             path = Path(file_path)
             if not path.exists():
-                logger.error(f"Master list file not found: {file_path}")
-                return
+                raise FileNotFoundError(f"Master List file not found: {file_path}")
 
             with open(file_path, "rb") as file:
                 master_list_data = file.read()
 
             # Process the master list
-            upload_response = await self.master_list_service.upload_master_list(master_list_data)
+            upload_response = await self.master_list_service.upload_master_list(
+                master_list_data
+            )
             logger.info(
                 f"File sync completed: {upload_response.certificate_count} certificates processed"
             )
@@ -255,78 +252,3 @@ class MasterListSyncService:
             return {"Authorization": f"Basic {auth_string}"}
 
         return {}
-
-    def _parse_xml_master_list(self, xml_data: str, config: dict) -> bytes:
-        """
-        Parse XML master list data and convert to ASN.1 format
-
-        Args:
-            xml_data: XML master list data
-            config: Source configuration
-
-        Returns:
-            ASN.1 encoded master list
-        """
-        # This is a placeholder for XML parsing logic
-        # In a real implementation, this would parse XML according to the specific format
-        # used by the certificate authority and convert to ASN.1
-        try:
-            root = ET.fromstring(xml_data)
-            certificates = []
-
-            # Extract certificates from the XML structure
-            # This is highly dependent on the specific XML format used
-            for cert_elem in root.findall(".//Certificate"):
-                cert_data = cert_elem.text.strip()
-                if cert_data:
-                    # Convert base64 cert data to binary
-                    import base64
-
-                    cert_binary = base64.b64decode(cert_data)
-                    certificates.append(cert_binary)
-
-            # Convert to ASN.1 master list format
-            # This is a simplified placeholder
-            from app.utils.asn1_utils import ASN1Encoder
-
-            return ASN1Encoder.encode_raw_certificates(certificates)
-
-        except Exception as e:
-            logger.exception(f"Error parsing XML master list: {e}")
-            return None
-
-    def _parse_json_master_list(self, json_data: dict, config: dict) -> bytes:
-        """
-        Parse JSON master list data and convert to ASN.1 format
-
-        Args:
-            json_data: JSON master list data
-            config: Source configuration
-
-        Returns:
-            ASN.1 encoded master list
-        """
-        # This is a placeholder for JSON parsing logic
-        try:
-            certificates = []
-
-            # Extract certificates from the JSON structure
-            # This is highly dependent on the specific JSON format used
-            cert_list = json_data.get("certificates", [])
-            for cert_item in cert_list:
-                cert_data = cert_item.get("data")
-                if cert_data:
-                    # Convert base64 cert data to binary
-                    import base64
-
-                    cert_binary = base64.b64decode(cert_data)
-                    certificates.append(cert_binary)
-
-            # Convert to ASN.1 master list format
-            from app.utils.asn1_utils import ASN1Encoder
-
-            return ASN1Encoder.encode_raw_certificates(certificates)
-
-        except Exception as e:
-            logger.exception(f"Error parsing JSON master list: {e}")
-            return None

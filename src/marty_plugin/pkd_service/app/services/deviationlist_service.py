@@ -7,7 +7,7 @@ from __future__ import annotations
 import logging
 import os
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime
 
 import aiosqlite
 from app.core.config import settings
@@ -31,7 +31,9 @@ class DeviationListService:
         """Initialize with optional database connection"""
         self.db_connection = db_connection
 
-    async def get_deviation_list(self, country: str | None = None) -> DeviationListResponse:
+    async def get_deviation_list(
+        self, country: str | None = None
+    ) -> DeviationListResponse:
         """
         Retrieve Deviation List data, optionally filtered by country.
         """
@@ -53,10 +55,6 @@ class DeviationListService:
                         details=dev_dict.get("details", {}),
                     )
                 )
-        else:
-            # Fallback to mock data if database is empty
-            deviations = await self._get_deviations(country)
-
         # Get list of unique countries
         countries = list({dev.country_code for dev in deviations})
 
@@ -92,7 +90,9 @@ class DeviationListService:
             storage_path = settings.DEVIATIONLIST_PATH
             os.makedirs(storage_path, exist_ok=True)
 
-            dev_list_filename = f"deviationlist-{datetime.now().strftime('%Y%m%d%H%M%S')}.dl"
+            dev_list_filename = (
+                f"deviationlist-{datetime.now().strftime('%Y%m%d%H%M%S')}.dl"
+            )
             dev_list_path = os.path.join(storage_path, dev_list_filename)
             with open(dev_list_path, "wb") as f:
                 f.write(deviation_list_data)
@@ -135,56 +135,3 @@ class DeviationListService:
                 status=UploadStatus.ERROR,
                 deviation_count=0,
             )
-
-    async def _get_deviations(self, country: str | None = None) -> list[DeviationEntry]:
-        """
-        Helper method to get deviations.
-        This is a fallback when the database is empty.
-        """
-        # Mock implementation with sample data
-        now = datetime.now()
-        deviations = [
-            DeviationEntry(
-                id=uuid.uuid4(),
-                country_code="USA",
-                description="Signature algorithm non-compliance",
-                status=DeviationStatus.ACTIVE,
-                created=now,
-                updated=now,
-                details={
-                    "category": "SIGNATURE_ALGORITHM",
-                    "severity": "MEDIUM",
-                    "affected_documents": ["PASSPORT"],
-                },
-            ),
-            DeviationEntry(
-                id=uuid.uuid4(),
-                country_code="CAN",
-                description="Certificate validity period exceeds maximum",
-                status=DeviationStatus.ACTIVE,
-                created=now,
-                updated=now,
-                details={
-                    "category": "CERTIFICATE_VALIDITY",
-                    "severity": "LOW",
-                    "affected_documents": ["PASSPORT"],
-                },
-            ),
-            DeviationEntry(
-                id=uuid.uuid4(),
-                country_code="GBR",
-                description="Non-standard EF.SOD attributes",
-                status=DeviationStatus.RESOLVED,
-                created=now - timedelta(days=90),
-                updated=now - timedelta(days=10),
-                details={
-                    "category": "DATA_FORMAT",
-                    "severity": "LOW",
-                    "affected_documents": ["PASSPORT", "ID_CARD"],
-                },
-            ),
-        ]
-
-        if country:
-            return [dev for dev in deviations if dev.country_code == country]
-        return deviations
