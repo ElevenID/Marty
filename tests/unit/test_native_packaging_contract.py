@@ -32,6 +32,29 @@ def test_release_image_embeds_and_validates_native_wheels() -> None:
     assert "download-native-wheels.sh all" in release_workflow
 
 
+def test_ci_builds_all_native_wheels_from_an_immutable_core_revision() -> None:
+    build_script = (ROOT / "scripts" / "build-native-wheels.sh").read_text(
+        encoding="utf-8"
+    )
+    workflows = "\n".join(
+        (ROOT / ".github" / "workflows" / name).read_text(encoding="utf-8")
+        for name in ("ci.yml", "license-compliance.yml")
+    )
+
+    for package in ("marty-bindings", "marty-verification", "marty-iso18013"):
+        assert f'{package}/Cargo.toml"' in build_script
+    for distribution in ("marty_rs", "marty_verification_py", "marty_iso18013"):
+        assert f"require_one_wheel {distribution}" in build_script
+
+    assert (
+        "MARTY_CORE_REVISION: f670a8f9efa0d87c41a23eb1986348b75022a006"
+        in workflows
+    )
+    assert "repository: ElevenID/marty-core" in workflows
+    assert "ref: ${{ env.MARTY_CORE_REVISION }}" in workflows
+    assert "bash scripts/build-native-wheels.sh" in workflows
+
+
 def test_legacy_iso_modules_contain_no_python_protocol_or_transport_kernel() -> None:
     paths = [
         ROOT / "src/marty_plugin/iso18013/core.py",
