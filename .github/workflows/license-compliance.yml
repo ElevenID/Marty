@@ -92,8 +92,13 @@ jobs:
       - name: Install smart-card build dependencies
         run: sudo apt-get update && sudo apt-get install --yes libpcsclite-dev
 
+      - name: Download immutable native wheels
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash scripts/download-native-wheels.sh x86_64
+
       - name: Install project dependencies
-        run: uv sync --all-extras
+        run: uv sync --all-extras --find-links native-wheels
 
       - name: Generate dependency license inventory
         run: |
@@ -122,8 +127,13 @@ jobs:
       - name: Install smart-card build dependencies
         run: sudo apt-get update && sudo apt-get install --yes libpcsclite-dev
 
+      - name: Download immutable native wheels
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash scripts/download-native-wheels.sh x86_64
+
       - name: Install project dependencies
-        run: uv sync --all-extras
+        run: uv sync --all-extras --find-links native-wheels
 
       - name: Install cyclonedx-bom
         run: uv pip install cyclonedx-bom

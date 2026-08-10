@@ -8,8 +8,9 @@ RUN apt-get update \
 COPY pyproject.toml README.md LICENSE ./
 COPY src ./src
 COPY proto ./proto
+COPY native-wheels /native-wheels
 RUN --mount=type=cache,target=/root/.cache/pip \
-    python -m pip wheel --wheel-dir /wheels .
+    python -m pip wheel --wheel-dir /wheels --find-links=/native-wheels .
 
 FROM python:3.12-slim AS production
 ARG VERSION
@@ -28,6 +29,7 @@ RUN groupadd --system --gid 10001 marty \
 COPY --from=builder /wheels /wheels
 RUN --mount=type=cache,target=/root/.cache/pip \
     python -m pip install --no-cache-dir --no-index --find-links=/wheels marty-trust-pki-plugin \
+    && python -c "from marty_plugin.native_backends import require_native_backends; require_native_backends()" \
     && rm -rf /wheels
 WORKDIR /app
 USER 10001:10001
