@@ -9,11 +9,13 @@ def test_native_wheel_downloads_are_versioned_and_digest_verified() -> None:
         encoding="utf-8"
     )
 
-    assert "MARTY_CORE_NATIVE_TAG:-v0.1.37" in script
-    assert "MARTY_CREDENTIALS_NATIVE_TAG:-v0.1.50" in script
+    assert "MARTY_CORE_NATIVE_TAG:-v0.1.39" in script
+    assert "MARTY_CREDENTIALS_NATIVE_TAG" not in script
     assert "marty_iso18013" in script
     assert "marty_verification_py" in script
     assert "marty_rs" in script
+    assert script.count('download_and_verify ElevenID/marty-core "$core_tag"') == 3
+    assert "ElevenID/marty-credentials" not in script
     assert "actual" in script and "expected" in script
     assert "sha256:" in script
 

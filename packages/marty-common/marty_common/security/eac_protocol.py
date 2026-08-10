@@ -132,11 +132,7 @@ class EACSecureChannel:
 
     def is_established(self) -> bool:
         """Check if secure channel is properly established"""
-        return (
-            self.mac_key is not None
-            and self.encryption_key is not None
-            and self.established_at is not None
-        )
+        return self.mac_key is not None and self.encryption_key is not None and self.established_at is not None
 
 
 class EACTerminalAuthentication:
@@ -178,21 +174,11 @@ class EACTerminalAuthentication:
         self.certificate_chain = chain
         logger.info(f"Certificate chain set with {len(chain)} certificates")
 
-    def _verify_certificate_signature(
-        self, signer_cert: EACCertificate, subject_cert: EACCertificate
-    ) -> bool:
+    def _verify_certificate_signature(self, signer_cert: EACCertificate, subject_cert: EACCertificate) -> bool:
         """Verify certificate signature in the chain"""
-        try:
-            # This would normally verify the CV Certificate signature
-            # For now, we'll return True as a placeholder
-            logger.debug(
-                f"Verifying signature: {signer_cert.certificate_holder_reference} -> {subject_cert.certificate_holder_reference}"
-            )
-        except Exception as e:
-            logger.exception(f"Certificate signature verification failed: {e}")
-            return False
-        else:
-            return True
+        del signer_cert, subject_cert
+        logger.error("EAC CV certificate-chain verification is unavailable")
+        return False
 
     def perform_terminal_authentication(self, chip_challenge: bytes) -> bytes:
         """
@@ -606,9 +592,7 @@ class EACProtocol:
         self.protocol_step = EACProtocolStep.INITIAL
         self.session_log: list[dict[str, Any]] = []
 
-    def execute_eac_protocol(
-        self, chip_challenge: bytes, chip_ephemeral_public_key: bytes
-    ) -> EACSecureMessaging:
+    def execute_eac_protocol(self, chip_challenge: bytes, chip_ephemeral_public_key: bytes) -> EACSecureMessaging:
         """
         Execute complete EAC protocol
 
@@ -675,9 +659,7 @@ class EACProtocol:
             "current_step": self.protocol_step.name,
             "terminal_certificate": self.terminal_auth.terminal_certificate.get_certificate_fingerprint(),
             "secure_channel_established": (
-                self.secure_messaging.secure_channel.is_established()
-                if self.secure_messaging
-                else False
+                self.secure_messaging.secure_channel.is_established() if self.secure_messaging else False
             ),
             "session_log_entries": len(self.session_log),
             "algorithm": self.chip_auth.algorithm.value,

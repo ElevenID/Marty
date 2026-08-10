@@ -8,12 +8,13 @@ supporting both chip-based (SOD/DSC) and VDS-NC barcode verification methods.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from enum import Enum
 from typing import Any
 
-from marty_common.verification.document_detection import DocumentClass
 from marty_plugin.shared.logging_config import get_logger
+
+from marty_common.verification.document_detection import DocumentClass
 
 logger = get_logger(__name__)
 
@@ -42,7 +43,7 @@ class AuthenticityResult:
         """Set defaults after initialization."""
         if self.metadata is None:
             self.metadata = {}
-        self.timestamp = datetime.now(timezone.utc)
+        self.timestamp = datetime.now(UTC)
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary representation."""
@@ -122,9 +123,7 @@ class AuthenticityVerifier:
 
         return results
 
-    def _detect_available_methods(
-        self, document_data: dict[str, Any] | Any
-    ) -> list[AuthenticityMethod]:
+    def _detect_available_methods(self, document_data: dict[str, Any] | Any) -> list[AuthenticityMethod]:
         """Detect available authenticity verification methods."""
         methods = []
 
@@ -350,9 +349,7 @@ class AuthenticityVerifier:
     def _has_vds_nc_data(self, document_data: dict[str, Any] | Any) -> bool:
         """Check if document contains VDS-NC data."""
         if isinstance(document_data, dict):
-            return any(
-                key in document_data for key in ["vds_nc_data", "vds_nc_barcode", "barcode_data"]
-            )
+            return any(key in document_data for key in ["vds_nc_data", "vds_nc_barcode", "barcode_data"])
         return any(hasattr(document_data, attr) for attr in ["vds_nc_data", "vds_nc_barcode"])
 
     # Data extraction methods
@@ -404,17 +401,15 @@ class AuthenticityVerifier:
 
     def _verify_sod_signature(self, sod_data: dict[str, Any], options: dict[str, Any]) -> bool:
         """Verify SOD signature against issuing authority."""
-        # Placeholder - would verify cryptographic signature
-        # In real implementation, would check against CSCA certificates
-        return True  # Simplified for now
+        from marty_common.native_backends import NativeOperationError
 
-    def _verify_data_group_hashes(
-        self, document_data: dict[str, Any] | Any, sod_data: dict[str, Any]
-    ) -> bool:
+        raise NativeOperationError("SOD authenticity requires native verification with a configured trust anchor")
+
+    def _verify_data_group_hashes(self, document_data: dict[str, Any] | Any, sod_data: dict[str, Any]) -> bool:
         """Verify data group hashes match SOD."""
-        # Placeholder - would compute and compare DG hashes
-        # In real implementation, would hash DG1, DG2, etc. and compare to SOD
-        return True  # Simplified for now
+        from marty_common.native_backends import NativeOperationError
+
+        raise NativeOperationError("Data-group authenticity requires native SOD hash verification")
 
     def _validate_dsc_certificate(self, dsc_data: dict[str, Any], options: dict[str, Any]) -> bool:
         """Validate DSC certificate."""
@@ -424,25 +419,15 @@ class AuthenticityVerifier:
 
     def _verify_vds_nc_signature(self, vds_data: dict[str, Any], options: dict[str, Any]) -> bool:
         """Verify VDS-NC signature."""
-        try:
-            # Try to use existing VDS-NC verification if available
-            from marty_common.vds_nc.vds_nc_impl import VDSNCVerifier
+        from marty_common.native_backends import NativeOperationError
 
-            VDSNCVerifier()
-            # Placeholder verification call
-        except ImportError:
-            # Fallback verification
-            raw_data = vds_data.get("raw_data")
-            return raw_data is not None and len(str(raw_data)) > 50
+        raise NativeOperationError("VDS-NC authenticity requires native verification and a trusted issuer key")
 
-    def _verify_printed_vs_payload(
-        self, document_data: dict[str, Any] | Any, vds_data: dict[str, Any]
-    ) -> bool:
+    def _verify_printed_vs_payload(self, document_data: dict[str, Any] | Any, vds_data: dict[str, Any]) -> bool:
         """Verify printed document data matches VDS-NC payload."""
-        # Placeholder - would extract and compare key fields
-        # In real implementation, would decode VDS-NC payload and compare
-        # fields like name, document number, dates, etc.
-        return True  # Simplified for now
+        from marty_common.native_backends import NativeOperationError
+
+        raise NativeOperationError("Printed-to-VDS comparison requires a verified native VDS-NC result")
 
 
 # Convenience functions

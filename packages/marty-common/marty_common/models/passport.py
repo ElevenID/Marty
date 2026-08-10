@@ -312,15 +312,9 @@ class PassportData(BaseModel):
         snake_case_data = camel_to_snake_dict(data)
         # Convert date strings to date objects
         if "date_of_birth" in snake_case_data and isinstance(snake_case_data["date_of_birth"], str):
-            snake_case_data["date_of_birth"] = datetime.fromisoformat(
-                snake_case_data["date_of_birth"]
-            ).date()
-        if "date_of_expiry" in snake_case_data and isinstance(
-            snake_case_data["date_of_expiry"], str
-        ):
-            snake_case_data["date_of_expiry"] = datetime.fromisoformat(
-                snake_case_data["date_of_expiry"]
-            ).date()
+            snake_case_data["date_of_birth"] = datetime.fromisoformat(snake_case_data["date_of_birth"]).date()
+        if "date_of_expiry" in snake_case_data and isinstance(snake_case_data["date_of_expiry"], str):
+            snake_case_data["date_of_expiry"] = datetime.fromisoformat(snake_case_data["date_of_expiry"]).date()
         return cls(**snake_case_data)
 
 
@@ -709,12 +703,8 @@ class VerificationResult(BaseModel):
         """Create an instance from a dictionary with camelCase keys."""
         snake_case_data = camel_to_snake_dict(data)
         # Convert date string back to datetime
-        if "verification_date" in snake_case_data and isinstance(
-            snake_case_data["verification_date"], str
-        ):
-            snake_case_data["verification_date"] = datetime.fromisoformat(
-                snake_case_data["verification_date"]
-            )
+        if "verification_date" in snake_case_data and isinstance(snake_case_data["verification_date"], str):
+            snake_case_data["verification_date"] = datetime.fromisoformat(snake_case_data["verification_date"])
         return cls(**snake_case_data)
 
 
@@ -806,12 +796,8 @@ class CMCData(BaseModel):
     crew_id: str | None = Field(None, description="Crew member identification number")
 
     # Security and validation fields
-    security_model: CMCSecurityModel = Field(
-        CMCSecurityModel.CHIP_LDS, description="Security model used"
-    )
-    background_check_verified: bool = Field(
-        False, description="Annex 9 background check completion"
-    )
+    security_model: CMCSecurityModel = Field(CMCSecurityModel.CHIP_LDS, description="Security model used")
+    background_check_verified: bool = Field(False, description="Annex 9 background check completion")
     face_image: str | bytes | None = None  # Face image if chip present (DG2)
 
     model_config = {
@@ -905,15 +891,9 @@ class CMCData(BaseModel):
 
         # Convert date strings to date objects
         if "date_of_birth" in snake_case_data and isinstance(snake_case_data["date_of_birth"], str):
-            snake_case_data["date_of_birth"] = datetime.fromisoformat(
-                snake_case_data["date_of_birth"]
-            ).date()
-        if "date_of_expiry" in snake_case_data and isinstance(
-            snake_case_data["date_of_expiry"], str
-        ):
-            snake_case_data["date_of_expiry"] = datetime.fromisoformat(
-                snake_case_data["date_of_expiry"]
-            ).date()
+            snake_case_data["date_of_birth"] = datetime.fromisoformat(snake_case_data["date_of_birth"]).date()
+        if "date_of_expiry" in snake_case_data and isinstance(snake_case_data["date_of_expiry"], str):
+            snake_case_data["date_of_expiry"] = datetime.fromisoformat(snake_case_data["date_of_expiry"]).date()
 
         return cls(**snake_case_data)
 
@@ -927,9 +907,7 @@ class VDSNCBarcode(BaseModel):
     signature_algorithm: str = Field("ES256", description="Signature algorithm")
     certificate_reference: str = Field(..., description="Certificate reference")
     signature_creation_date: str = Field(..., description="Signature creation date (YYMMDD)")
-    signature_creation_time: str | None = Field(
-        None, description="Signature creation time (HHMMSS)"
-    )
+    signature_creation_time: str | None = Field(None, description="Signature creation time (HHMMSS)")
     cmc_data: dict = Field(..., description="CMC dataset payload")
     signature: str = Field(..., description="Digital signature")
 
@@ -984,9 +962,10 @@ class VDSNCBarcode(BaseModel):
                 public_key,
                 self.signature_algorithm,
             )
-        except ImportError:
-            # Fallback if crypto module not available
-            return True  # Simplified for demo
+        except ImportError as exc:
+            from marty_common.native_backends import NativeBackendUnavailable
+
+            raise NativeBackendUnavailable("Native VDS-NC signature verification is unavailable") from exc
 
     def _get_canonical_data(self) -> str:
         """Get canonical representation of the data for signature verification."""
@@ -1095,22 +1074,8 @@ class CMCCertificate(BaseModel):
             logger.warning("No SOD present for chip-based CMC")
             return False
 
-        # Verify SOD signature (simplified)
-        # In real implementation, this would verify against CSCA
-
-        # Verify DG1 (MRZ) matches visual MRZ
-        dg1 = self.data_groups.get("DG1")
-        if dg1 and str(dg1.data) != self.td1_mrz:
-            logger.warning("DG1 MRZ data does not match visual MRZ")
-            return False
-
-        # Verify DG2 (face image) if present
-        dg2 = self.data_groups.get("DG2")
-        if dg2 and self.cmc_data.face_image:
-            # In real implementation, compare biometric template
-            pass
-
-        return True
+        logger.warning("CMC chip verification requires native SOD trust validation")
+        return False
 
     def _verify_vds_nc_security(self) -> bool:
         """Verify VDS-NC barcode security."""
@@ -1130,8 +1095,8 @@ class CMCCertificate(BaseModel):
             logger.warning("VDS-NC surname mismatch")
             return False
 
-        # Verify signature would need issuer's public key
-        return True  # Simplified for demo
+        logger.warning("CMC VDS-NC verification requires a trusted issuer key")
+        return False
 
     def to_dict(self):
         """Convert to dictionary with custom structure."""
@@ -1169,9 +1134,7 @@ class CMCCertificate(BaseModel):
             snake_case_data["cmc_data"] = CMCData.from_dict(snake_case_data["cmc_data"])
 
         if snake_case_data.get("vds_nc_barcode"):
-            snake_case_data["vds_nc_barcode"] = VDSNCBarcode(
-                **camel_to_snake_dict(snake_case_data["vds_nc_barcode"])
-            )
+            snake_case_data["vds_nc_barcode"] = VDSNCBarcode(**camel_to_snake_dict(snake_case_data["vds_nc_barcode"]))
 
         if "data_groups" in snake_case_data:
             data_groups = {}

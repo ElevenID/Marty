@@ -1,16 +1,16 @@
 """
 Pre-travel verification and credential issuance service.
 
-This service validates basic inputs (MRZ/barcode/NFC placeholders) and, on success,
-issues a tokenized credential using SD-JWT by default or an mdoc placeholder.
-It is intentionally lightweight and leverages existing MRZ parsing utilities.
+This service validates MRZ, barcode, and NFC evidence and delegates credential
+signing to native-backed issuers. Unverified evidence and unsupported formats
+fail closed.
 """
 
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
 import os
+from dataclasses import dataclass
 from typing import Any, Optional
 
 from app.models.doc_models_clean import (
@@ -27,17 +27,18 @@ from marty_common.infrastructure.key_vault import (
     build_key_vault_client,
 )
 from marty_common.services.certificate_validation import CertificateValidationService
+from marty_common.vc.sd_jwt import (
+    SdJwtConfig,
+    SdJwtIssuanceInput,
+    SdJwtIssuer,
+)
 from marty_common.verification.trust_list_manager import (
     PKDClient,
     TrustListCache,
     TrustListManager,
     TrustPolicy,
 )
-from marty_common.vc.sd_jwt import (
-    SdJwtConfig,
-    SdJwtIssuanceInput,
-    SdJwtIssuer,
-)
+
 from marty_plugin.shared.vds_nc.processor import VDSNCProcessor
 
 logger = logging.getLogger(__name__)
@@ -58,7 +59,9 @@ class PreTravelVerificationService:
 
     def __init__(self, config: PreTravelConfig | None = None) -> None:
         self.config = config or PreTravelConfig()
-        kv_config = KeyVaultConfig(provider="file", file_path=self.config.key_vault_path)
+        kv_config = KeyVaultConfig(
+            provider="file", file_path=self.config.key_vault_path
+        )
         self.key_vault = self._ensure_key_vault(kv_config)
         self.mrz_service = MRZProcessingService()
         self.cert_validator = CertificateValidationService()
@@ -73,7 +76,9 @@ class PreTravelVerificationService:
 
             asyncio.run(kv.ensure_key("pretravel-signer", "ecdsa-p256"))  # type: ignore[attr-defined]
         except Exception:  # pragma: no cover - defensive
-            logger.exception("Failed to ensure signing key, continuing with existing state")
+            logger.exception(
+                "Failed to ensure signing key, continuing with existing state"
+            )
         return kv  # type: ignore[return-value]
 
     async def _get_trust_manager(self) -> TrustListManager | None:
@@ -82,7 +87,9 @@ class PreTravelVerificationService:
             return self._trust_manager
 
         if not self.config.pkd_base_url:
-            logger.warning("PKD base URL not configured; skipping PKD-backed verification")
+            logger.warning(
+                "PKD base URL not configured; skipping PKD-backed verification"
+            )
             return None
 
         pkd_client = PKDClient(pkd_base_url=self.config.pkd_base_url)
@@ -97,7 +104,9 @@ class PreTravelVerificationService:
             await manager.initialize()
             self._trust_manager = manager
         except Exception:  # pragma: no cover - defensive
-            logger.exception("Failed to initialize trust manager; continuing without PKD")
+            logger.exception(
+                "Failed to initialize trust manager; continuing without PKD"
+            )
             return None
         return self._trust_manager
 
@@ -105,8 +114,7 @@ class PreTravelVerificationService:
         self, request: PreTravelVerificationRequest
     ) -> PreTravelVerificationResult:
         """
-        Perform minimal verification (MRZ parsing today) and issue a token on success.
-        NFC/VDS data are accepted but currently not validated beyond presence.
+        Verify provided evidence and issue a token only after successful checks.
         """
         checks: list[str] = []
         mrz: MRZResult | None = None
@@ -162,12 +170,10 @@ class PreTravelVerificationService:
         if request.issuance_type.lower() == "sd-jwt":
             credential = await self._issue_sd_jwt(request, mrz)
         else:
-            # mdoc placeholder until full pipeline is wired
-            credential = TokenizedCredential(
-                format="mdoc",
-                token="mdoc-placeholder",
-                disclosures=None,
-                presentation_definition=self._build_presentation_definition(request),
+            from marty_common.native_backends import NativeOperationError
+
+            raise NativeOperationError(
+                "Pre-travel mDoc issuance requires a configured native mDoc issuer"
             )
 
         return PreTravelVerificationResult(
@@ -245,7 +251,9 @@ class PreTravelVerificationService:
                 {
                     "id": "pre-travel-credential",
                     "name": request.credential_type,
-                    "constraints": {"fields": [{"path": ["$.vc.credentialSubject.documentNumber"]}]},
+                    "constraints": {
+                        "fields": [{"path": ["$.vc.credentialSubject.documentNumber"]}]
+                    },
                 }
             ],
         }
@@ -269,12 +277,12 @@ class PreTravelVerificationService:
                     format=serialization.PublicFormat.SubjectPublicKeyInfo,
                 ).decode("utf-8")
                 processor.public_keys[signer_id] = public_pem
-                result = processor.verify_vds_nc_document(barcode_data, verify_signature=True)
+                result = processor.verify_vds_nc_document(
+                    barcode_data, verify_signature=True
+                )
                 return bool(result.is_valid and result.signature_valid), warnings
             warnings.append(f"No PKD key for signer {signer_id}")
             return False, warnings
 
-        # Fallback: verify structure without signature when PKD is unavailable
-        warnings.append("PKD not configured; signature not verified")
-        result = processor.verify_vds_nc_document(barcode_data, verify_signature=False)
-        return bool(result.is_valid), warnings
+        warnings.append("PKD not configured; signature verification is unavailable")
+        return False, warnings

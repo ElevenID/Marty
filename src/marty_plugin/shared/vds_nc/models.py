@@ -25,13 +25,17 @@ from .types import (
 class VDSNCHeader(BaseModel):
     """VDS-NC header structure per Doc 9303 Part 13."""
 
-    version: VDSNCVersion = Field(default=VDSNCVersion.V1_0, description="VDS-NC version")
+    version: VDSNCVersion = Field(
+        default=VDSNCVersion.V1_0, description="VDS-NC version"
+    )
     doc_type: DocumentType = Field(..., description="Document type")
     issuing_country: str = Field(
         ..., min_length=3, max_length=3, description="3-letter country code"
     )
     signer_id: str = Field(..., max_length=16, description="Signer identifier")
-    certificate_reference: str = Field(..., max_length=16, description="Certificate reference")
+    certificate_reference: str = Field(
+        ..., max_length=16, description="Certificate reference"
+    )
 
     @field_validator("issuing_country")
     @classmethod
@@ -52,7 +56,8 @@ class VDSNCSignatureInfo(BaseModel):
 
     algorithm: SignatureAlgorithm = Field(..., description="Signature algorithm")
     created_at: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc), description="Signature creation time"
+        default_factory=lambda: datetime.now(timezone.utc),
+        description="Signature creation time",
     )
     key_id: str | None = Field(None, description="Key identifier")
     certificate_chain: list[str] | None = Field(None, description="Certificate chain")
@@ -96,7 +101,9 @@ class VDSNCDocument(BaseModel):
 
     # Barcode generation
     barcode_format: BarcodeFormat = Field(..., description="Selected barcode format")
-    error_correction: ErrorCorrectionLevel = Field(..., description="Error correction level")
+    error_correction: ErrorCorrectionLevel = Field(
+        ..., description="Error correction level"
+    )
     barcode_data: str = Field(..., description="Encoded barcode data")
 
     # Metadata
@@ -104,7 +111,8 @@ class VDSNCDocument(BaseModel):
         default_factory=lambda: str(uuid.uuid4()), description="Unique document ID"
     )
     created_at: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc), description="Creation timestamp"
+        default_factory=lambda: datetime.now(timezone.utc),
+        description="Creation timestamp",
     )
 
     def verify_signature(self, public_key_pem: str) -> bool:
@@ -120,30 +128,29 @@ class VDSNCDocument(BaseModel):
         try:
             import base64
 
-            from cryptography.hazmat.primitives import hashes, serialization
-            from cryptography.hazmat.primitives.asymmetric import ec
-
-            # Load public key
-            public_key = serialization.load_pem_public_key(public_key_pem.encode())
+            from marty_common.crypto_bridge import load_public_key_pem, verify_signature
 
             # Get signature data
             signature_data = self.payload.get_signature_data()
             signature_bytes = base64.b64decode(self.signature)
 
-            # Verify signature based on algorithm
-            algorithm = self.payload.signature_info.algorithm
-            if algorithm == SignatureAlgorithm.ES256:
-                public_key.verify(signature_bytes, signature_data, ec.ECDSA(hashes.SHA256()))
-            elif algorithm == SignatureAlgorithm.ES384:
-                public_key.verify(signature_bytes, signature_data, ec.ECDSA(hashes.SHA384()))
-            elif algorithm == SignatureAlgorithm.ES512:
-                public_key.verify(signature_bytes, signature_data, ec.ECDSA(hashes.SHA512()))
-            else:
+            algorithms = {
+                SignatureAlgorithm.ES256: "ecdsa-p256-sha256",
+                SignatureAlgorithm.ES384: "ecdsa-p384-sha384",
+            }
+            algorithm = algorithms.get(self.payload.signature_info.algorithm)
+            if algorithm is None:
                 return False
+            return bool(
+                verify_signature(
+                    algorithm,
+                    load_public_key_pem(public_key_pem),
+                    signature_data,
+                    signature_bytes,
+                )
+            )
         except Exception:
             return False
-        else:
-            return True
 
     def validate_field_consistency(self, printed_values: dict[str, Any]) -> list[str]:
         """
@@ -192,22 +199,30 @@ class VDSNCDocument(BaseModel):
         # Parse dates
         try:
             if "dateOfIssue" in message_data:
-                issue_date = datetime.strptime(message_data["dateOfIssue"], "%Y%m%d").date()
+                issue_date = datetime.strptime(
+                    message_data["dateOfIssue"], "%Y%m%d"
+                ).date()
                 if now < issue_date:
                     errors.append("Document not yet valid (before issue date)")
 
             if "dateOfExpiry" in message_data:
-                expiry_date = datetime.strptime(message_data["dateOfExpiry"], "%Y%m%d").date()
+                expiry_date = datetime.strptime(
+                    message_data["dateOfExpiry"], "%Y%m%d"
+                ).date()
                 if now > expiry_date:
                     errors.append("Document expired")
 
             if "validFrom" in message_data:
-                valid_from = datetime.strptime(message_data["validFrom"], "%Y%m%d").date()
+                valid_from = datetime.strptime(
+                    message_data["validFrom"], "%Y%m%d"
+                ).date()
                 if now < valid_from:
                     errors.append("Document not yet valid (before valid from date)")
 
             if "validUntil" in message_data:
-                valid_until = datetime.strptime(message_data["validUntil"], "%Y%m%d").date()
+                valid_until = datetime.strptime(
+                    message_data["validUntil"], "%Y%m%d"
+                ).date()
                 if now > valid_until:
                     errors.append("Document validity period ended")
 
@@ -223,17 +238,29 @@ class VDSNCVerificationResult(BaseModel):
     # Overall result
     is_valid: bool = Field(..., description="Overall verification result")
     document: VDSNCDocument | None = Field(None, description="Verified document")
-    verification_timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    verification_timestamp: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc)
+    )
 
     # Detailed results
-    signature_valid: bool = Field(default=False, description="Signature verification result")
-    field_consistency_valid: bool = Field(default=False, description="Field consistency result")
-    temporal_validity_ok: bool = Field(default=False, description="Date/expiry validation result")
-    canonicalization_ok: bool = Field(default=False, description="Canonicalization validation")
+    signature_valid: bool = Field(
+        default=False, description="Signature verification result"
+    )
+    field_consistency_valid: bool = Field(
+        default=False, description="Field consistency result"
+    )
+    temporal_validity_ok: bool = Field(
+        default=False, description="Date/expiry validation result"
+    )
+    canonicalization_ok: bool = Field(
+        default=False, description="Canonicalization validation"
+    )
 
     # Error details
     errors: list[str] = Field(default_factory=list, description="Verification errors")
-    warnings: list[str] = Field(default_factory=list, description="Verification warnings")
+    warnings: list[str] = Field(
+        default_factory=list, description="Verification warnings"
+    )
 
     # Additional details
     verification_details: dict[str, Any] = Field(

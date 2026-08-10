@@ -43,6 +43,84 @@ def test_incompatible_native_backend_raises_typed_error(monkeypatch) -> None:
         require_backend("marty_verification")
 
 
+def test_common_crypto_bridge_uses_shared_typed_errors_and_native_mrz() -> None:
+    from marty_common import crypto_bridge
+
+    assert crypto_bridge.NativeBackendUnavailable is NativeBackendUnavailable
+    assert crypto_bridge.compute_check_digit("L898902C3") == "6"
+    assert crypto_bridge.sha256(b"abc").hex() == (
+        "ba7816bf8f01cfea414140de5dae2223"
+        "b00361a396177a9cb410ff61f20015ad"
+    )
+
+
+def test_common_crypto_bridge_retired_credential_helpers_fail_closed() -> None:
+    from marty_common import crypto_bridge
+
+    with pytest.raises(NativeOperationError, match="fallback is disabled"):
+        crypto_bridge.generate_did_key()
+
+
+def test_common_crypto_rejects_legacy_fake_signatures_and_password_hashes() -> None:
+    from marty_common.crypto import hash_password, verify_password, verify_signature
+
+    encoded = hash_password("correct horse battery staple")
+    assert verify_password("correct horse battery staple", encoded)
+    assert not verify_password("wrong", encoded)
+    assert not verify_password("correct horse battery staple", "legacy-sha256")
+
+    with pytest.raises(NativeOperationError, match="verification failed"):
+        verify_signature(
+            b"payload",
+            b"A" * 64,
+            b"signer-id-is-not-a-public-key",
+            "RS256",
+        )
+
+
+def test_sd_jwt_issuance_routes_signing_through_native_oid4vci(tmp_path) -> None:
+    from marty_common.infrastructure.key_vault import FileKeyVaultClient
+    from marty_common.vc.sd_jwt import (
+        SdJwtConfig,
+        SdJwtIssuanceInput,
+        SdJwtIssuer,
+    )
+
+    async def issue():
+        vault = FileKeyVaultClient(str(tmp_path))
+        await vault.ensure_key("issuer-key", "ecdsa-p256")
+        issuer = SdJwtIssuer(
+            vault,
+            lambda: [],
+            SdJwtConfig(
+                issuer="did:example:issuer",
+                signing_key_id="issuer-key",
+                kid="did:example:issuer#key-1",
+            ),
+        )
+        return await issuer.issue(
+            SdJwtIssuanceInput(
+                subject_id="did:example:holder",
+                credential_type="EmployeeCredential",
+                base_claims={"department": "engineering"},
+                selective_disclosures={"employee_id": "E-123"},
+            )
+        )
+
+    result = asyncio.run(issue())
+    assert result.credential_id.startswith("urn:uuid:")
+    assert result.token.count(".") == 2
+    assert len(result.disclosures) == 1
+    assert result.disclosure_objects[0].name == "employee_id"
+
+
+def test_generic_cms_placeholder_is_disabled() -> None:
+    from marty_common.utils.asn1_utils import verify_cms_signature
+
+    with pytest.raises(NativeOperationError, match="format-specific verification"):
+        verify_cms_signature(b"untrusted-cms")
+
+
 def test_iso18013_transport_adapter_uses_native_surface(monkeypatch) -> None:
     class FakeHttpsTransport:
         def __init__(self, url: str) -> None:

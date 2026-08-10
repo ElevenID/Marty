@@ -2,11 +2,17 @@
 
 from __future__ import annotations
 
-from importlib import import_module
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as distribution_version
 from types import ModuleType
 from typing import Any
+
+from marty_common.native_backends import (
+    NativeBackendError,
+    NativeBackendUnavailable,
+    NativeOperationError,
+    load_native_backend,
+)
 
 REQUIRED_NATIVE_BACKENDS: dict[str, tuple[str, ...]] = {
     "marty_iso18013": (
@@ -54,8 +60,11 @@ REQUIRED_NATIVE_BACKENDS: dict[str, tuple[str, ...]] = {
     "_marty_rs": (
         "BitstringStatusList",
         "TokenStatusList",
+        "create_bitstring_credential_subject",
+        "create_status_list_claim",
         "create_verifiable_credential",
         "generate_p256_key",
+        "sha256",
     ),
 }
 
@@ -66,39 +75,13 @@ NATIVE_DISTRIBUTIONS = {
 }
 
 
-class NativeBackendError(RuntimeError):
-    """Base error for unavailable or unusable native Marty backends."""
-
-
-class NativeBackendUnavailable(NativeBackendError):
-    """Raised when a required Rust extension cannot be imported."""
-
-
-class NativeOperationError(NativeBackendError):
-    """Raised when a native operation fails."""
-
-
 def require_backend(module_name: str) -> ModuleType:
     """Load a required native module without falling back to Python code."""
 
-    try:
-        module = import_module(module_name)
-    except (ImportError, ModuleNotFoundError) as exc:
-        raise NativeBackendUnavailable(
-            f"Required native backend {module_name!r} is unavailable. "
-            "Install the corresponding Rust extension before starting this service."
-        ) from exc
-    missing = [
-        capability
-        for capability in REQUIRED_NATIVE_BACKENDS.get(module_name, ())
-        if not hasattr(module, capability)
-    ]
-    if missing:
-        raise NativeBackendUnavailable(
-            f"Required native backend {module_name!r} is incompatible; missing: "
-            f"{', '.join(missing)}. Install matching Marty native wheels."
-        )
-    return module
+    return load_native_backend(
+        module_name,
+        REQUIRED_NATIVE_BACKENDS.get(module_name, ()),
+    )
 
 
 def require_native_backends() -> dict[str, ModuleType]:

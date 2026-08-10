@@ -26,21 +26,31 @@ Python cryptographic fallback.
   route through `marty_verification`.
 - JWT, SD-JWT, mDoc, signing, key generation, and presentation verification in
   credential services route through `_marty_rs`.
+- IETF Token Status Lists and W3C Bitstring Status Lists are encoded, decoded,
+  bounded, and mutated by `_marty_rs`; unknown mappings and unavailable shards
+  fail closed. Unsigned Python status-list credentials are disabled.
+- `marty_common.crypto_bridge` imports only the canonical module names and
+  shares the startup exception hierarchy. Retired BBS, legacy credential, and
+  Python certificate/key-construction paths raise `NativeOperationError`.
+- The former permissive test signature verifier and structure-only VDS-NC
+  verification path have been removed. Invalid keys, missing PKD trust, and
+  legacy password hashes are rejected.
 - Shared Rust/Python vectors cover valid and malformed MRZ, SOD/data-group
   alteration, trust chains, and native ISO request/session behavior. Criterion
   benchmarks cover MRZ, SOD, chain validation, and encrypted session handling.
 
 ## Packaging and rollout
 
-Marty pins core native v0.1.37 and credential native v0.1.50. CI and release
-jobs download the exact GitHub release wheels, require GitHub-provided SHA-256
-asset digests to match, and install only those wheels. Production images verify
-all native backends during the image build. Linux x86_64 and aarch64 wheels are
-required for the multi-architecture image.
+Marty pins the canonical core native v0.1.39 release for `marty_iso18013`,
+`marty_verification`, and `_marty_rs`. CI and release jobs download the exact
+GitHub release wheels, require GitHub-provided SHA-256 asset digests to match,
+and install only those wheels. Production images verify all native backends
+during the image build. Linux x86_64 and aarch64 wheels are required for the
+multi-architecture image.
 
-Before merging a Marty release, publish the matching immutable native releases
-from the merged core and credential commits. A missing release is an expected
-hard failure in Marty CI, not a reason to restore a fallback.
+Before merging a Marty release, publish the matching immutable native release
+from the pinned core commit. A missing release is an expected hard failure in
+Marty CI, not a reason to restore a fallback.
 
 Monitor `NativeBackendUnavailable` and `NativeOperationError` rates,
 verification failures by normalized error code, certificate/trust-anchor

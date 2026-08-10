@@ -27,11 +27,11 @@ async def test_credential_verification_never_trusts_unverified_jwt_claims() -> N
 
 
 @pytest.mark.asyncio
-async def test_production_issuance_rejects_ephemeral_issuer_keys(monkeypatch) -> None:
-    from marty_plugin import native_backends
-
-    monkeypatch.setattr(native_backends, "require_backend", lambda _name: SimpleNamespace())
-    monkeypatch.setenv("ENVIRONMENT", "production")
+@pytest.mark.parametrize("environment", ["development", "production"])
+async def test_direct_issuance_rejects_ephemeral_issuer_keys(
+    monkeypatch, environment: str
+) -> None:
+    monkeypatch.setenv("ENVIRONMENT", environment)
     service = CredentialIssuanceService(credential_repository=SimpleNamespace())
 
     with pytest.raises(RuntimeError, match="organization-scoped issuer profile"):

@@ -204,9 +204,7 @@ def extract_signed_data(cms_data: bytes) -> dict[str, Any]:
                         "serial_number": str(sid["serial_number"].native),
                     }
                 else:  # subject_key_identifier
-                    signer["signer_id"] = {
-                        "subject_key_identifier": signer_info["sid"].chosen.native.hex()
-                    }
+                    signer["signer_id"] = {"subject_key_identifier": signer_info["sid"].chosen.native.hex()}
 
                 # Extract signed attributes
                 if "signed_attrs" in signer_info and signer_info["signed_attrs"].native:
@@ -252,9 +250,9 @@ def extract_certificate_info(cert_data: bytes) -> dict[str, Any]:
         der_data = pem_to_der(cert_data)
     else:
         der_data = cert_data
-    
+
     rust_info = rust_get_certificate_info(der_data)
-    
+
     # Convert Rust result to match expected format
     result = {
         "serial_number": rust_info.get("serial_number", ""),
@@ -281,47 +279,10 @@ def verify_cms_signature(cms_data: bytes, cert_data: bytes | None = None) -> boo
     Returns:
         True if signature is valid, False otherwise
     """
-    try:
-        content_info = cms.ContentInfo.load(cms_data)
-        if content_info["content_type"].native != "signed_data":
-            msg = "Not a CMS SignedData structure"
-            raise ValueError(msg)
+    del cms_data, cert_data
+    from marty_common.native_backends import NativeOperationError
 
-        signed_data = content_info["content"]
-
-        # Get certificates from the CMS if no certificate was provided
-        certificates = []
-        if cert_data is None:
-            if "certificates" in signed_data and signed_data["certificates"].native:
-                certificates.extend(cert.chosen for cert in signed_data["certificates"])
-        else:
-            # Convert PEM to DER if necessary
-            if is_pem(cert_data):
-                cert_data = pem_to_der(cert_data)
-
-            cert = x509.Certificate.load(cert_data)
-            certificates.append(cert)
-
-        if not certificates:
-            msg = "No certificates available for verification"
-            raise ValueError(msg)
-
-        # For each signer, attempt verification
-        for _signer_info in signed_data["signer_infos"]:
-            # Placeholder for verification logic
-            # In a real implementation, this would validate the signature
-            # using the appropriate certificate
-
-            # For now, just log that verification would happen here
-            logger.info("Signature verification would happen here")
-
-            # In the future, implement proper verification using cryptography
-
-        # For now, just return True to indicate successful verification
-        # In a real implementation, return the actual verification result
-
-    except Exception as e:
-        logger.exception(f"Signature verification failed: {e}")
-        return False
-    else:
-        return True
+    raise NativeOperationError(
+        "Generic CMS verification is not exposed by the canonical native API. "
+        "Use native SOD, Master List, CRL, or format-specific verification."
+    )

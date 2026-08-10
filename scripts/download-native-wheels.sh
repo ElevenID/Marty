@@ -3,8 +3,7 @@ set -euo pipefail
 
 architecture="${1:-x86_64}"
 destination="${2:-native-wheels}"
-core_tag="${MARTY_CORE_NATIVE_TAG:-v0.1.37}"
-credentials_tag="${MARTY_CREDENTIALS_NATIVE_TAG:-v0.1.50}"
+core_tag="${MARTY_CORE_NATIVE_TAG:-v0.1.39}"
 
 case "$architecture" in
   x86_64|aarch64)
@@ -45,7 +44,7 @@ download_and_verify() {
     fi
 
     name="$(basename "${matches[0]}")"
-    expected="$(gh release view "$tag" --repo "$repository" --json assets \
+    expected="$(gh api "repos/$repository/releases/tags/$tag" \
       --jq ".assets[] | select(.name == \"$name\") | .digest")"
     if [[ ! "$expected" =~ ^sha256:[0-9a-f]{64}$ ]]; then
       echo "Release asset $repository@$tag/$name has no valid SHA-256 digest" >&2
@@ -61,4 +60,4 @@ download_and_verify() {
 
 download_and_verify ElevenID/marty-core "$core_tag" marty_iso18013
 download_and_verify ElevenID/marty-core "$core_tag" marty_verification_py
-download_and_verify ElevenID/marty-credentials "$credentials_tag" marty_rs
+download_and_verify ElevenID/marty-core "$core_tag" marty_rs
