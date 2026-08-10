@@ -19,7 +19,7 @@ on:
       - 'README.md'
 
 env:
-  MARTY_CORE_REVISION: f670a8f9efa0d87c41a23eb1986348b75022a006
+  MARTY_CORE_REVISION: be8a38b6aef3aee588f0581bd337d2cc7609e98c
 
 jobs:
   build-native-wheels:
