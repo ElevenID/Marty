@@ -487,6 +487,7 @@ Comprehensive documentation is available in the [docs/](docs/) directory:
 - **[ISO 18013-5 Build Guide](docs/iso18013/BUILD_GUIDE.md)** - Build instructions and Python-to-Rust migration guide
 - **[ISO 18013 Interoperability](docs/iso18013/INTEROPERABILITY_GUIDE.md)** - Standards compliance and API mappings
 - **[ISO 18013 Implementation](docs/iso18013/IMPLEMENTATION_SUMMARY.md)** - Complete mDL/mDoc implementation overview
+- **[Rust Verification Migration](docs/RUST_VERIFICATION_MIGRATION.md)** - Native security boundary, packaging, and rollout status
 
 ### Migration & Integration
 - **[MMF Migration Guide](docs/migration/MMF_MIGRATION_GUIDE.md)** - Comprehensive guide for migrating to MMF plugin architecture

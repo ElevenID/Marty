@@ -6,10 +6,14 @@ from importlib import import_module
 from types import ModuleType
 from typing import Any
 
-
 REQUIRED_NATIVE_BACKENDS: dict[str, tuple[str, ...]] = {
     "marty_iso18013": (
+        "BleTransport",
         "DeviceEngagement",
+        "MdlRequest",
+        "MdlResponse",
+        "NfcTransport",
+        "SelectiveDisclosure",
         "Session",
         "HttpsTransport",
     ),

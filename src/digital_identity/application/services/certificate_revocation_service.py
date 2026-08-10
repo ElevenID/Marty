@@ -16,7 +16,10 @@ from digital_identity.domain.value_objects import RevocationCheckMode, Revocatio
 from digital_identity.infrastructure.adapters.revocation_cache import (
     RevocationCacheAdapter,
 )
-from marty_plugin.native_backends import NativeBackendUnavailable
+from marty_plugin.native_backends import (
+    NativeBackendUnavailable,
+    NativeOperationError,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -65,6 +68,7 @@ class CertificateRevocationService:
         certificate_der: bytes,
         organization_id: str,
         policy: RevocationPolicy,
+        issuer_certificate_der: bytes | None = None,
     ) -> RevocationCheckResult:
         """
         Check certificate revocation status with grace period support.
@@ -82,7 +86,9 @@ class CertificateRevocationService:
         """
         # Try online check first
         try:
-            online_result = await self._check_online(certificate_der, policy)
+            online_result = await self._check_online(
+                certificate_der, policy, issuer_certificate_der
+            )
 
             # Cache the successful result
             await self.cache.set(
@@ -165,6 +171,7 @@ class CertificateRevocationService:
         self,
         certificate_der: bytes,
         policy: RevocationPolicy,
+        issuer_certificate_der: bytes | None = None,
     ) -> dict[str, Any]:
         """
         Perform online revocation check.
@@ -179,35 +186,61 @@ class CertificateRevocationService:
         Raises:
             Exception: If check fails
         """
-        # Try OCSP
+        del policy  # Network-source selection is currently certificate driven.
+        native = self.revocation_processor.native
+        certificate_info = native.get_certificate_info(certificate_der)
+        issuer_dn = certificate_info["issuer"]
+        failures: list[str] = []
+
+        # Try OCSP first when advertised by the certificate.
         ocsp_url = self.revocation_processor.get_ocsp_url_from_certificate(
             certificate_der
         )
         if ocsp_url:
-            # Get issuer certificate (would need to be passed or looked up)
-            # For now, skip OCSP and try CRL
-            logger.debug(
-                f"OCSP URL found: {ocsp_url} (OCSP check not fully implemented)"
+            if issuer_certificate_der is None:
+                failures.append("OCSP requires the issuer certificate")
+            else:
+                result = await self.revocation_processor.check_ocsp_status(
+                    certificate_der, issuer_certificate_der, ocsp_url
+                )
+                if result.get("success"):
+                    status = str(result.get("status", "unknown")).lower()
+                    if status == "good":
+                        return {"is_revoked": False}
+                    if status in {"bad", "revoked"}:
+                        return {
+                            "is_revoked": True,
+                            "revocation_timestamp": result.get("revocation_date"),
+                            "reason": result.get("reason_code"),
+                        }
+                    failures.append("OCSP responder returned unknown status")
+                else:
+                    failures.append(str(result.get("error", "OCSP check failed")))
+
+        # Fall through to each advertised CRL distribution point.
+        for crl_url in self._get_crl_urls_from_certificate(certificate_der):
+            fetched = await self.revocation_processor._fetch_crl_from_url(crl_url)
+            if not fetched.get("success"):
+                failures.append(str(fetched.get("error", "CRL fetch failed")))
+                continue
+            if issuer_certificate_der is None:
+                failures.append(
+                    "CRL signature verification requires the issuer certificate"
+                )
+                continue
+
+            crl_der = self.revocation_processor._crl_der(fetched["data"])
+            if not native.verify_crl_signature(crl_der, issuer_certificate_der):
+                failures.append(f"CRL signature verification failed for {crl_url}")
+                continue
+
+            is_revoked, reason = self.revocation_processor.check_revocation_against_crl(
+                certificate_der, issuer_dn, crl_der
             )
+            return {"is_revoked": bool(is_revoked), "reason": reason}
 
-        # Try CRL
-        try:
-            crl_urls = self._get_crl_urls_from_certificate(certificate_der)
-            if crl_urls:
-                # Download and check CRL (simplified - production needs caching)
-                for crl_url in crl_urls:
-                    try:
-                        # This would fetch CRL and check
-                        # For now, raise to trigger cache fallback
-                        logger.debug(f"CRL check would use: {crl_url}")
-                    except Exception as crl_error:
-                        logger.warning(f"CRL check failed for {crl_url}: {crl_error}")
-                        continue
-        except Exception as e:
-            logger.warning(f"Failed to get CRL URLs: {e}")
-
-        # If no checks succeeded, raise to trigger cache fallback
-        raise RuntimeError("No successful online revocation check")
+        detail = "; ".join(failures) or "certificate advertises no OCSP or CRL source"
+        raise NativeOperationError(f"No verified revocation source succeeded: {detail}")
 
     def _get_crl_urls_from_certificate(self, certificate_der: bytes) -> list[str]:
         """Extract CRL distribution point URLs using native X.509 parsing."""

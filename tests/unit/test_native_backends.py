@@ -9,10 +9,13 @@ import pytest
 
 from marty_plugin.native_backends import (
     NativeBackendUnavailable,
+    NativeOperationError,
     backend_diagnostics,
     require_backend,
 )
-from marty_plugin.pkd_service.app.utils.certificate_validator import CertificateValidator
+from marty_plugin.pkd_service.app.utils.certificate_validator import (
+    CertificateValidator,
+)
 
 
 def test_missing_native_backend_raises_typed_error() -> None:
@@ -28,7 +31,9 @@ def test_backend_diagnostics_reports_unavailable_backends() -> None:
 
 
 def test_incompatible_native_backend_raises_typed_error(monkeypatch) -> None:
-    monkeypatch.setitem(sys.modules, "marty_verification", ModuleType("marty_verification"))
+    monkeypatch.setitem(
+        sys.modules, "marty_verification", ModuleType("marty_verification")
+    )
     with pytest.raises(NativeBackendUnavailable, match="incompatible; missing"):
         require_backend("marty_verification")
 
@@ -61,18 +66,23 @@ def test_iso18013_transport_adapter_uses_native_surface(monkeypatch) -> None:
         "SessionState",
         "ResponseStatus",
         "DeviceEngagement",
+        "MdlRequest",
+        "MdlResponse",
+        "SelectiveDisclosure",
         "Session",
     ):
         setattr(native, name, object())
     native.HttpsTransport = FakeHttpsTransport
+    native.BleTransport = object()
+    native.NfcTransport = object()
     monkeypatch.setitem(sys.modules, "marty_iso18013", native)
     sys.modules.pop("marty_plugin.iso18013_bridge", None)
 
     try:
         bridge = importlib.import_module("marty_plugin.iso18013_bridge")
         assert bridge.transport_capabilities() == {
-            "ble": False,
-            "nfc": False,
+            "ble": True,
+            "nfc": True,
             "https": True,
         }
 
@@ -88,6 +98,36 @@ def test_iso18013_transport_adapter_uses_native_surface(monkeypatch) -> None:
         asyncio.run(exercise())
     finally:
         sys.modules.pop("marty_plugin.iso18013_bridge", None)
+
+
+def test_legacy_iso_crypto_surface_fails_closed() -> None:
+    module = importlib.import_module("marty_plugin.iso18013.crypto")
+
+    with pytest.raises(NativeOperationError, match="remain in Rust"):
+        module.SessionEncryption(b"python-session-key")
+
+
+def test_legacy_iso_protocol_surface_fails_closed() -> None:
+    module = importlib.import_module("marty_plugin.iso18013.protocols")
+
+    with pytest.raises(NativeOperationError, match="state machine was removed"):
+        module.ISO18013_5Protocol()
+
+
+def test_legacy_iso_reference_apps_fail_closed() -> None:
+    holder = importlib.import_module("marty_plugin.iso18013.apps.holder")
+    reader = importlib.import_module("marty_plugin.iso18013.apps.reader")
+
+    with pytest.raises(NativeOperationError, match="holder demo was retired"):
+        holder.ISO18013HolderApp(holder.HolderConfig(holder_id="holder"))
+    with pytest.raises(NativeOperationError, match="reader demo was retired"):
+        reader.ISO18013ReaderApp(
+            reader.ReaderConfig(
+                reader_id="reader",
+                organization="Example",
+                supported_transports=["https"],
+            )
+        )
 
 
 def test_pkd_certificate_validator_routes_chain_to_native(monkeypatch) -> None:
@@ -120,7 +160,9 @@ def test_pkd_certificate_validator_routes_chain_to_native(monkeypatch) -> None:
     )
     monkeypatch.setattr(module, "require_backend", lambda _name: native)
 
-    validator = CertificateValidator(trust_roots=[b"root"], other_certs=[b"intermediate"])
+    validator = CertificateValidator(
+        trust_roots=[b"root"], other_certs=[b"intermediate"]
+    )
     assert validator.validate_chain([b"leaf", b"issuer"])
     assert anchors == [b"root"]
     assert intermediates == [b"intermediate"]

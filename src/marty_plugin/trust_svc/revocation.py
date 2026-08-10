@@ -291,8 +291,19 @@ class RevocationProcessor:
                 if crl_data["crl_url"]:
                     crl_result = await self._fetch_crl_from_url(crl_data["crl_url"])
                     if crl_result["success"]:
+                        issuer_certificate_der = await self._find_issuer_certificate(
+                            crl_data["issuer_dn"]
+                        )
+                        if issuer_certificate_der is None:
+                            results["crls_failed"] += 1
+                            results["errors"].append(
+                                f"Issuer certificate not found for {crl_data['issuer_dn']}"
+                            )
+                            continue
                         process_result = await self.process_crl(
-                            crl_result["data"], crl_data["issuer_dn"]
+                            crl_result["data"],
+                            crl_data["issuer_dn"],
+                            issuer_certificate_der,
                         )
 
                         if process_result["success"]:
@@ -426,11 +437,21 @@ class RevocationProcessor:
         # Check OCSP if requested and URL available
         ocsp_status = None
         if check_ocsp:
-            # TODO: Extract OCSP URL from certificate extensions
             ocsp_url = self._extract_ocsp_url(dsc["certificate_data"])
             if ocsp_url:
-                # TODO: Get issuer certificate
-                pass
+                issuer_certificate_der = await self._find_issuer_certificate(
+                    dsc["issuer_dn"], dsc.get("country_code")
+                )
+                if issuer_certificate_der is None:
+                    ocsp_status = {
+                        "success": False,
+                        "error": "Issuer certificate required for OCSP was not found",
+                        "ocsp_url": ocsp_url,
+                    }
+                else:
+                    ocsp_status = await self.check_ocsp_status(
+                        dsc["certificate_data"], issuer_certificate_der, ocsp_url
+                    )
 
         # Determine final status
         final_status = RevocationStatus.UNKNOWN
@@ -519,6 +540,27 @@ class RevocationProcessor:
             logger.warning(f"Failed to extract OCSP URL: {e}")
 
         return None
+
+    async def _find_issuer_certificate(
+        self, issuer_dn: str, country_code: str | None = None
+    ) -> bytes | None:
+        """Resolve one active trust anchor by normalized subject DN."""
+        anchors = await self.db_manager.get_trust_anchors(
+            country_code=country_code, active_only=True
+        )
+        matches = [
+            anchor
+            for anchor in anchors
+            if self._normalize_dn(anchor["subject_dn"]) == self._normalize_dn(issuer_dn)
+        ]
+        if len(matches) != 1:
+            logger.error(
+                "Expected exactly one issuer certificate for %s, found %d",
+                issuer_dn,
+                len(matches),
+            )
+            return None
+        return bytes(matches[0]["certificate_data"])
 
     def get_crl_urls_from_certificate(self, certificate_der: bytes) -> list[str]:
         """Extract CRL distribution points using native X.509 parsing."""

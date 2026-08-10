@@ -9,7 +9,13 @@ Modules:
 - holder: Reference holder application (wallet) for mDL presentation
 """
 
-from .holder import ConsentLevel, HolderConfig, HolderMode, ISO18013HolderApp, mDLCredential
+from .holder import (
+    ConsentLevel,
+    HolderConfig,
+    HolderMode,
+    ISO18013HolderApp,
+    mDLCredential,
+)
 from .reader import ISO18013ReaderApp, ReaderConfig, ReaderMode, VerificationLevel
 
 __all__ = [
