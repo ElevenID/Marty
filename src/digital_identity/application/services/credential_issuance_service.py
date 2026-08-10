@@ -246,14 +246,9 @@ class CredentialIssuanceService:
         Returns credential to caller (not stored) along with metadata.
         Only stores approved application data + hash + status list entries.
         """
-        # Import Rust bindings
-        try:
-            import _marty_rs
-        except ImportError:
-            raise RuntimeError(
-                "marty-rs Rust bindings not available. Ensure marty-credentials is installed with: "
-                "cd /path/to/marty-credentials && pip install -e ./python"
-            )
+        from marty_plugin.native_backends import require_backend
+
+        _marty_rs = require_backend("_marty_rs")
         
         # Load credential template from repository
         template = None
@@ -287,18 +282,13 @@ class CredentialIssuanceService:
         
         if environment == "development":
             # Auto-generate did:key for development
-            key_result = _marty_rs.generate_p256_key()
-            issuer_key_json = key_result
-            key_data = json.loads(issuer_key_json)
-            issuer_did = key_data["did"]
-            issuer_jwk = key_data["jwk"]
+            issuer_did, issuer_jwk_json = _marty_rs.generate_p256_key()
+            issuer_jwk = json.loads(issuer_jwk_json)
         else:
-            # TODO: Load organization's did:web and signing key
-            # For now, generate temporary key
-            key_result = _marty_rs.generate_p256_key()
-            key_data = json.loads(key_result)
-            issuer_did = f"did:web:{organization_id}.marty.dev"
-            issuer_jwk = key_data["jwk"]
+            raise RuntimeError(
+                "Production credential issuance requires an organization-scoped "
+                "issuer profile and remote signer"
+            )
         
         # Generate credential ID
         credential_id = f"urn:uuid:{uuid4()}"
@@ -389,81 +379,28 @@ class CredentialIssuanceService:
         
         Uses marty-credentials VerificationService with trust profile validation.
         """
-        # Import Rust bindings
-        try:
-            import _marty_rs
-        except ImportError:
-            raise RuntimeError("marty-rs Rust bindings not available")
-        
         # Convert credential to JWT string if dict
         if isinstance(credential, dict):
-            jwt_token = credential.get("jwt") or credential.get("credential")
-            if not jwt_token:
+            if not (credential.get("jwt") or credential.get("credential")):
                 raise ValueError("Credential dict must contain 'jwt' or 'credential' field")
-        else:
-            jwt_token = credential
+        elif not isinstance(credential, str) or not credential:
+            raise ValueError("Credential must be a non-empty compact token")
         
-        # Verify JWT signature and structure
-        valid, payload_json, error = _marty_rs.verify_jwt(
-            jwt=jwt_token,
-            expected_issuer=None,  # TODO: Validate against trust profile
-            expected_audience=None,
-        )
-        
-        if not valid:
-            return {
-                "valid": False,
-                "error": error,
-                "checks": {
-                    "signature": False,
-                    "expiration": False,
-                    "status_list": None,
-                    "trust_profile": None,
-                },
-            }
-        
-        # Parse payload
-        payload = json.loads(payload_json)
-        vc = payload.get("vc", {})
-        issuer = payload.get("iss")
-        exp = payload.get("exp")
-        
-        # Check expiration
-        now_timestamp = datetime.now(timezone.utc).timestamp()
-        expired = exp and exp < now_timestamp
-        
-        # Check status list
-        # TODO: Integrate with status_list module
-        credential_status = vc.get("credentialStatus")
-        status_check = None
-        if credential_status:
-            status_check = {
-                "checked": True,
-                "revoked": False,  # TODO: Query status list
-                "suspended": False,
-            }
-        
-        # TODO: Validate against trust profile
-        trust_check = None
-        if trust_profile_id:
-            trust_check = {
-                "checked": True,
-                "issuer_trusted": True,  # TODO: Query trust profile
-                "algorithms_allowed": True,
-            }
-        
+        # A token cannot be verified until its issuer key is resolved through
+        # the selected trust profile. Parsing claims before that boundary would
+        # recreate the old fail-open behavior of the non-cryptographic
+        # ``verify_jwt`` helper.
         return {
-            "valid": not expired and (not status_check or not status_check["revoked"]),
-            "issuer": issuer,
-            "subject": vc.get("credentialSubject", {}).get("id"),
-            "credential_type": vc.get("type", []),
-            "issuance_date": vc.get("issuanceDate"),
-            "expiration_date": vc.get("expirationDate"),
+            "valid": False,
+            "error": (
+                "Credential verification requires issuer key resolution through "
+                "a configured trust profile"
+            ),
             "checks": {
-                "signature": True,
-                "expiration": not expired,
-                "status_list": status_check,
-                "trust_profile": trust_check,
+                "signature": False,
+                "expiration": False,
+                "status_list": None,
+                "trust_profile": False,
             },
         }
     

@@ -27,6 +27,12 @@ def test_backend_diagnostics_reports_unavailable_backends() -> None:
     assert all("available" in value for value in diagnostics.values())
 
 
+def test_incompatible_native_backend_raises_typed_error(monkeypatch) -> None:
+    monkeypatch.setitem(sys.modules, "marty_verification", ModuleType("marty_verification"))
+    with pytest.raises(NativeBackendUnavailable, match="incompatible; missing"):
+        require_backend("marty_verification")
+
+
 def test_iso18013_transport_adapter_uses_native_surface(monkeypatch) -> None:
     class FakeHttpsTransport:
         def __init__(self, url: str) -> None:
@@ -49,7 +55,14 @@ def test_iso18013_transport_adapter_uses_native_surface(monkeypatch) -> None:
             return self.connected
 
     native = ModuleType("marty_iso18013")
-    for name in ("TransportMethod", "EngagementMethod", "SessionState", "ResponseStatus"):
+    for name in (
+        "TransportMethod",
+        "EngagementMethod",
+        "SessionState",
+        "ResponseStatus",
+        "DeviceEngagement",
+        "Session",
+    ):
         setattr(native, name, object())
     native.HttpsTransport = FakeHttpsTransport
     monkeypatch.setitem(sys.modules, "marty_iso18013", native)

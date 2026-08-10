@@ -7,6 +7,7 @@ from typing import Any
 from mmf.core.plugins import MMFPlugin, PluginMetadata, ServiceDefinition
 
 from .config import MartyTrustPKIConfig
+from .native_backends import backend_diagnostics, require_native_backends
 from .services import CSCAService, DocumentSignerService, PKDService, TrustAnchorService
 
 
@@ -50,6 +51,7 @@ class MartyPlugin(MMFPlugin):
         ]
 
     async def _do_initialize(self) -> None:
+        require_native_backends()
         self.config = MartyTrustPKIConfig(**self.context.config)
         self.services = {
             "trust-anchor": TrustAnchorService(),
@@ -87,6 +89,7 @@ class MartyPlugin(MMFPlugin):
             "plugin": self._metadata.name,
             "version": self._metadata.version,
             "services": service_health,
+            "native_backends": backend_diagnostics(),
         }
 
     def get_service(self, name: str) -> Any | None:
