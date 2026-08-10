@@ -62,7 +62,7 @@ jobs:
           output-file: release/marty-common-sbom.cdx.json
       - name: Generate checksums
         working-directory: release
-        run: find . -type f -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS
+        run: find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS
       - uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4.1.1
         with:
           subject-path: release/**/*
