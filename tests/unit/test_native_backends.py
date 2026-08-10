@@ -54,6 +54,8 @@ def test_pkd_and_trust_anchor_ingestion_have_no_python_certificate_kernel() -> N
     pkd_source = (ROOT / "scripts/pkd_sync.py").read_text(encoding="utf-8")
     assert 'require_backend("marty_verification")' in pkd_source
     assert "Text certificate lists are not a supported PKD input format" in pkd_source
+    assert "refusing to report certificates as stored" in pkd_source
+    assert "storage not implemented" not in pkd_source
 
 
 def test_backend_diagnostics_reports_unavailable_backends() -> None:

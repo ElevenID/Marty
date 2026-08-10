@@ -459,16 +459,10 @@ class PKDSync:
         """Store certificates in database and object storage."""
         if not certificates:
             return
-
-        try:
-            # TODO: Implement database storage
-            # This would integrate with the PKD service database
-            logger.info("Storing %d certificates (storage not implemented)", len(certificates))
-            self.stats["certificates_stored"] += len(certificates)
-
-        except Exception as e:
-            self.stats["errors"] += 1
-            logger.exception("Failed to store certificates: %s", e)
+        self.stats["errors"] += 1
+        raise PKDSyncError(
+            "PKD synchronization storage is not configured; refusing to report certificates as stored"
+        )
 
     async def sync_source(self, source_name: str, token: str) -> None:
         """Synchronize data from a single PKD source."""
