@@ -28,6 +28,11 @@ def test_backend_diagnostics_reports_unavailable_backends() -> None:
 
     assert set(diagnostics) == {"marty_iso18013", "marty_verification", "_marty_rs"}
     assert all("available" in value for value in diagnostics.values())
+    assert all(
+        value.get("version") not in {None, "unknown"}
+        for value in diagnostics.values()
+        if value["available"]
+    )
 
 
 def test_incompatible_native_backend_raises_typed_error(monkeypatch) -> None:

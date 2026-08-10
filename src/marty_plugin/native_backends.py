@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from importlib import import_module
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as distribution_version
 from types import ModuleType
 from typing import Any
 
@@ -55,6 +57,12 @@ REQUIRED_NATIVE_BACKENDS: dict[str, tuple[str, ...]] = {
         "create_verifiable_credential",
         "generate_p256_key",
     ),
+}
+
+NATIVE_DISTRIBUTIONS = {
+    "marty_iso18013": "marty-iso18013",
+    "marty_verification": "marty-verification-py",
+    "_marty_rs": "marty-rs",
 }
 
 
@@ -119,6 +127,19 @@ def backend_diagnostics() -> dict[str, Any]:
         else:
             result[name] = {
                 "available": True,
-                "version": getattr(module, "__version__", "unknown"),
+                "version": _backend_version(name, module),
             }
     return result
+
+
+def _backend_version(module_name: str, module: ModuleType) -> str:
+    native_version = getattr(module, "__version__", None)
+    if native_version:
+        return str(native_version)
+    version_function = getattr(module, "version", None)
+    if callable(version_function):
+        return str(version_function())
+    try:
+        return distribution_version(NATIVE_DISTRIBUTIONS[module_name])
+    except PackageNotFoundError:
+        return "unknown"
