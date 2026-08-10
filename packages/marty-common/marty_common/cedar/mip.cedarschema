@@ -33,7 +33,9 @@ namespace MIP {
     issuer_id: String,
     issuer_trust_level: Long,      // 0–100
     credential_age_seconds: Long,
-    is_revoked: Bool,
+    revocation_checked: Bool,      // true only when authoritative status evidence was evaluated
+    revocation_required: Bool,     // selected presentation policy requires current status evidence
+    is_revoked: Bool,              // meaningful only when revocation_checked is true
     is_expired: Bool,
     holder_binding_present: Bool,
     algorithm: String,             // ES256 | EdDSA | ...

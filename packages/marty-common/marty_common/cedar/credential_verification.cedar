@@ -9,7 +9,8 @@
 //
 // The CredentialContext is passed in context{} during evaluation, providing:
 //   - credential_format, compliance_code, issuer_id, issuer_trust_level
-//   - credential_age_seconds, is_revoked, is_expired
+//   - credential_age_seconds, revocation_checked, revocation_required
+//   - is_revoked, is_expired
 //   - holder_binding_present, algorithm
 // ============================================================================
 
@@ -22,7 +23,8 @@ permit (
     resource
 )
 when {
-    !context.is_revoked &&
+    (!context.revocation_required ||
+     (context.revocation_checked && !context.is_revoked)) &&
     !context.is_expired &&
     context.issuer_trust_level >= 50
 };
@@ -37,6 +39,18 @@ forbid (
 )
 when {
     context.is_revoked
+};
+
+// Required status evidence is a hard policy boundary. Unknown is not
+// equivalent to non-revoked when the selected presentation policy requires it.
+@id("deny-unchecked-required-revocation")
+forbid (
+    principal,
+    action == MIP::Action::"credentials:verify",
+    resource
+)
+when {
+    context.revocation_required && !context.revocation_checked
 };
 
 // ── Forbid: expired credentials ──────────────────────────────────────────
