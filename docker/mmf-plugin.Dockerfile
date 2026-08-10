@@ -8,9 +8,11 @@ RUN apt-get update \
 COPY pyproject.toml README.md LICENSE ./
 COPY src ./src
 COPY proto ./proto
+COPY packages/marty-common ./packages/marty-common
 COPY native-wheels /native-wheels
 RUN --mount=type=cache,target=/root/.cache/pip \
-    python -m pip wheel --wheel-dir /wheels --find-links=/native-wheels .
+    python -m pip wheel --wheel-dir /wheels --find-links=/native-wheels ./packages/marty-common \
+    && python -m pip wheel --wheel-dir /wheels --find-links=/native-wheels --find-links=/wheels .
 
 FROM python:3.12-slim AS production
 ARG VERSION

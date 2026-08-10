@@ -27,9 +27,14 @@ def test_release_image_embeds_and_validates_native_wheels() -> None:
     )
 
     assert "COPY native-wheels /native-wheels" in dockerfile
+    assert "COPY packages/marty-common ./packages/marty-common" in dockerfile
+    assert "./packages/marty-common" in dockerfile
     assert "--find-links=/native-wheels" in dockerfile
     assert "require_native_backends()" in dockerfile
     assert "download-native-wheels.sh all" in release_workflow
+
+    metadata = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
+    assert '"marty-common==0.2.7"' in metadata
 
 
 def test_ci_builds_all_native_wheels_from_an_immutable_core_revision() -> None:
