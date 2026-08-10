@@ -10,15 +10,18 @@ import logging
 from datetime import datetime, timezone
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 
 from digital_identity.domain.entities import OrganizationCustomAnchor
 from digital_identity.infrastructure.adapters.rest.dependencies import (
-    get_db_session,
     get_custom_anchor_repository,
+    get_db_session,
 )
-from digital_identity.infrastructure.persistence.repositories import CustomAnchorRepository
+from digital_identity.infrastructure.persistence.repositories import (
+    CustomAnchorRepository,
+)
+from marty_plugin.native_backends import NativeBackendUnavailable, require_backend
 
 logger = logging.getLogger(__name__)
 
@@ -112,19 +115,13 @@ async def upload_custom_anchor(
 ) -> CustomAnchorResponse:
     """Upload a custom trust anchor certificate."""
     try:
-        # Parse certificate to extract metadata
-        from cryptography import x509
-        from cryptography.hazmat.backends import default_backend
-        
-        cert_pem_bytes = data.certificate_pem.encode()
-        cert = x509.load_pem_x509_certificate(cert_pem_bytes, default_backend())
-        
-        # Extract certificate details
-        subject = cert.subject.rfc4514_string()
-        issuer = cert.issuer.rfc4514_string()
-        not_before = cert.not_valid_before_utc
-        not_after = cert.not_valid_after_utc
-        cert_der = cert.public_bytes(encoding=x509.Encoding.DER)
+        native = require_backend("marty_verification")
+        cert_der = bytes(native.certificate_pem_to_der(data.certificate_pem))
+        cert_info = native.get_certificate_info(cert_der)
+        subject = str(cert_info["subject"])
+        issuer = str(cert_info["issuer"])
+        not_before = datetime.fromisoformat(str(cert_info["not_before"]).replace("Z", "+00:00"))
+        not_after = datetime.fromisoformat(str(cert_info["not_after"]).replace("Z", "+00:00"))
         
         # Create entity
         anchor = OrganizationCustomAnchor(
@@ -159,6 +156,8 @@ async def upload_custom_anchor(
             created_at=saved_anchor.created_at,
         )
     
+    except NativeBackendUnavailable:
+        raise
     except Exception as e:
         logger.error(f"Failed to upload custom anchor: {e}")
         raise HTTPException(

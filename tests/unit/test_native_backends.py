@@ -1,8 +1,10 @@
 """Tests for fail-closed native backend loading."""
 
 import asyncio
+import ast
 import importlib
 import sys
+from pathlib import Path
 from types import ModuleType, SimpleNamespace
 
 import pytest
@@ -17,10 +19,41 @@ from marty_plugin.pkd_service.app.utils.certificate_validator import (
     CertificateValidator,
 )
 
+ROOT = Path(__file__).resolve().parents[2]
+
 
 def test_missing_native_backend_raises_typed_error() -> None:
     with pytest.raises(NativeBackendUnavailable, match="Required native backend"):
         require_backend("marty_backend_that_does_not_exist")
+
+
+def test_pkd_and_trust_anchor_ingestion_have_no_python_certificate_kernel() -> None:
+    for relative_path in (
+        "scripts/pkd_sync.py",
+        "src/digital_identity/infrastructure/adapters/rest/trust_anchors.py",
+    ):
+        path = ROOT / relative_path
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        imported_modules = {
+            alias.name
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Import)
+            for alias in node.names
+        }
+        imported_modules.update(
+            node.module
+            for node in ast.walk(tree)
+            if isinstance(node, ast.ImportFrom) and node.module
+        )
+        assert not any(
+            name == "cryptography" or name.startswith("cryptography.")
+            for name in imported_modules
+        ), path
+        assert "asn1crypto" not in imported_modules, path
+
+    pkd_source = (ROOT / "scripts/pkd_sync.py").read_text(encoding="utf-8")
+    assert 'require_backend("marty_verification")' in pkd_source
+    assert "Text certificate lists are not a supported PKD input format" in pkd_source
 
 
 def test_backend_diagnostics_reports_unavailable_backends() -> None:
