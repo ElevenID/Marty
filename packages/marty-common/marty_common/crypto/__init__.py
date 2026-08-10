@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import base64
 import hmac
-import secrets
 from typing import Literal
 
 from marty_common import crypto_bridge
@@ -150,7 +149,7 @@ def verify_signature(
 
 
 def hash_password(password: str) -> str:
-    salt = secrets.token_bytes(16)
+    salt = generate_secure_random_bytes(16)
     digest = crypto_bridge.pbkdf2_sha256(password.encode("utf-8"), salt, _PBKDF2_ITERATIONS, 32)
     return "$".join(
         (

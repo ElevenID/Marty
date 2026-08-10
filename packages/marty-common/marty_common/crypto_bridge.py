@@ -56,6 +56,7 @@ _MARTY_VERIFICATION_CAPABILITIES = (
     "parse_master_list",
     "parse_mrz",
     "parse_sod",
+    "pbkdf2_sha256",
     "raw_private_key_to_pkcs8",
     "raw_public_key_to_spki",
     "save_private_key_pem",

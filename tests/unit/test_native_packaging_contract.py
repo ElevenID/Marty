@@ -218,3 +218,7 @@ def test_shared_verification_kernels_do_not_import_python_cryptography() -> None
     assert "MOCK_PUBLIC_KEY_DER_DATA" not in hsm
     assert "MOCK_SIGNATURE_DATA" not in hsm
     assert "The mock HSM provider is disabled" in hsm
+
+    common_crypto = (common / "crypto/__init__.py").read_text(encoding="utf-8")
+    assert "secrets.token_bytes" not in common_crypto
+    assert "generate_secure_random_bytes(16)" in common_crypto
