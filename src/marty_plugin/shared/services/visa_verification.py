@@ -352,10 +352,9 @@ class VisaVerificationEngine:
                         # Re-verify with trust store key
                         try:
                             self.trust_store[issuer]
-                            # This would need the original barcode data
-                            result.signature_valid = True  # Placeholder
-                            result.warnings.append(
-                                "Signature verification with trust store not fully implemented"
+                            result.signature_valid = False
+                            result.vds_nc_errors.append(
+                                "Signature verification requires the native VDS-NC verifier"
                             )
                         except Exception:
                             result.signature_valid = False
@@ -364,7 +363,8 @@ class VisaVerificationEngine:
                         result.signature_valid = False
                         result.vds_nc_errors.append(f"No trusted key found for issuer: {issuer}")
             else:
-                result.signature_valid = True  # Skip signature verification
+                result.signature_valid = False
+                result.vds_nc_errors.append("Signature verification was not requested")
 
             result.verification_details["vds_nc"] = {
                 "header_valid": len(header_errors) == 0,

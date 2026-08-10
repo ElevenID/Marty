@@ -21,6 +21,7 @@ from digital_identity.application.ports.trust_profile import (
     ValidationStatus,
     RevocationStatus,
 )
+from marty_plugin.native_backends import require_backend
 
 logger = logging.getLogger(__name__)
 
@@ -31,10 +32,10 @@ def _pem_to_trust_anchor(
 ) -> TrustAnchor | None:
     """Convert a PEM certificate to a TrustAnchor using Rust helpers."""
     try:
-        from marty_verification import certificate_pem_to_der, get_certificate_info  # type: ignore
+        native = require_backend("marty_verification")
 
-        der = bytes(certificate_pem_to_der(cert_pem))
-        info = get_certificate_info(der)
+        der = bytes(native.certificate_pem_to_der(cert_pem))
+        info = native.get_certificate_info(der)
         return TrustAnchor(
             id=info["fingerprint_sha256"],
             subject=info["subject"],
@@ -70,26 +71,19 @@ class EudiTrustProfile:
 
     def __post_init__(self):
         """Initialize the Rust registry and chain validator."""
-        try:
-            from marty_verification import EudiRegistry, ChainValidator  # type: ignore
-
-            self._rust_registry = EudiRegistry()
-            self._chain_validator = ChainValidator()
-            logger.info("Initialized EUDI trust profile with Rust registry")
-
-        except ImportError as e:
-            logger.error("Rust marty-verification not available for EUDI: %s", e)
-            self._rust_registry = None
-            self._chain_validator = None
+        native = require_backend("marty_verification")
+        self._rust_registry = native.EudiRegistry()
+        self._chain_validator = native.ChainValidator()
+        logger.info("Initialized EUDI trust profile with Rust registry")
 
     def _rebuild_chain_validator(self) -> None:
         """Rebuild the ChainValidator from current registry anchors."""
         if self._rust_registry is None:
             return
         try:
-            from marty_verification import ChainValidator  # type: ignore
+            native = require_backend("marty_verification")
 
-            validator = ChainValidator()
+            validator = native.ChainValidator()
             for pem in self._rust_registry.get_anchors_pem():
                 validator.add_trust_anchor(pem)
             self._chain_validator = validator

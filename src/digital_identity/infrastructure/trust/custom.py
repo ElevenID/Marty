@@ -24,6 +24,7 @@ from digital_identity.application.ports.trust_profile import (
     ValidationStatus,
     RevocationStatus,
 )
+from marty_plugin.native_backends import require_backend
 
 logger = logging.getLogger(__name__)
 
@@ -109,7 +110,9 @@ class CustomTrustProfile:
             )
 
         try:
-            from marty_verification import ChainValidator, certificate_der_to_pem  # type: ignore
+            native = require_backend("marty_verification")
+            ChainValidator = native.ChainValidator
+            certificate_der_to_pem = native.certificate_der_to_pem
 
             if certificate_der and not certificate_pem:
                 certificate_pem = certificate_der_to_pem(certificate_der)
@@ -135,68 +138,8 @@ class CustomTrustProfile:
                     errors=list(result.errors) if result.errors else ["Chain validation failed"],
                 )
 
-        except ImportError:
-            # Fallback to pure-Python issuer matching
-            return self._python_fallback_validate(certificate_pem)
-
         except Exception as e:
             logger.exception("Default chain validation failed")
-            return ChainValidationResult(
-                status=ValidationStatus.INVALID,
-                errors=[f"Validation error: {e}"],
-            )
-
-    def _python_fallback_validate(self, certificate_pem: str) -> ChainValidationResult:
-        """Minimal pure-Python fallback: match leaf issuer to anchor subject."""
-        try:
-            leaf_cert = x509.load_pem_x509_certificate(certificate_pem.encode("utf-8"))
-            leaf_issuer = leaf_cert.issuer.rfc4514_string()
-
-            for anchor_id, anchor in self.trust_anchors.items():
-                if not anchor.certificate_pem:
-                    continue
-                anchor_cert = x509.load_pem_x509_certificate(
-                    anchor.certificate_pem.encode("utf-8")
-                )
-                if leaf_issuer == anchor_cert.subject.rfc4514_string():
-                    # Verify signature using cryptography library
-                    try:
-                        from cryptography.hazmat.primitives.asymmetric import ec, padding
-                        pubkey = anchor_cert.public_key()
-                        sig_algo = leaf_cert.signature_algorithm_oid.dotted_string
-
-                        if isinstance(pubkey, ec.EllipticCurvePublicKey):
-                            pubkey.verify(
-                                leaf_cert.signature,
-                                leaf_cert.tbs_certificate_bytes,
-                                ec.ECDSA(leaf_cert.signature_hash_algorithm),
-                            )
-                        else:
-                            pubkey.verify(
-                                leaf_cert.signature,
-                                leaf_cert.tbs_certificate_bytes,
-                                padding.PKCS1v15(),
-                                leaf_cert.signature_hash_algorithm,
-                            )
-
-                        return ChainValidationResult(
-                            status=ValidationStatus.VALID,
-                            trust_anchor_id=anchor_id,
-                            chain_length=1,
-                            warnings=["Python fallback validation — Rust unavailable"],
-                        )
-                    except Exception as e:
-                        return ChainValidationResult(
-                            status=ValidationStatus.INVALID,
-                            errors=[f"Signature verification failed: {e}"],
-                        )
-
-            return ChainValidationResult(
-                status=ValidationStatus.INVALID,
-                errors=[f"No trust anchor found for issuer: {leaf_issuer}"],
-            )
-
-        except Exception as e:
             return ChainValidationResult(
                 status=ValidationStatus.INVALID,
                 errors=[f"Validation error: {e}"],

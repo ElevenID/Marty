@@ -25,6 +25,7 @@ from digital_identity.application.ports.trust_profile import (
     ValidationStatus,
     RevocationStatus,
 )
+from marty_plugin.native_backends import require_backend
 
 logger = logging.getLogger(__name__)
 
@@ -74,31 +75,23 @@ class IcaoTrustProfile:
 
         self._trust_store = CSCATrustStore(trust_store_path=self.trust_store_path)
 
-        try:
-            from marty_verification import CscaRegistry, ChainValidator  # type: ignore
+        native = require_backend("marty_verification")
+        CscaRegistry = native.CscaRegistry
+        ChainValidator = native.ChainValidator
 
-            if self.trust_store_path.exists():
-                self._rust_registry = CscaRegistry.from_directory(
-                    str(self.trust_store_path)
-                )
-            else:
-                self._rust_registry = CscaRegistry()
+        if self.trust_store_path.exists():
+            self._rust_registry = CscaRegistry.from_directory(str(self.trust_store_path))
+        else:
+            self._rust_registry = CscaRegistry()
 
-            # Build a ChainValidator pre-loaded with CSCA anchors
-            self._chain_validator = ChainValidator()
-            for pem in self._rust_registry.get_anchors_pem():
-                self._chain_validator.add_trust_anchor(pem)
+        self._chain_validator = ChainValidator()
+        for pem in self._rust_registry.get_anchors_pem():
+            self._chain_validator.add_trust_anchor(pem)
 
-            logger.info(
-                "Initialized ICAO trust profile with %d CSCA anchors",
-                len(self._rust_registry),
-            )
-        except ImportError:
-            logger.warning(
-                "Rust marty-verification not available, using Python-only validation"
-            )
-            self._rust_registry = None
-            self._chain_validator = None
+        logger.info(
+            "Initialized ICAO trust profile with %d CSCA anchors",
+            len(self._rust_registry),
+        )
 
     # ------------------------------------------------------------------
     # TrustProfilePort interface
@@ -146,8 +139,10 @@ class IcaoTrustProfile:
         if self._chain_validator:
             return self._validate_with_rust(certificate_pem, certificate_der)
 
-        # Fallback to Python
-        return await self._validate_with_python(certificate_pem, certificate_der)
+        return ChainValidationResult(
+            status=ValidationStatus.INVALID,
+            errors=["Native marty-verification backend is unavailable"],
+        )
 
     def _validate_with_rust(
         self,
