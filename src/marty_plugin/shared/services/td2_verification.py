@@ -16,9 +16,9 @@ Verification Protocol:
 
 from __future__ import annotations
 
-import hashlib
 import logging
 from datetime import date, datetime, timezone
+from pathlib import Path
 from typing import Any
 
 from marty_plugin.shared.models.td2 import ChipData, TD2Document, VerificationResult
@@ -88,6 +88,10 @@ class TD2VerificationEngine:
                 result.sod_present = chip_result["sod_present"]
                 result.sod_valid = chip_result["sod_valid"]
                 result.dg_hash_results = chip_result["dg_hash_results"]
+                result.error_codes.extend(chip_result["error_codes"])
+                result.component_statuses.update(chip_result["component_statuses"])
+                result.trust_anchor_subject = chip_result["trust_anchor_subject"]
+                result.certificate_chain = chip_result["certificate_chain"]
 
                 if not chip_result["valid"]:
                     errors.extend(chip_result["errors"])
@@ -275,7 +279,11 @@ class TD2VerificationEngine:
             "sod_valid": False,
             "dg_hash_results": {},
             "errors": [],
+            "error_codes": [],
             "warnings": [],
+            "component_statuses": {},
+            "trust_anchor_subject": None,
+            "certificate_chain": [],
         }
 
         chip_data = document.chip_data
@@ -287,26 +295,22 @@ class TD2VerificationEngine:
         if chip_data.sod_signature:
             result["sod_present"] = True
 
-            # Verify SOD signature (simplified - would need actual crypto verification)
             try:
                 sod_result = await self._verify_sod(chip_data)
                 result["sod_valid"] = sod_result["valid"]
+                result["dg_hash_results"] = sod_result["dg_hash_results"]
+                result["error_codes"] = sod_result["error_codes"]
+                result["component_statuses"] = sod_result["component_statuses"]
+                result["trust_anchor_subject"] = sod_result["trust_anchor_subject"]
+                result["certificate_chain"] = sod_result["certificate_chain"]
                 if not sod_result["valid"]:
                     result["errors"].extend(sod_result["errors"])
+                result["warnings"].extend(sod_result["warnings"])
             except Exception as e:
                 result["errors"].append(f"SOD verification failed: {e!s}")
-
-        # Verify Data Group hashes
-        if chip_data.dg_hashes:
-            dg_results = await self._verify_data_group_hashes(document)
-            result["dg_hash_results"] = dg_results
-
-            # Check if critical DGs are valid
-            if "DG1" in dg_results and not dg_results["DG1"]:
-                result["errors"].append("DG1 (MRZ) hash verification failed")
-
-            if "DG2" in dg_results and not dg_results["DG2"]:
-                result["warnings"].append("DG2 (Portrait) hash verification failed")
+        else:
+            result["errors"].append("SOD signature not present")
+            result["error_codes"].append("EMRTD_SOD_UNAVAILABLE")
 
         result["valid"] = len(result["errors"]) == 0
         return result
@@ -320,98 +324,81 @@ class TD2VerificationEngine:
         - Digital signature verification
         - Data group hash validation
         """
-        result = {"valid": False, "errors": [], "warnings": []}
+        result = {
+            "valid": False,
+            "errors": [],
+            "error_codes": [],
+            "warnings": [],
+            "dg_hash_results": {},
+            "component_statuses": {},
+            "trust_anchor_subject": None,
+            "certificate_chain": [],
+        }
 
         if not chip_data.sod_signature:
             result["errors"].append("SOD signature not present")
             return result
 
+        if not self.trust_store_path:
+            result["errors"].append("CSCA trust store is not configured")
+            result["error_codes"].append("EMRTD_TRUST_STORE_UNAVAILABLE")
+            return result
+
         try:
-            # Signature verification is security-sensitive and must run in Rust.
             from marty_plugin.native_backends import require_backend
 
             native = require_backend("marty_verification")
-            if not native.verify_sod_signature(bytes(chip_data.sod_signature)):
-                result["errors"].append("SOD signature verification failed")
+            trust_store = Path(self.trust_store_path)
+            if not trust_store.is_dir():
+                result["errors"].append(
+                    f"CSCA trust store is unavailable: {trust_store}"
+                )
+                result["error_codes"].append("EMRTD_TRUST_STORE_UNAVAILABLE")
                 return result
 
-            sod_metadata = native.parse_sod(bytes(chip_data.sod_signature))
+            data_groups: dict[int, bytes] = {}
+            if chip_data.dg1_mrz is not None:
+                data_groups[1] = chip_data.dg1_mrz.encode()
+            if chip_data.dg2_portrait is not None:
+                data_groups[2] = bytes(chip_data.dg2_portrait)
+            if not data_groups:
+                result["errors"].append("No eMRTD data groups were supplied")
+                result["error_codes"].append("EMRTD_DATA_GROUPS_UNAVAILABLE")
+                return result
 
-            # Verify SOD certificate chain (if available)
-            if chip_data.sod_cert_issuer and chip_data.sod_cert_serial:
-                # In production, this would validate against CSCA trust store
-                result["warnings"].append("Certificate chain validation requires trust store")
-            else:
-                result["warnings"].append("SOD certificate information not available")
-
-            # Verify data group hashes in SOD
-            dg_hash_verification = await self._verify_sod_dg_hashes(
-                bytes(chip_data.sod_signature), chip_data
+            registry = native.CscaRegistry.from_directory(str(trust_store))
+            native_result = native.verify_emrtd(
+                bytes(chip_data.sod_signature),
+                data_groups,
+                registry,
             )
-            if not dg_hash_verification["valid"]:
-                result["errors"].extend(dg_hash_verification["errors"])
-            else:
-                result["warnings"].extend(dg_hash_verification["warnings"])
-
-            if not sod_metadata.get("data_group_hashes"):
-                result["errors"].append("SOD contains no data-group hashes")
-
-            result["valid"] = len(result["errors"]) == 0
+            result["valid"] = bool(native_result["verified"])
+            result["errors"] = list(native_result["errors"])
+            result["error_codes"] = list(native_result["error_codes"])
+            result["warnings"] = list(native_result["warnings"])
+            result["trust_anchor_subject"] = native_result["trust_anchor_subject"]
+            result["certificate_chain"] = list(native_result["certificate_chain"])
+            result["component_statuses"] = {
+                "dsc_chain": native_result["dsc_chain_status"],
+                "sod_signature": native_result["sod_signature_status"],
+                "data_group_hashes": native_result["dg_hash_status"],
+                "revocation": native_result["revocation_status"],
+            }
+            result["dg_hash_results"] = {
+                f"DG{number}": bool(
+                    native.verify_sod_data_group_hash(
+                        bytes(chip_data.sod_signature), number, content
+                    )
+                )
+                for number, content in data_groups.items()
+            }
 
         except Exception as e:
             logger.exception(f"SOD verification failed: {e!s}")
             result["errors"].append(f"SOD verification error: {e!s}")
+            result["error_codes"].append("EMRTD_NATIVE_OPERATION_FAILED")
 
         return result
-
-    async def _verify_sod_dg_hashes(self, sod_der: bytes, chip_data: ChipData) -> dict[str, Any]:
-        """Verify data group hashes stored in SOD match actual data."""
-        result = {"valid": True, "errors": [], "warnings": []}
-
-        try:
-            from marty_plugin.native_backends import require_backend
-
-            native = require_backend("marty_verification")
-            if chip_data.dg1_mrz and not native.verify_sod_data_group_hash(
-                sod_der, 1, chip_data.dg1_mrz.encode()
-            ):
-                result["errors"].append("DG1 hash mismatch with SOD")
-            if chip_data.dg2_portrait and not native.verify_sod_data_group_hash(
-                sod_der, 2, chip_data.dg2_portrait
-            ):
-                result["errors"].append("DG2 hash mismatch with SOD")
-
-            result["valid"] = len(result["errors"]) == 0
-
-        except Exception as e:
-            logger.exception(f"SOD DG hash verification failed: {e!s}")
-            result["errors"].append(f"DG hash verification error: {e!s}")
-            result["valid"] = False
-
-        return result
-
-    async def _verify_data_group_hashes(self, document: TD2Document) -> dict[str, bool]:
-        """Verify data group hashes against actual data."""
-        results = {}
-
-        chip_data = document.chip_data
-        if not chip_data or not chip_data.dg_hashes:
-            return results
-
-        # Verify DG1 (MRZ data)
-        if "DG1" in chip_data.dg_hashes and document.mrz_data:
-            expected_hash = chip_data.dg_hashes["DG1"]
-            actual_data = document.mrz_data.line1 + document.mrz_data.line2
-            actual_hash = hashlib.sha256(actual_data.encode()).hexdigest()
-            results["DG1"] = expected_hash.lower() == actual_hash.lower()
-
-        # Verify DG2 (Portrait) - would need actual image data
-        if "DG2" in chip_data.dg_hashes and chip_data.dg2_portrait:
-            expected_hash = chip_data.dg_hashes["DG2"]
-            actual_hash = hashlib.sha256(chip_data.dg2_portrait).hexdigest()
-            results["DG2"] = expected_hash.lower() == actual_hash.lower()
-
-        return results
 
     async def _verify_dates(self, document: TD2Document) -> dict[str, Any]:
         """Verify date validity and relationships."""

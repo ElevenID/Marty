@@ -106,8 +106,7 @@ class CRLService:
                 raise NativeOperationError("CRL issuer certificate was not found")
             native = require_backend("marty_verification")
             der_data = ASN1Decoder._pem_to_der(crl_data)
-            if not native.verify_crl_signature(der_data, issuer_certificate_der):
-                raise NativeOperationError("CRL signature verification failed")
+            native.validate_crl(der_data, issuer_certificate_der)
 
             # Save the raw CRL file to file system
             storage_path = settings.CRL_PATH

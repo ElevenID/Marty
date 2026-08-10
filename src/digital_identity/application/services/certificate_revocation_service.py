@@ -230,12 +230,8 @@ class CertificateRevocationService:
                 continue
 
             crl_der = self.revocation_processor._crl_der(fetched["data"])
-            if not native.verify_crl_signature(crl_der, issuer_certificate_der):
-                failures.append(f"CRL signature verification failed for {crl_url}")
-                continue
-
             is_revoked, reason = self.revocation_processor.check_revocation_against_crl(
-                certificate_der, issuer_dn, crl_der
+                certificate_der, issuer_certificate_der, crl_der
             )
             return {"is_revoked": bool(is_revoked), "reason": reason}
 

@@ -46,6 +46,7 @@ class OfflineVerifier:
                 return self._result(False, "UNTRUSTED", details)
 
             revocation = self._check_local_crls(
+                certificate_der,
                 certificate_info,
                 trust_anchors,
             )
@@ -105,6 +106,7 @@ class OfflineVerifier:
 
     def _check_local_crls(
         self,
+        certificate_der: bytes,
         certificate_info: dict,
         trust_anchors: list[bytes],
     ) -> tuple[bool, str | None] | None:
@@ -134,18 +136,21 @@ class OfflineVerifier:
                 crl = self.native.parse_crl(crl_der)
                 if self._normalize_dn(crl.issuer) != self._normalize_dn(issuer):
                     continue
-                if not any(
-                    self.native.verify_crl_signature(crl_der, issuer_der)
-                    for issuer_der in issuer_certificates
-                ):
-                    logger.warning("Ignoring CRL with invalid signature: %s", path)
+                validated = None
+                for issuer_der in issuer_certificates:
+                    try:
+                        validated = self.native.validate_crl_for_certificate(
+                            crl_der, certificate_der, issuer_der
+                        )
+                        break
+                    except Exception:
+                        continue
+                if validated is None:
+                    logger.warning("Ignoring unauthenticated or stale CRL: %s", path)
                     continue
                 valid_evidence = True
-                revoked, reason = self.native.check_certificate_revocation(
-                    certificate_info["serial_number"], issuer, crl_der
-                )
-                if revoked:
-                    return True, reason
+                if validated["revoked"]:
+                    return True, validated.get("reason")
             except Exception as exc:
                 logger.warning("Ignoring invalid CRL %s: %s", path, exc)
 

@@ -4,7 +4,7 @@ Revocation Processing Service
 Handles CRL parsing, OCSP checking, and DSC revocation status management.
 
 This module uses Rust implementations from marty-verification for core cryptographic
-operations (CRL parsing, OCSP request building/response parsing) while maintaining
+operations (CRL parsing, OCSP request building/authenticated response validation) while maintaining
 Python async HTTP handling for network operations.
 """
 
@@ -71,8 +71,7 @@ class RevocationProcessor:
                 raise ValueError(
                     "Issuer certificate is required for CRL signature verification"
                 )
-            if not self.native.verify_crl_signature(der_data, issuer_certificate_der):
-                raise ValueError("CRL signature verification failed")
+            self.native.validate_crl(der_data, issuer_certificate_der)
 
             this_update = self._parse_datetime(crl.this_update)
             next_update = self._parse_datetime(crl.next_update)
@@ -178,8 +177,13 @@ class RevocationProcessor:
 
                 response_data = await response.read()
 
-            # Parse OCSP response using Rust
-            parsed = self.native.parse_ocsp_response(response_data)
+            # Authenticate the response and bind it to this exact certificate/issuer.
+            # The native operation also enforces responder authorization and freshness.
+            parsed = self.native.validate_ocsp_response(
+                response_data,
+                certificate_der,
+                issuer_certificate_der,
+            )
             status_str = parsed.get("cert_status", "unknown")
             if status_str == "good":
                 status = RevocationStatus.GOOD
@@ -222,7 +226,10 @@ class RevocationProcessor:
             return {"success": False, "error": str(e), "ocsp_url": ocsp_url}
 
     def check_revocation_against_crl(
-        self, certificate_der: bytes, issuer_dn: str, crl_der: bytes
+        self,
+        certificate_der: bytes,
+        issuer_certificate_der: bytes,
+        crl_der: bytes,
     ) -> tuple[bool, str | None]:
         """
         Check if a certificate is revoked according to a CRL using Rust.
@@ -232,17 +239,17 @@ class RevocationProcessor:
 
         Args:
             certificate_der: DER-encoded certificate to check
-            issuer_dn: Issuer distinguished name
+            issuer_certificate_der: DER-encoded issuer certificate
             crl_der: DER-encoded CRL data
 
         Returns:
             Tuple of (is_revoked: bool, reason: Optional[str])
         """
 
-        certificate_info = self.native.get_certificate_info(certificate_der)
-        return self.native.check_certificate_revocation(
-            certificate_info["serial_number"], issuer_dn, crl_der
+        result = self.native.validate_crl_for_certificate(
+            crl_der, certificate_der, issuer_certificate_der
         )
+        return bool(result["revoked"]), result.get("reason")
 
     def get_ocsp_url_from_certificate(self, certificate_der: bytes) -> str | None:
         """
