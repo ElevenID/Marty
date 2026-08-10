@@ -15,6 +15,7 @@ from certvalidator import ValidationContext
 from certvalidator.errors import InvalidCertificateError, PathValidationError, RevokedError
 # Use Rust crypto_bridge for certificate operations
 from marty_common.crypto_bridge import Certificate as CertificateBridge
+from marty_plugin.native_backends import require_backend
 # Import x509 for compatibility with certvalidator library
 from cryptography import x509
 from cryptography.hazmat.backends import default_backend
@@ -152,6 +153,8 @@ class CertificateValidator:
         Returns:
             bool: True if the certificate is valid for the specified usage, False otherwise.
         """
+        return self._validate_native([certificate_to_validate])
+
         cert_obj = self._load_certificate(certificate_to_validate)
         if not cert_obj:
             return False
@@ -225,6 +228,8 @@ class CertificateValidator:
         Returns:
             bool: True if the certificate chain is valid, False otherwise.
         """
+        return self._validate_native(certificate_chain)
+
         if not certificate_chain:
             self.logger.error("Certificate chain is empty.")
             return False
@@ -292,4 +297,34 @@ class CertificateValidator:
             )
             return False
         else:
+            return False
+
+    def _validate_native(
+        self,
+        certificate_chain: list[str | bytes | x509.Certificate | CertificateBridge],
+    ) -> bool:
+        """Validate certificates through the Rust verification binding only."""
+        if not certificate_chain:
+            return False
+
+        try:
+            native = require_backend("marty_verification")
+            validator = native.ChainValidator()
+            for root in self.parsed_trust_roots:
+                validator.add_trust_anchor(
+                    root.public_bytes(serialization.Encoding.PEM).decode("ascii")
+                )
+
+            chain_pem: list[str] = []
+            for certificate in certificate_chain:
+                loaded = self._load_certificate(certificate)
+                if loaded is None:
+                    return False
+                chain_pem.append(
+                    loaded.public_bytes(serialization.Encoding.PEM).decode("ascii")
+                )
+
+            return bool(validator.validate_chain(chain_pem).valid)
+        except Exception as exc:
+            self.logger.error("Native certificate validation failed closed: %s", exc)
             return False
