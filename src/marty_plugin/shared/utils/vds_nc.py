@@ -50,7 +50,6 @@ from marty_common.crypto_bridge import (
     rsa_pss_sha512_verify,
     load_private_key_pem,
     pkcs8_to_raw_private_key,
-    detect_private_key_type,
 )
 
 from marty_plugin.shared.models.visa import VDSNCData, Visa
@@ -239,17 +238,10 @@ class VDSNCEncoder:
         Returns:
             Signature bytes
         """
-        # For testing with mock keys, return a mock signature
-        if "1234567890abcdef" in private_key_pem or private_key_pem.strip() == "":
-            return sha256(signature_input)[:32]  # Mock signature
-
         try:
-            # Load key using Rust crypto_bridge
             private_der = load_private_key_pem(private_key_pem)
-            key_type = detect_private_key_type(private_der)
-        except Exception:
-            # Fallback to mock signature for invalid keys
-            return sha256(signature_input)[:32]
+        except Exception as exc:
+            raise ValueError("Invalid private key; native signing failed") from exc
 
         if algorithm in [
             SignatureAlgorithm.ES256,
@@ -263,8 +255,8 @@ class VDSNCEncoder:
                 return ecdsa_p256_sign(raw_key, signature_input)
             elif algorithm == SignatureAlgorithm.ES384:
                 return ecdsa_p384_sign(raw_key, signature_input)
-            else:  # ES512 - not yet supported in Rust, fallback
-                return sha256(signature_input)[:32]
+            else:
+                return ecdsa_p521_sign(raw_key, signature_input)
 
         elif algorithm in [
             SignatureAlgorithm.PS256,

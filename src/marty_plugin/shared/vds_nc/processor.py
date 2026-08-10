@@ -183,7 +183,8 @@ class VDSNCProcessor:
                 else:
                     result.errors.append(f"Public key not found for signer: {signer_id}")
             else:
-                result.signature_valid = True
+                result.signature_valid = False
+                result.errors.append("Digital signature verification was not requested")
 
             # Step 4: Field-by-field comparison
             if printed_values:

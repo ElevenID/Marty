@@ -335,17 +335,7 @@ class TD2VerificationEngine:
                 result["errors"].append("SOD signature verification failed")
                 return result
 
-            # Retain the existing parser only for extracting DG hash metadata;
-            # authenticity has already been established by the native verifier.
-            from marty_common.crypto.sod_parser import SODProcessor
-
-            processor = SODProcessor()
-
-            # Parse SOD data
-            sod_obj = processor.parse_sod_data(chip_data.sod_signature)
-            if not sod_obj:
-                result["errors"].append("Failed to parse SOD data")
-                return result
+            sod_metadata = native.parse_sod(bytes(chip_data.sod_signature))
 
             # Verify SOD certificate chain (if available)
             if chip_data.sod_cert_issuer and chip_data.sod_cert_serial:
@@ -355,21 +345,16 @@ class TD2VerificationEngine:
                 result["warnings"].append("SOD certificate information not available")
 
             # Verify data group hashes in SOD
-            dg_hash_verification = await self._verify_sod_dg_hashes(sod_obj, chip_data)
+            dg_hash_verification = await self._verify_sod_dg_hashes(
+                bytes(chip_data.sod_signature), chip_data
+            )
             if not dg_hash_verification["valid"]:
                 result["errors"].extend(dg_hash_verification["errors"])
             else:
                 result["warnings"].extend(dg_hash_verification["warnings"])
 
-            # Basic SOD structure validation
-            if not hasattr(sod_obj, "ldsSecurityObject"):
-                result["errors"].append("Invalid SOD structure - missing LDS Security Object")
-                return result
-
-            # Verify hash algorithm support
-            hash_algo = getattr(sod_obj.ldsSecurityObject, "hashAlgorithm", "unknown")
-            if hash_algo not in ["sha256", "sha384", "sha512"]:
-                result["warnings"].append(f"Hash algorithm {hash_algo} may not be fully supported")
+            if not sod_metadata.get("data_group_hashes"):
+                result["errors"].append("SOD contains no data-group hashes")
 
             result["valid"] = len(result["errors"]) == 0
 
@@ -379,58 +364,22 @@ class TD2VerificationEngine:
 
         return result
 
-    async def _verify_sod_dg_hashes(self, sod_obj, chip_data: ChipData) -> dict[str, Any]:
+    async def _verify_sod_dg_hashes(self, sod_der: bytes, chip_data: ChipData) -> dict[str, Any]:
         """Verify data group hashes stored in SOD match actual data."""
         result = {"valid": True, "errors": [], "warnings": []}
 
         try:
-            # Extract data group hashes from SOD
-            if not hasattr(sod_obj, "ldsSecurityObject"):
-                result["errors"].append("SOD missing LDS Security Object")
-                return result
+            from marty_plugin.native_backends import require_backend
 
-            lds_obj = sod_obj.ldsSecurityObject
-
-            # For TD-2 minimal profile, verify DG1 and DG2
-            if hasattr(lds_obj, "dataGroupHashValues"):
-                sod_hashes = lds_obj.dataGroupHashValues
-
-                # Verify DG1 hash (MRZ data)
-                if chip_data.dg1_mrz:
-                    dg1_sod_hash = None
-                    for dg_hash in sod_hashes:
-                        if getattr(dg_hash, "dataGroupNumber", 0) == 1:
-                            dg1_sod_hash = getattr(dg_hash, "dataGroupHashValue", None)
-                            break
-
-                    if dg1_sod_hash:
-                        # Compute hash of actual DG1 data
-                        hash_algo = getattr(lds_obj, "hashAlgorithm", "sha256")
-                        actual_hash = self._compute_dg_hash(chip_data.dg1_mrz.encode(), hash_algo)
-
-                        if actual_hash != dg1_sod_hash.hex().lower():
-                            result["errors"].append("DG1 hash mismatch with SOD")
-                    else:
-                        result["warnings"].append("DG1 hash not found in SOD")
-
-                # Verify DG2 hash (Portrait)
-                if chip_data.dg2_portrait:
-                    dg2_sod_hash = None
-                    for dg_hash in sod_hashes:
-                        if getattr(dg_hash, "dataGroupNumber", 0) == 2:
-                            dg2_sod_hash = getattr(dg_hash, "dataGroupHashValue", None)
-                            break
-
-                    if dg2_sod_hash:
-                        hash_algo = getattr(lds_obj, "hashAlgorithm", "sha256")
-                        actual_hash = self._compute_dg_hash(chip_data.dg2_portrait, hash_algo)
-
-                        if actual_hash != dg2_sod_hash.hex().lower():
-                            result["errors"].append("DG2 hash mismatch with SOD")
-                    else:
-                        result["warnings"].append("DG2 hash not found in SOD")
-            else:
-                result["errors"].append("No data group hashes found in SOD")
+            native = require_backend("marty_verification")
+            if chip_data.dg1_mrz and not native.verify_sod_data_group_hash(
+                sod_der, 1, chip_data.dg1_mrz.encode()
+            ):
+                result["errors"].append("DG1 hash mismatch with SOD")
+            if chip_data.dg2_portrait and not native.verify_sod_data_group_hash(
+                sod_der, 2, chip_data.dg2_portrait
+            ):
+                result["errors"].append("DG2 hash mismatch with SOD")
 
             result["valid"] = len(result["errors"]) == 0
 
@@ -440,21 +389,6 @@ class TD2VerificationEngine:
             result["valid"] = False
 
         return result
-
-    def _compute_dg_hash(self, data: bytes, algorithm: str) -> str:
-        """Compute hash for data group verification."""
-        try:
-            if algorithm.lower() in ["sha256", "sha-256"]:
-                return hashlib.sha256(data).hexdigest()
-            if algorithm.lower() in ["sha384", "sha-384"]:
-                return hashlib.sha384(data).hexdigest()
-            if algorithm.lower() in ["sha512", "sha-512"]:
-                return hashlib.sha512(data).hexdigest()
-            # Default to SHA-256
-            return hashlib.sha256(data).hexdigest()
-        except Exception as e:
-            logger.exception(f"Hash computation failed: {e!s}")
-            return ""
 
     async def _verify_data_group_hashes(self, document: TD2Document) -> dict[str, bool]:
         """Verify data group hashes against actual data."""
