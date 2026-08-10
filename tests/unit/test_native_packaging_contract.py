@@ -47,7 +47,7 @@ def test_ci_builds_all_native_wheels_from_an_immutable_core_revision() -> None:
         assert f"require_one_wheel {distribution}" in build_script
 
     assert (
-        "MARTY_CORE_REVISION: be8a38b6aef3aee588f0581bd337d2cc7609e98c"
+        "MARTY_CORE_REVISION: 5b6d1fe711625e2d8048f3348e0edfc5cdde1d5b"
         in workflows
     )
     assert "repository: ElevenID/marty-core" in workflows
