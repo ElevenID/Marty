@@ -8,9 +8,10 @@ ICAO Doc 9303 Part 13 specifications.
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Any
 
+from marty_common.native_backends import NativeOperationError
 from pydantic import BaseModel, Field, field_validator
 
 from .types import (
@@ -32,10 +33,11 @@ class VDSNCHeader(BaseModel):
     issuing_country: str = Field(
         ..., min_length=3, max_length=3, description="3-letter country code"
     )
-    signer_id: str = Field(..., max_length=16, description="Signer identifier")
+    signer_id: str = Field(..., max_length=512, description="Signer identifier")
     certificate_reference: str = Field(
         ..., max_length=16, description="Certificate reference"
     )
+    native_header: str | None = Field(default=None, exclude=True, repr=False)
 
     @field_validator("issuing_country")
     @classmethod
@@ -47,8 +49,12 @@ class VDSNCHeader(BaseModel):
         return v.upper()
 
     def to_canonical_string(self) -> str:
-        """Convert to canonical header string."""
-        return f"DC{self.version.value}{self.doc_type.value}{self.issuing_country}{self.signer_id}"
+        """Return the header parsed or created by the native profile."""
+        if self.native_header is None:
+            raise NativeOperationError(
+                "Canonical VDS-NC headers must be created or parsed by the Rust backend"
+            )
+        return self.native_header
 
 
 class VDSNCSignatureInfo(BaseModel):
@@ -77,6 +83,7 @@ class VDSNCPayload(BaseModel):
     header: VDSNCHeader = Field(..., description="VDS-NC header")
     message: dict[str, Any] = Field(..., description="Canonical document data")
     signature_info: VDSNCSignatureInfo = Field(..., description="Signature metadata")
+    native_signing_input: str | None = Field(default=None, exclude=True, repr=False)
 
     def get_canonical_message(self) -> str:
         """Get canonical representation of message data."""
@@ -85,11 +92,12 @@ class VDSNCPayload(BaseModel):
         return VDSNCCanonicalizer.canonicalize(self.message, self.header.doc_type)
 
     def get_signature_data(self) -> bytes:
-        """Get data that should be signed (header + canonical message)."""
-        header_str = self.header.to_canonical_string()
-        canonical_message = self.get_canonical_message()
-        sign_data = header_str + canonical_message
-        return sign_data.encode("utf-8")
+        """Return the exact signing input supplied by the Rust profile."""
+        if self.native_signing_input is None:
+            raise NativeOperationError(
+                "VDS-NC signing input must be created or parsed by the Rust backend"
+            )
+        return self.native_signing_input.encode("utf-8")
 
 
 class VDSNCDocument(BaseModel):
@@ -125,32 +133,11 @@ class VDSNCDocument(BaseModel):
         Returns:
             True if signature is valid
         """
-        try:
-            import base64
+        from .native import verify_profile
 
-            from marty_common.crypto_bridge import load_public_key_pem, verify_signature
-
-            # Get signature data
-            signature_data = self.payload.get_signature_data()
-            signature_bytes = base64.b64decode(self.signature)
-
-            algorithms = {
-                SignatureAlgorithm.ES256: "ecdsa-p256-sha256",
-                SignatureAlgorithm.ES384: "ecdsa-p384-sha384",
-            }
-            algorithm = algorithms.get(self.payload.signature_info.algorithm)
-            if algorithm is None:
-                return False
-            return bool(
-                verify_signature(
-                    algorithm,
-                    load_public_key_pem(public_key_pem),
-                    signature_data,
-                    signature_bytes,
-                )
-            )
-        except Exception:
-            return False
+        return bool(
+            verify_profile(self.barcode_data, public_key_pem)["signature_valid"]
+        )
 
     def validate_field_consistency(self, printed_values: dict[str, Any]) -> list[str]:
         """
@@ -162,28 +149,10 @@ class VDSNCDocument(BaseModel):
         Returns:
             List of consistency errors (empty if consistent)
         """
-        errors = []
-        message_data = self.payload.message
+        from .native import validate_profile
 
-        for key, printed_value in printed_values.items():
-            vds_value = message_data.get(key)
-
-            if vds_value is None:
-                errors.append(f"Field '{key}' missing in VDS-NC data")
-                continue
-
-            # Normalize values for comparison
-            if isinstance(printed_value, str):
-                printed_value = printed_value.strip().upper()
-            if isinstance(vds_value, str):
-                vds_value = vds_value.strip().upper()
-
-            if printed_value != vds_value:
-                errors.append(
-                    f"Field '{key}' mismatch: printed='{printed_value}', VDS-NC='{vds_value}'"
-                )
-
-        return errors
+        result = validate_profile(self.barcode_data, printed_values=printed_values)
+        return [str(error) for error in result["field_errors"]]
 
     def validate_expiry_and_dates(self) -> list[str]:
         """
@@ -192,44 +161,10 @@ class VDSNCDocument(BaseModel):
         Returns:
             List of temporal validation errors
         """
-        errors = []
-        now = datetime.now(timezone.utc).date()
-        message_data = self.payload.message
+        from .native import validate_profile
 
-        # Parse dates
-        try:
-            if "dateOfIssue" in message_data:
-                issue_date = datetime.strptime(
-                    message_data["dateOfIssue"], "%Y%m%d"
-                ).date()
-                if now < issue_date:
-                    errors.append("Document not yet valid (before issue date)")
-
-            if "dateOfExpiry" in message_data:
-                expiry_date = datetime.strptime(
-                    message_data["dateOfExpiry"], "%Y%m%d"
-                ).date()
-                if now > expiry_date:
-                    errors.append("Document expired")
-
-            if "validFrom" in message_data:
-                valid_from = datetime.strptime(
-                    message_data["validFrom"], "%Y%m%d"
-                ).date()
-                if now < valid_from:
-                    errors.append("Document not yet valid (before valid from date)")
-
-            if "validUntil" in message_data:
-                valid_until = datetime.strptime(
-                    message_data["validUntil"], "%Y%m%d"
-                ).date()
-                if now > valid_until:
-                    errors.append("Document validity period ended")
-
-        except ValueError as e:
-            errors.append(f"Date parsing error: {e}")
-
-        return errors
+        result = validate_profile(self.barcode_data, evaluation_date=date.today())
+        return [str(error) for error in result["temporal_errors"]]
 
 
 class VDSNCVerificationResult(BaseModel):

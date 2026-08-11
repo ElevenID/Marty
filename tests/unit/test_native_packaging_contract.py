@@ -53,10 +53,7 @@ def test_ci_builds_all_native_wheels_from_an_immutable_core_revision() -> None:
     for distribution in ("marty_rs", "marty_verification_py", "marty_iso18013"):
         assert f"require_one_wheel {distribution}" in build_script
 
-    assert (
-        "MARTY_CORE_REVISION: 77789c591afe9859cbd1b948e437eb61f1c0bc2b"
-        in workflows
-    )
+    assert "MARTY_CORE_REVISION: 77789c591afe9859cbd1b948e437eb61f1c0bc2b" in workflows
     assert "repository: ElevenID/marty-core" in workflows
     assert "ref: ${{ env.MARTY_CORE_REVISION }}" in workflows
     assert "bash scripts/build-native-wheels.sh" in workflows
@@ -146,9 +143,16 @@ def test_legacy_emrtd_and_vds_paths_fail_closed() -> None:
     vds_service = (
         ROOT / "packages/marty-common/marty_common/vds_nc/cmc_vds_nc_service.py"
     ).read_text()
-    vds_impl = (
-        ROOT / "packages/marty-common/marty_common/vds_nc/vds_nc_impl.py"
-    ).read_text()
+    vds_impl = ROOT / "packages/marty-common/marty_common/vds_nc/vds_nc_impl.py"
+    vds_adapters = "\n".join(
+        path.read_text(encoding="utf-8")
+        for path in (
+            ROOT / "src/marty_plugin/shared/vds_nc/processor.py",
+            ROOT / "src/marty_plugin/shared/vds_nc/canonicalization.py",
+            ROOT / "src/marty_plugin/shared/vds_nc/barcode.py",
+            ROOT / "src/marty_plugin/shared/utils/vds_nc.py",
+        )
+    )
 
     assert "simulate successful authentication" not in passport
     assert "Create a basic DG1 from MRZ" not in passport
@@ -157,8 +161,16 @@ def test_legacy_emrtd_and_vds_paths_fail_closed() -> None:
     assert "SOD signature structure is valid" not in cmc
     assert "All data group hashes are valid" not in cmc
     assert "initialized with test keys" not in vds_service
-    assert "generate_private_key" not in vds_impl
-    assert "cryptography.hazmat" not in vds_impl
+    assert not vds_impl.exists()
+    for prohibited in (
+        "import cbor2",
+        "ecdsa_p256_sign",
+        "rsa_pss_sha256_sign",
+        "SIZE_THRESHOLDS",
+        "CANONICAL_FIELDS",
+        '.split("~")',
+    ):
+        assert prohibited not in vds_adapters
 
 
 def test_shared_verification_kernels_do_not_import_python_cryptography() -> None:
@@ -207,13 +219,15 @@ def test_shared_verification_kernels_do_not_import_python_cryptography() -> None
     assert "from cryptography" not in sources
     assert "import cryptography" not in sources
     assert "from cryptography" not in vds_processor
-    assert "load_private_key_pem" in vds_processor
+    assert "sign_profile" in vds_processor
+    assert "load_private_key_pem" not in vds_processor
     assert "from cryptography" not in key_management
     assert "import cryptography" not in key_management
     assert "_generate_ec_key_python" not in key_management
     assert "PKCS#12 serialization is not exposed" in key_management
     assert "from cryptography" not in legacy_vds
-    assert "load_public_key_pem" in legacy_vds
+    assert "verify_profile" in legacy_vds
+    assert "load_public_key_pem" not in legacy_vds
     assert '"signature_valid": True' not in visa_verification
     assert "MRZParser._parse" in mrz_hardened
     assert "def _parse_td" not in mrz_hardened

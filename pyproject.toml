@@ -26,7 +26,6 @@ dependencies = [
     "certvalidator>=0.11.1",
     # Protocol support
     "protobuf>=4.24.4",
-    "cbor2>=5.4.6",
     "cose>=0.9.dev8",
     # Enhanced OIDC4VC and credentials
     "jwcrypto>=1.5.0",
@@ -345,7 +344,6 @@ module = [
     "aioboto3.*",
     "playwright.*",
     "asn1crypto.*",
-    "cbor2.*",
     "qrcode.*",
     "face_recognition.*",
     "cv2.*",

@@ -34,7 +34,9 @@ def convert_personal_data_to_vds_nc(personal_data: PersonalData) -> dict[str, An
     }
 
 
-def _add_e_visa_fields(vds_data: dict[str, Any], document_data: VisaDocumentData) -> None:
+def _add_e_visa_fields(
+    vds_data: dict[str, Any], document_data: VisaDocumentData
+) -> None:
     """Add E-VISA specific fields to VDS data."""
     vds_data.update(
         {
@@ -222,7 +224,12 @@ class VisaVDSNCProcessor:
                     f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:8]}"
                 )
 
-        for field in ["numberOfEntries", "durationOfStay", "placeOfIssue", "purposeOfTravel"]:
+        for field in [
+            "numberOfEntries",
+            "durationOfStay",
+            "placeOfIssue",
+            "purposeOfTravel",
+        ]:
             if message_data.get(field):
                 visa_data[field.lower()] = message_data[field]
 
@@ -241,7 +248,9 @@ class EnhancedVDSNCData(BaseModel):
     )
 
     # Visa-specific metadata
-    visa_type: DocumentType = Field(default=DocumentType.E_VISA, description="Visa document type")
+    visa_type: DocumentType = Field(
+        default=DocumentType.E_VISA, description="Visa document type"
+    )
 
     # Legacy compatibility fields (derived from VDS-NC data)
     @property
