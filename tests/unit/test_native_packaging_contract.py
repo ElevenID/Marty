@@ -135,6 +135,10 @@ def test_document_and_dtc_compatibility_paths_cannot_report_synthetic_success() 
     assert "mock backend is disabled" in service_clients
     assert "signer_id as a public key placeholder" not in dtc_service
     assert "Rust DTC verification failed; falling back" not in dtc_service
+    assert "falling back to document signer" not in dtc_service
+    assert "dtc_prepare_signing" in dtc_service
+    assert "dtc_assemble_signature" in dtc_service
+    assert "document_content=signing_input" in dtc_service
     assert "mock_signature" not in cmc_lds
     assert "requires a native or remote document-signer adapter" in cmc_lds
 
@@ -184,7 +188,6 @@ def test_shared_verification_kernels_do_not_import_python_cryptography() -> None
         "crypto/certificate_validator.py",
         "crypto/csca_trust_store.py",
         "crypto/data_group_hasher.py",
-        "crypto/dtc_verifier.py",
         "crypto/evidence_signing.py",
         "crypto/sod_parser.py",
         "crypto/sod_signer.py",
@@ -249,3 +252,8 @@ def test_shared_verification_kernels_do_not_import_python_cryptography() -> None
     common_crypto = (common / "crypto/__init__.py").read_text(encoding="utf-8")
     assert "secrets.token_bytes" not in common_crypto
     assert "generate_secure_random_bytes(16)" in common_crypto
+
+
+def test_duplicate_python_dtc_verifier_has_been_deleted() -> None:
+    duplicate = ROOT / "packages/marty-common/marty_common/crypto/dtc_verifier.py"
+    assert not duplicate.exists()

@@ -406,98 +406,22 @@ class DTCEngineService(dtc_engine_pb2_grpc.DTCEngineServicer):
                     signature_info=signature_info,
                 )
 
-            # Prefer Rust DTC signing when key material is available
             if self.signing_key_pem:
-                try:
-                    dtc_payload = dict(dtc_data)
-                    dtc_payload["signing_key_pem"] = self.signing_key_pem
-                    dtc_payload["signer_id"] = self.signer_id
-                    signed = json.loads(crypto_bridge.dtc_sign(json.dumps(dtc_payload)))
-                    dtc_data.update(signed)
-                    dtc_data.pop("access_key", None)
-                    if self.signer_public_key_pem:
-                        dtc_data.setdefault("signature_info", {})[
-                            "signer_public_key_pem"
-                        ] = self.signer_public_key_pem
-                    with open(dtc_file_path, "w") as f:
-                        json.dump(dtc_data, f, indent=2)
-                    self._dtc_store[request.dtc_id] = dtc_data
+                signed = self._sign_dtc_with_native_key(dtc_data)
+            else:
+                signed = self._sign_dtc_with_external_provider(request.dtc_id, dtc_data)
 
-                    signature_value = dtc_data.get("signature_info", {}).get(
-                        "signature", ""
-                    )
-                    if isinstance(signature_value, str):
-                        try:
-                            signature_bytes = base64.b64decode(signature_value)
-                        except Exception:  # pragma: no cover - defensive
-                            signature_bytes = signature_value.encode("utf-8")
-                    elif isinstance(signature_value, (bytes, bytearray)):
-                        signature_bytes = bytes(signature_value)
-                    else:
-                        signature_bytes = b""
+            # Preserve Python-owned access-control and storage metadata while
+            # replacing every protocol/cryptographic field with native output.
+            dtc_data.update(signed)
+            dtc_data.pop("access_key", None)
 
-                    signature_info = dtc_engine_pb2.SignatureInfo(
-                        signature_date=dtc_data.get("signature_info", {}).get(
-                            "signature_date", ""
-                        ),
-                        signer_id=dtc_data.get("signature_info", {}).get(
-                            "signer_id", ""
-                        ),
-                        signature=signature_bytes,
-                        is_valid=dtc_data.get("signature_info", {}).get(
-                            "is_valid", True
-                        ),
-                    )
-                    self.logger.info(
-                        f"Successfully signed DTC with ID: {request.dtc_id}"
-                    )
-                    return dtc_engine_pb2.SignDTCResponse(
-                        success=True, error_message="", signature_info=signature_info
-                    )
-                except Exception:
-                    self.logger.exception(
-                        "Rust DTC signing failed; falling back to document signer"
-                    )
-
-            # Check if document signer service is available
-            if not self.document_signer_client:
-                self.logger.error("Document Signer service is not available")
-                return dtc_engine_pb2.SignDTCResponse(
-                    success=False,
-                    error_message="Document Signer service is not available",
-                )
-
-            # Prepare data to be signed
-            dtc_content = json.dumps(dtc_data).encode("utf-8")
-
-            # Call document signer service
-            sign_request = document_signer_pb2.SignRequest(
-                document_id=request.dtc_id,
-                document_content=dtc_content,
+            signature_details = dtc_data.get("signature_info")
+            if not isinstance(signature_details, dict):
+                raise ValueError("Native DTC signing returned no signature information")
+            signature_bytes = self._decode_native_signature(
+                signature_details.get("signature")
             )
-
-            sign_response = self.document_signer_client.stub.SignDocument(sign_request)
-
-            if not sign_response.success:
-                self.logger.error(f"Failed to sign DTC: {sign_response.error_message}")
-                return dtc_engine_pb2.SignDTCResponse(
-                    success=False,
-                    error_message=f"Failed to sign DTC: {sign_response.error_message}",
-                )
-
-            # Update DTC with signature information
-            signature_date = datetime.now().isoformat()
-            dtc_data["is_signed"] = True
-            dtc_data["signature"] = (
-                sign_response.signature.decode("latin1")
-                if isinstance(sign_response.signature, bytes)
-                else sign_response.signature
-            )
-            dtc_data["signature_info"] = {
-                "signature_date": signature_date,
-                "signer_id": sign_response.signer_id,
-                "is_valid": True,
-            }
 
             # Save updated DTC
             with open(dtc_file_path, "w") as f:
@@ -506,9 +430,10 @@ class DTCEngineService(dtc_engine_pb2_grpc.DTCEngineServicer):
 
             # Prepare response
             signature_info = dtc_engine_pb2.SignatureInfo(
-                signature_date=signature_date,
-                signer_id=sign_response.signer_id,
-                is_valid=True,
+                signature_date=signature_details.get("signature_date", ""),
+                signer_id=signature_details.get("signer_id", ""),
+                signature=signature_bytes,
+                is_valid=bool(signature_details.get("is_valid", False)),
             )
 
             self.logger.info(f"Successfully signed DTC with ID: {request.dtc_id}")
@@ -521,6 +446,97 @@ class DTCEngineService(dtc_engine_pb2_grpc.DTCEngineServicer):
             return dtc_engine_pb2.SignDTCResponse(
                 success=False, error_message="Failed to sign DTC"
             )
+
+    def _sign_dtc_with_native_key(self, dtc_data: dict[str, Any]) -> dict[str, Any]:
+        """Sign locally through the canonical Rust DTC implementation."""
+
+        dtc_payload = dict(dtc_data)
+        dtc_payload["signing_key_pem"] = self.signing_key_pem
+        dtc_payload["signer_id"] = self.signer_id
+        signed = json.loads(crypto_bridge.dtc_sign(json.dumps(dtc_payload)))
+        if not isinstance(signed, dict) or not signed.get("is_signed"):
+            raise ValueError("Native DTC signer returned an unsigned record")
+        return signed
+
+    def _sign_dtc_with_external_provider(
+        self, dtc_id: str, dtc_data: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Use a remote signer without moving DTC signing decisions into Python."""
+
+        if not self.document_signer_client:
+            raise RuntimeError("Document Signer service is not available")
+        if not self.signer_public_key_pem:
+            raise RuntimeError(
+                "DTC signer public key is required for external signature verification"
+            )
+
+        prepared = json.loads(crypto_bridge.dtc_prepare_signing(json.dumps(dtc_data)))
+        if not isinstance(prepared, dict) or not isinstance(prepared.get("dtc"), dict):
+            raise ValueError(
+                "Native DTC signing preparation returned an invalid envelope"
+            )
+        signing_input = base64.b64decode(
+            prepared.get("signing_input_base64", ""), validate=True
+        )
+        if not signing_input:
+            raise ValueError("Native DTC signing preparation returned an empty payload")
+
+        sign_request = document_signer_pb2.SignRequest(
+            document_id=dtc_id,
+            document_content=signing_input,
+        )
+        sign_response = self.document_signer_client.stub.SignDocument(sign_request)
+        if not sign_response.success:
+            provider_error = getattr(sign_response, "error_message", "")
+            raise RuntimeError(f"Document Signer failed: {provider_error}")
+
+        provider_info = getattr(sign_response, "signature_info", None)
+        signature = getattr(provider_info, "signature", None)
+        signer_id = getattr(provider_info, "signer_id", None)
+        signature_date = getattr(provider_info, "signature_date", None)
+
+        # Retain compatibility with providers using the older top-level response
+        # fields. Rust still authenticates the returned signature before use.
+        if not signature:
+            signature = getattr(sign_response, "signature", None)
+        if not signer_id:
+            signer_id = getattr(sign_response, "signer_id", None)
+        if not isinstance(signature, (bytes, bytearray)) or not signature:
+            raise ValueError("Document Signer returned no signature bytes")
+        if not isinstance(signer_id, str) or not signer_id.strip():
+            raise ValueError("Document Signer returned no signer identifier")
+
+        envelope: dict[str, Any] = {
+            "dtc": prepared["dtc"],
+            "signature_base64": base64.b64encode(bytes(signature)).decode("ascii"),
+            "signer_id": signer_id,
+            "signer_public_key_pem": self.signer_public_key_pem,
+        }
+        if isinstance(signature_date, str) and signature_date:
+            envelope["signature_date"] = signature_date
+
+        signed = json.loads(crypto_bridge.dtc_assemble_signature(json.dumps(envelope)))
+        if not isinstance(signed, dict) or not signed.get("is_signed"):
+            raise ValueError(
+                "Native DTC signature assembly returned an unsigned record"
+            )
+        signature_info = signed.get("signature_info")
+        if not isinstance(signature_info, dict) or not signature_info.get("is_valid"):
+            raise ValueError(
+                "Native DTC signature assembly did not authenticate the signer"
+            )
+        return signed
+
+    @staticmethod
+    def _decode_native_signature(value: Any) -> bytes:
+        """Decode the native base64 signature without permissive coercion."""
+
+        if not isinstance(value, str) or not value:
+            raise ValueError("Native DTC signer returned no signature")
+        signature = base64.b64decode(value, validate=True)
+        if not signature:
+            raise ValueError("Native DTC signer returned an empty signature")
+        return signature
 
     def RevokeDTC(
         self, request: dtc_engine_pb2.RevokeDTCRequest, context: grpc.ServicerContext
