@@ -3,7 +3,7 @@ set -euo pipefail
 
 architecture="${1:-x86_64}"
 destination="${2:-native-wheels}"
-core_tag="${MARTY_CORE_NATIVE_TAG:-v0.1.39}"
+core_tag="${MARTY_CORE_NATIVE_TAG:-v0.1.46}"
 
 case "$architecture" in
   x86_64|aarch64)
