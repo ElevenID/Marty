@@ -46,7 +46,7 @@ Python cryptographic fallback.
 
 ## Packaging and rollout
 
-Marty pins the canonical core native v0.1.39 release built from merged core
+Marty pins the canonical core native v0.1.46 release built from merged core
 commit `2a1e2743ff0499adbe473ea242e179681f874b3c` for `marty_iso18013`,
 `marty_verification`, and `_marty_rs`. CI and release jobs download the exact
 GitHub release wheels, require GitHub-provided SHA-256 asset digests to match,

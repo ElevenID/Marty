@@ -19,6 +19,12 @@ def test_native_wheel_downloads_are_versioned_and_digest_verified() -> None:
     assert "actual" in script and "expected" in script
     assert "sha256:" in script
 
+    package_metadata = (
+        ROOT / "packages" / "marty-common" / "pyproject.toml"
+    ).read_text(encoding="utf-8")
+    assert '"marty-rs==0.1.46"' in package_metadata
+    assert '"marty-verification-py==0.1.46"' in package_metadata
+
 
 def test_release_image_embeds_and_validates_native_wheels() -> None:
     dockerfile = (ROOT / "docker" / "mmf-plugin.Dockerfile").read_text(encoding="utf-8")
