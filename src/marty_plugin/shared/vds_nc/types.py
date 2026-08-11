@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from enum import Enum
 
+from marty_common.native_backends import NativeOperationError
+
 
 class VDSNCVersion(str, Enum):
     """VDS-NC specification versions."""
@@ -32,8 +34,11 @@ class SignatureAlgorithm(str, Enum):
 
     ES256 = "ES256"  # ECDSA using P-256 and SHA-256
     ES384 = "ES384"  # ECDSA using P-384 and SHA-384
+    EDDSA = "EdDSA"  # Ed25519
     ES512 = "ES512"  # ECDSA using P-521 and SHA-512
     PS256 = "PS256"  # RSASSA-PSS using SHA-256 and MGF1 with SHA-256
+    PS384 = "PS384"  # RSASSA-PSS using SHA-384 and MGF1 with SHA-384
+    PS512 = "PS512"  # RSASSA-PSS using SHA-512 and MGF1 with SHA-512
 
 
 class BarcodeFormat(str, Enum):
@@ -54,7 +59,7 @@ class ErrorCorrectionLevel(str, Enum):
     HIGH = "H"  # ~30% recovery
 
 
-class VDSNCError(Exception):
+class VDSNCError(NativeOperationError):
     """Base exception for VDS-NC related errors."""
 
 

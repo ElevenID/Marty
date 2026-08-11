@@ -84,6 +84,13 @@ REQUIRED_NATIVE_BACKENDS: dict[str, tuple[str, ...]] = {
         "verify_mdoc_cbor",
         "verify_sd_jwt",
         "verify_vcdm_jwt",
+        "vds_nc_barcode_policy",
+        "vds_nc_canonicalize",
+        "vds_nc_inspect",
+        "vds_nc_select_barcode_format",
+        "vds_nc_sign_profile",
+        "vds_nc_validate_profile",
+        "vds_nc_verify_profile",
     ),
 }
 

@@ -78,11 +78,18 @@ _marty_verification = load_native_backend(
 _marty_rs_available = True
 _marty_verification_available = True
 
+_PROTECTED_EXPORTS = {
+    "NativeBackendError",
+    "NativeBackendUnavailable",
+    "NativeOperationError",
+    "load_native_backend",
+}
+
 
 def _export_public(module: Any) -> set[str]:
     exported: set[str] = set()
     for name in dir(module):
-        if name.startswith("_"):
+        if name.startswith("_") or name in _PROTECTED_EXPORTS:
             continue
         globals()[name] = getattr(module, name)
         exported.add(name)

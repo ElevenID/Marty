@@ -1,28 +1,12 @@
-"""
-VDS-NC Main Processor Implementation.
-
-This module provides the main VDS-NC processor for document creation and verification
-following ICAO Doc 9303 Part 13 specifications.
-
-Uses Rust marty_rs for cryptographic operations via crypto_bridge.
-"""
+"""Compatibility service for the canonical Rust VDS-NC implementation."""
 
 from __future__ import annotations
 
-import base64
-import json
+import uuid
 from typing import Any
 
-from marty_common.crypto_bridge import (
-    ecdsa_p256_sign,
-    ecdsa_p384_sign,
-    ecdsa_p521_sign,
-    load_private_key_pem,
-    pkcs8_to_raw_private_key,
-)
+from marty_common.native_backends import NativeOperationError
 
-from .barcode import VDSNCBarcodeSelector
-from .canonicalization import VDSNCCanonicalizer
 from .models import (
     VDSNCDocument,
     VDSNCHeader,
@@ -30,21 +14,100 @@ from .models import (
     VDSNCSignatureInfo,
     VDSNCVerificationResult,
 )
+from .native import (
+    barcode_policy,
+    inspect_profile,
+    sign_profile,
+    validate_profile,
+    verify_profile,
+)
 from .types import (
     BarcodeFormat,
     DocumentType,
+    ErrorCorrectionLevel,
     SignatureAlgorithm,
     SignatureError,
+    VDSNCVersion,
     VerificationError,
 )
 
 
-class VDSNCProcessor:
-    """
-    Main processor for VDS-NC document creation and verification.
+def _required_mapping(value: object, name: str) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        raise NativeOperationError(
+            f"Native VDS-NC result is missing object field '{name}'"
+        )
+    return value
 
-    Implements complete Doc 9303 Part 13 VDS-NC processing workflow.
-    """
+
+def _required_text(value: object, name: str) -> str:
+    if not isinstance(value, str) or not value:
+        raise NativeOperationError(
+            f"Native VDS-NC result is missing text field '{name}'"
+        )
+    return value
+
+
+def _document_from_native(
+    barcode_data: str,
+    inspection: dict[str, Any],
+    *,
+    barcode_format: str | None = None,
+    error_correction: str | None = None,
+    document_id: str | None = None,
+    preferred_format: BarcodeFormat | None = None,
+) -> VDSNCDocument:
+    payload = _required_mapping(inspection.get("payload"), "payload").copy()
+    metadata = _required_mapping(inspection.get("metadata"), "metadata")
+    profile_metadata = _required_mapping(payload.pop("_vds", None), "payload._vds")
+    if metadata != profile_metadata:
+        raise NativeOperationError("Native VDS-NC metadata views are inconsistent")
+
+    document_type = DocumentType(
+        _required_text(metadata.get("documentType"), "documentType")
+    )
+    selected_format, selected_correction = barcode_policy(
+        document_type.value,
+        len(barcode_data.encode("utf-8")),
+        preferred_format.value if preferred_format else None,
+    )
+    selected_format = barcode_format or selected_format
+    selected_correction = error_correction or selected_correction
+
+    header = VDSNCHeader(
+        version=VDSNCVersion(_required_text(metadata.get("version"), "version")),
+        doc_type=document_type,
+        issuing_country=_required_text(inspection.get("country"), "country"),
+        signer_id=_required_text(metadata.get("issuerId"), "issuerId"),
+        certificate_reference=str(metadata.get("certificateReference") or ""),
+        native_header=_required_text(inspection.get("header"), "header"),
+    )
+    signature_info = VDSNCSignatureInfo(
+        algorithm=SignatureAlgorithm(
+            _required_text(metadata.get("algorithm"), "algorithm")
+        ),
+        key_id=_required_text(metadata.get("keyId"), "keyId"),
+        certificate_chain=None,
+    )
+    return VDSNCDocument(
+        payload=VDSNCPayload(
+            header=header,
+            message=payload,
+            signature_info=signature_info,
+            native_signing_input=_required_text(
+                inspection.get("signing_input"), "signing_input"
+            ),
+        ),
+        signature=_required_text(inspection.get("signature_b64"), "signature_b64"),
+        barcode_format=BarcodeFormat(selected_format),
+        error_correction=ErrorCorrectionLevel(selected_correction),
+        barcode_data=barcode_data,
+        document_id=document_id or str(uuid.uuid4()),
+    )
+
+
+class VDSNCProcessor:
+    """Preserve the service API while delegating all VDS-NC decisions to Rust."""
 
     def __init__(
         self,
@@ -53,15 +116,6 @@ class VDSNCProcessor:
         signer_id: str = "TESTSGN",
         certificate_reference: str = "TESTCERT001",
     ) -> None:
-        """
-        Initialize VDS-NC processor.
-
-        Args:
-            private_key_pem: PEM-encoded private key for signing
-            public_keys: Dictionary of signer_id -> PEM public key for verification
-            signer_id: Signer identifier
-            certificate_reference: Certificate reference
-        """
         self.private_key_pem = private_key_pem
         self.public_keys = public_keys or {}
         self.signer_id = signer_id
@@ -75,70 +129,28 @@ class VDSNCProcessor:
         signature_algorithm: SignatureAlgorithm = SignatureAlgorithm.ES256,
         preferred_barcode_format: BarcodeFormat | None = None,
     ) -> VDSNCDocument:
-        """
-        Create complete VDS-NC document with signature and barcode.
-
-        Args:
-            doc_type: Document type
-            issuing_country: 3-letter issuing country code
-            document_data: Document data dictionary
-            signature_algorithm: Signature algorithm to use
-            preferred_barcode_format: Preferred barcode format
-
-        Returns:
-            Complete VDS-NC document
-
-        Raises:
-            ValueError: If data validation fails
-            SignatureError: If signing fails
-        """
         if not self.private_key_pem:
-            msg = "Private key required for document creation"
-            raise SignatureError(msg)
-
-        # Validate and canonicalize document data
-        canonical_message = VDSNCCanonicalizer.canonicalize(document_data, doc_type)
-
-        # Create header
-        header = VDSNCHeader(
-            doc_type=doc_type,
-            issuing_country=issuing_country,
-            signer_id=self.signer_id,
-            certificate_reference=self.certificate_reference,
-        )
-
-        # Create signature info
-        signature_info = VDSNCSignatureInfo(algorithm=signature_algorithm)
-
-        # Create payload
-        payload = VDSNCPayload(
-            header=header,
-            message=json.loads(canonical_message),
-            signature_info=signature_info,
-        )
-
-        # Sign the payload
-        signature = self._sign_payload(payload, signature_algorithm)
-
-        # Select barcode format
-        payload_size = len(canonical_message)
-        error_correction = VDSNCBarcodeSelector.get_recommended_error_correction(
-            doc_type
-        )
-        barcode_format = VDSNCBarcodeSelector.select_optimal_format(
-            payload_size, error_correction, preferred_barcode_format
-        )
-
-        # Create barcode data
-        barcode_data = self._create_barcode_data(payload, signature, barcode_format)
-
-        return VDSNCDocument(
-            payload=payload,
-            signature=signature,
-            barcode_format=barcode_format,
-            error_correction=error_correction,
-            barcode_data=barcode_data,
-        )
+            raise SignatureError("Private key required for document creation")
+        try:
+            signed = sign_profile(
+                private_key_pem=self.private_key_pem,
+                signer_id=self.signer_id,
+                certificate_reference=self.certificate_reference,
+                document_type=doc_type.value,
+                issuing_country=issuing_country,
+                document_data=document_data,
+                algorithm=signature_algorithm.value,
+            )
+            barcode_data = _required_text(signed.get("barcode_data"), "barcode_data")
+            inspection = inspect_profile(barcode_data)
+            return _document_from_native(
+                barcode_data,
+                inspection,
+                document_id=str(signed.get("credential_id") or "") or None,
+                preferred_format=preferred_barcode_format,
+            )
+        except NativeOperationError as exc:
+            raise SignatureError(str(exc)) from exc
 
     def verify_vds_nc_document(
         self,
@@ -146,182 +158,50 @@ class VDSNCProcessor:
         printed_values: dict[str, Any] | None = None,
         verify_signature: bool = True,
     ) -> VDSNCVerificationResult:
-        """
-        Complete VDS-NC verification protocol.
-
-        Implements: decode → canonicalize → signature verify → field comparison → clock checks
-
-        Args:
-            barcode_data: Barcode data string
-            printed_values: Printed values for field-by-field comparison
-            verify_signature: Whether to verify digital signature
-
-        Returns:
-            Complete verification result
-        """
-        result = VDSNCVerificationResult(is_valid=False)
-
+        result = VDSNCVerificationResult(is_valid=False, document=None)
         try:
-            # Step 1: Decode barcode
-            document = self._decode_barcode_data(barcode_data)
-            result.document = document
+            inspection = inspect_profile(barcode_data)
+            result.document = _document_from_native(barcode_data, inspection)
+            signer_id = result.document.payload.header.signer_id
+            public_key_pem = self.public_keys.get(signer_id)
 
-            # Step 2: Canonicalization validation
-            try:
-                document.payload.get_canonical_message()
-                result.canonicalization_ok = True
-            except Exception as e:
-                result.errors.append(f"Canonicalization failed: {e}")
-                result.canonicalization_ok = False
-
-            # Step 3: Signature verification
-            if verify_signature:
-                signer_id = document.payload.header.signer_id
-                public_key_pem = self.public_keys.get(signer_id)
-
-                if public_key_pem:
-                    result.signature_valid = document.verify_signature(public_key_pem)
-                    if not result.signature_valid:
-                        result.errors.append("Digital signature verification failed")
-                else:
-                    result.errors.append(
+            if verify_signature and public_key_pem:
+                native = verify_profile(
+                    barcode_data,
+                    public_key_pem,
+                    printed_values=printed_values,
+                )
+                result.signature_valid = bool(native["signature_valid"])
+                result.is_valid = bool(native["is_valid"])
+            else:
+                native = validate_profile(barcode_data, printed_values=printed_values)
+                result.signature_valid = False
+                if verify_signature:
+                    native["errors"].append(
                         f"Public key not found for signer: {signer_id}"
                     )
-            else:
-                result.signature_valid = False
-                result.errors.append("Digital signature verification was not requested")
-
-            # Step 4: Field-by-field comparison
-            if printed_values:
-                field_errors = document.validate_field_consistency(printed_values)
-                if field_errors:
-                    result.errors.extend(field_errors)
-                    result.field_consistency_valid = False
                 else:
-                    result.field_consistency_valid = True
-            else:
-                result.field_consistency_valid = True
-                result.warnings.append(
-                    "No printed values provided for field comparison"
-                )
+                    native["errors"].append(
+                        "Digital signature verification was not requested"
+                    )
 
-            # Step 5: Temporal validation
-            temporal_errors = document.validate_expiry_and_dates()
-            if temporal_errors:
-                result.errors.extend(temporal_errors)
-                result.temporal_validity_ok = False
-            else:
-                result.temporal_validity_ok = True
-
-            # Overall validation
-            result.is_valid = (
-                result.canonicalization_ok
-                and result.signature_valid
-                and result.field_consistency_valid
-                and result.temporal_validity_ok
+            result.canonicalization_ok = bool(native["canonicalization_ok"])
+            result.field_consistency_valid = bool(native["field_consistency_valid"])
+            result.temporal_validity_ok = bool(native["temporal_validity_ok"])
+            result.errors.extend(str(error) for error in native.get("errors", []))
+            result.warnings.extend(
+                str(warning) for warning in native.get("warnings", [])
             )
-
-        except Exception as e:
-            result.errors.append(f"Verification failed: {e}")
-
+            result.verification_details["native_backend"] = "_marty_rs"
+            result.verification_details["algorithm"] = native.get("algorithm")
+        except NativeOperationError as exc:
+            result.errors.append(str(exc))
         return result
 
-    def _sign_payload(
-        self, payload: VDSNCPayload, algorithm: SignatureAlgorithm
-    ) -> str:
-        """Sign VDS-NC payload using Rust crypto bindings."""
-        try:
-            if not self.private_key_pem:
-                msg = "Private key required for signing"
-                raise SignatureError(msg)
-
-            # Parse PEM and obtain PKCS#8 DER through the Rust binding.
-            private_key_der = load_private_key_pem(self.private_key_pem)
-
-            # Get signature data
-            signature_data = payload.get_signature_data()
-
-            # Sign based on algorithm using Rust crypto_bridge
-            if algorithm == SignatureAlgorithm.ES256:
-                private_key_raw = pkcs8_to_raw_private_key(private_key_der, "ec_p256")
-                signature = ecdsa_p256_sign(private_key_raw, signature_data)
-            elif algorithm == SignatureAlgorithm.ES384:
-                private_key_raw = pkcs8_to_raw_private_key(private_key_der, "ec_p384")
-                signature = ecdsa_p384_sign(private_key_raw, signature_data)
-            elif algorithm == SignatureAlgorithm.ES512:
-                private_key_raw = pkcs8_to_raw_private_key(private_key_der, "ec_p521")
-                signature = ecdsa_p521_sign(private_key_raw, signature_data)
-            else:
-                msg = f"Unsupported signature algorithm: {algorithm}"
-                raise SignatureError(msg)
-
-            return base64.b64encode(signature).decode("ascii")
-
-        except Exception as e:
-            msg = f"Signing failed: {e}"
-            raise SignatureError(msg) from e
-
-    def _create_barcode_data(
-        self, payload: VDSNCPayload, signature: str, format_type: BarcodeFormat
-    ) -> str:
-        """Create barcode data string."""
-        # VDS-NC format: header~payload~signature (simplified)
-        header_str = payload.header.to_canonical_string()
-        canonical_message = payload.get_canonical_message()
-
-        return f"{header_str}~{canonical_message}~{signature}"
-
     def _decode_barcode_data(self, barcode_data: str) -> VDSNCDocument:
-        """Decode barcode data into VDS-NC document."""
-        # Parse barcode data format
-        parts = barcode_data.split("~")
-        if len(parts) != 3:
-            msg = "Invalid VDS-NC barcode format"
-            raise VerificationError(msg)
+        """Parse one barcode with the canonical native parser."""
 
-        header_str, message_str, signature = parts
-
-        # Parse header (basic parsing of canonical header: DC{version}{doc_type}{issuing}{signer})
-        if not header_str.startswith("DC"):
-            msg = "Invalid VDS-NC header"
-            raise VerificationError(msg)
-
-        version = header_str[2:5]
-        # Doc type is either EVISA (5 chars) or 3-char types
-        doc_type_str = header_str[5:10]
-        if doc_type_str.startswith(DocumentType.E_VISA.value):
-            doc_type = DocumentType.E_VISA
-            remainder = header_str[5 + len(DocumentType.E_VISA.value) :]
-        else:
-            try:
-                doc_type = DocumentType(doc_type_str[:3])
-                remainder = header_str[8:]
-            except ValueError as exc:
-                raise VerificationError(
-                    f"Unknown document type in header: {doc_type_str}"
-                ) from exc
-
-        issuing_country = remainder[:3] if len(remainder) >= 3 else "XXX"
-        signer_id = remainder[3:] or "UNKNOWN"
-
-        return VDSNCDocument(
-            payload=VDSNCPayload(
-                header=VDSNCHeader(
-                    doc_type=doc_type,
-                    issuing_country=issuing_country,
-                    signer_id=signer_id,
-                    certificate_reference="",
-                ),
-                message=json.loads(message_str),
-                signature_info=VDSNCSignatureInfo(
-                    algorithm=SignatureAlgorithm.ES256,
-                    key_id=signer_id,
-                ),
-            ),
-            signature=signature,
-            barcode_format=BarcodeFormat.QR_CODE,  # Would be determined from context
-            error_correction=VDSNCBarcodeSelector.get_recommended_error_correction(
-                doc_type
-            ),
-            barcode_data=barcode_data,
-        )
+        try:
+            return _document_from_native(barcode_data, inspect_profile(barcode_data))
+        except NativeOperationError as exc:
+            raise VerificationError(str(exc)) from exc
