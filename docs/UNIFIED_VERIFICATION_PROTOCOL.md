@@ -58,11 +58,14 @@ The verification protocol implements a **5-layer hierarchical approach** with st
 
 ### ✅ Completed Components
 
-1. **Core Protocol Framework** (`unified_verification_simple.py`)
-   - 5-layer verification orchestration
-   - Document class enumeration
-   - Verification level controls
-   - Result aggregation and reporting
+1. **Canonical native verification**
+   - The former `unified_verification.py` and
+     `unified_verification_simple.py` frameworks are retired.
+   - MRZ, SOD, data-group, certificate-chain, DTC, and VDS-NC decisions are
+     owned by the Rust crates exposed through the native bindings.
+   - Python retains service orchestration and result mapping only.
+   - Missing native operations, trust material, or supported algorithms fail
+     closed.
 
 2. **Document Detection** (`document_detection.py`)
    - Pattern-based classification
@@ -105,21 +108,16 @@ The verification protocol implements a **5-layer hierarchical approach** with st
 
 ### 🎯 **COMPLETE IMPLEMENTATION**
 
-All 5 verification layers are now fully implemented with comprehensive business logic, error handling, and integration capabilities.
+The maintained service adapters compose the native verification operations.
+Callers must not reconstruct a Python verification pipeline or accept
+placeholder validation results.
 
 ## Protocol Usage
 
 ```python
-# Initialize protocol
-protocol = UnifiedVerificationProtocol()
-
-# Verify document with full hierarchy
-results = protocol.verify_document(document_data)
-
-# Verification levels available:
-# - BASIC: Detection + structure only
-# - STANDARD: + authenticity verification  
-# - COMPREHENSIVE: + semantics + trust
+# Use the maintained document, DTC, or VDS-NC service adapter. The adapter
+# invokes the required native backend and maps its typed result into the
+# existing service response model.
 ```
 
 ## Verification Results
