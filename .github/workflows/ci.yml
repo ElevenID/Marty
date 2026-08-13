@@ -2,11 +2,11 @@ name: CI
 
 on:
   pull_request:
-  push:
-    branches: [main]
+  merge_group:
+    types: [checks_requested]
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.event.merge_group.head_sha || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
@@ -114,3 +114,18 @@ jobs:
           provenance: false
           cache-from: type=gha,scope=marty-ci-image
           cache-to: type=gha,mode=max,scope=marty-ci-image
+
+  ci-gate:
+    name: CI Gate
+    if: always()
+    needs: [build-native-wheels, test, image]
+    runs-on: ubuntu-latest
+    env:
+      RESULTS: ${{ join(needs.*.result, ' ') }}
+    steps:
+      - name: Require every CI lane
+        shell: bash
+        run: |
+          for result in $RESULTS; do
+            test "$result" = success
+          done
