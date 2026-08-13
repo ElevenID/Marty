@@ -21,7 +21,6 @@ dependencies = [
     "marty-rs==0.1.46",
     # Cryptography and PKI
     "cryptography>=41.0.7",
-    "asn1crypto>=1.5.1",
     "pyasn1>=0.6.1",
     "certvalidator>=0.11.1",
     # Protocol support
@@ -343,7 +342,6 @@ module = [
     "aiokafka.*",
     "aioboto3.*",
     "playwright.*",
-    "asn1crypto.*",
     "qrcode.*",
     "face_recognition.*",
     "cv2.*",
