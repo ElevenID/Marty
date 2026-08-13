@@ -18,9 +18,12 @@ from app.models.pkd_models import (
     DSCListUploadResponse,
     UploadStatus,
 )
-from app.utils.asn1_utils import ASN1Decoder, ASN1Encoder
+from app.utils.native_pkd import (
+    decode_signed_certificate_list,
+    unsigned_artifact_unavailable,
+)
 
-from marty_plugin.native_backends import NativeOperationError, require_backend
+from marty_plugin.native_backends import NativeOperationError
 
 logger = logging.getLogger(__name__)
 
@@ -79,12 +82,8 @@ class DSCListService:
 
         Returns a properly ASN.1 encoded DSC list that follows ICAO specifications.
         """
-        # Get certificates
-        dsc_list = await self.get_dsc_list(country)
-        certificates = dsc_list.certificates
-
-        # Encode as ASN.1 DSC list
-        return ASN1Encoder.encode_dsc_list(certificates)
+        del country
+        raise unsigned_artifact_unavailable("DSC List")
 
     async def upload_dsc_list(self, dsc_list_data: bytes) -> DSCListUploadResponse:
         """
@@ -95,13 +94,11 @@ class DSCListService:
                 raise NativeOperationError(
                     "DSC List signer certificate is not configured"
                 )
-            native = require_backend("marty_verification")
-            if not native.verify_master_list_signature(
-                dsc_list_data, self.signer_certificate_der
-            ):
-                raise NativeOperationError("DSC List signature verification failed")
-            # Parse the ASN.1 DSC list data
-            certificates = ASN1Decoder.decode_dsc_list(dsc_list_data)
+            certificates = decode_signed_certificate_list(
+                dsc_list_data,
+                self.signer_certificate_der,
+                label="DSC List",
+            )
 
             # Save the raw DSC list file
             storage_path = settings.DSCLIST_PATH

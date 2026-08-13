@@ -13,8 +13,11 @@ allowing for the management and distribution of certificates and other component
 
 ## API Structure
 
-The API follows RESTful principles and provides both JSON responses and ASN.1 binary formats for compatibility
-with existing ICAO PKD implementations. The main API endpoints are:
+The API follows RESTful principles and accepts signed ICAO binary artifacts for
+compatibility with existing PKD implementations. Rust is the only ASN.1, CMS,
+X.509, CRL, OCSP, and certificate-chain implementation. Python retains HTTP,
+synchronization, storage, and DTO mapping only. Unsigned binary generation and
+formats without a canonical native parser fail closed. The main API endpoints are:
 
 - `/v1/pkd/masterlist`: CSCA Master List operations
 - `/v1/pkd/dsclist`: Document Signer Certificate list operations
@@ -55,6 +58,9 @@ docker-compose logs -f pkd-service
 - Python 3.10+
 - FastAPI
 - Released `marty-verification` native bindings for ASN.1 and certificate processing
+
+The service has no Python cryptography dependency or fallback. A missing or
+incompatible native backend prevents security-sensitive PKD processing.
 
 ### Local Development
 

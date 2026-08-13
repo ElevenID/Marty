@@ -7,12 +7,16 @@ import io
 import logging
 import zipfile
 from collections.abc import Iterator
-from datetime import datetime
 
-from app.models.pkd_models import Certificate, RevokedCertificate
-from app.utils.asn1_utils import ASN1Decoder
+from app.models.pkd_models import Certificate
+from app.utils.native_pkd import (
+    decode_certificate,
+    decode_crl,
+    decode_master_list,
+    normalize_der,
+)
 
-from marty_plugin.native_backends import NativeBackendUnavailable, require_backend
+from marty_plugin.native_backends import NativeBackendUnavailable
 
 logger = logging.getLogger(__name__)
 
@@ -100,7 +104,7 @@ def _decode_masterlist_like(data: bytes) -> list[Certificate]:
     """Try interpreting data as an ICAO master list (CMS SignedData)."""
 
     try:
-        certificates = ASN1Decoder.decode_master_list(data)
+        certificates = decode_master_list(data)
     except NativeBackendUnavailable:
         raise
     except Exception as exc:  # pragma: no cover - defensive guard
@@ -123,9 +127,7 @@ def _decode_raw_certificates(data: bytes) -> list[Certificate]:
     if "-----BEGIN CERTIFICATE-----" in text:
         for pem_block in _iterate_pem_blocks(text):
             try:
-                native = require_backend("marty_verification")
-                der_bytes = bytes(native.certificate_pem_to_der(pem_block))
-                certs.append(_convert_der_to_model(der_bytes))
+                certs.append(decode_certificate(pem_block.encode("ascii")))
             except NativeBackendUnavailable:
                 raise
             except (
@@ -135,7 +137,7 @@ def _decode_raw_certificates(data: bytes) -> list[Certificate]:
         return certs
 
     try:
-        certs.append(_convert_der_to_model(data))
+        certs.append(decode_certificate(data))
     except Exception:
         pass
 
@@ -161,36 +163,12 @@ def _iterate_pem_blocks(text: str) -> Iterator[str]:
         start = end
 
 
-def _convert_der_to_model(der_bytes: bytes) -> Certificate:
-    """Convert DER-encoded certificate into the PKD Certificate model."""
-
-    native = require_backend("marty_verification")
-    cert_info = native.get_certificate_info(der_bytes)
-    country_code = _country_from_subject(cert_info["subject"]) or "XXX"
-
-    # Parse ISO 8601 dates
-    valid_from = datetime.fromisoformat(cert_info["not_before"].replace("Z", "+00:00"))
-    valid_to = datetime.fromisoformat(cert_info["not_after"].replace("Z", "+00:00"))
-
-    return Certificate(
-        subject=cert_info["subject"],
-        issuer=cert_info["issuer"],
-        valid_from=valid_from,
-        valid_to=valid_to,
-        serial_number=cert_info["serial_number"],
-        certificate_data=der_bytes,
-        country_code=country_code,
-    )
-
-
 def _decode_single_crl(data: bytes) -> dict | None:
     """Decode a single CRL, returning a dictionary suitable for storage."""
 
     try:
-        der_bytes = ASN1Decoder._pem_to_der(data)
-        issuer, this_update, next_update, revoked_entries = ASN1Decoder.decode_crl(
-            der_bytes
-        )
+        der_bytes = normalize_der(data)
+        issuer, this_update, next_update, revoked_entries = decode_crl(der_bytes)
 
         return {
             "issuer": issuer,
@@ -212,14 +190,3 @@ def _decode_single_crl(data: bytes) -> dict | None:
     except Exception as exc:  # pragma: no cover - handled by caller/logged for context
         logger.debug("Failed to decode CRL payload: %s", exc)
         return None
-
-
-def _country_from_subject(subject: str) -> str | None:
-    """Extract an ISO alpha-2 country value from a native subject string."""
-    for component in subject.replace("/", ",").split(","):
-        key, separator, value = component.strip().partition("=")
-        if separator and key.upper() == "C":
-            candidate = value.strip().upper()
-            if len(candidate) == 2 and candidate.isalpha():
-                return candidate
-    return None

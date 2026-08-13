@@ -5,21 +5,19 @@ Service for handling Deviation List operations
 from __future__ import annotations
 
 import logging
-import os
 import uuid
 from datetime import datetime
 
 import aiosqlite
-from app.core.config import settings
 from app.db.database import DatabaseManager
 from app.models.pkd_models import (
     DeviationEntry,
     DeviationListResponse,
     DeviationListUploadResponse,
-    DeviationStatus,
     UploadStatus,
 )
-from app.utils.asn1_utils import ASN1Decoder, ASN1Encoder
+
+from marty_plugin.native_backends import NativeOperationError
 
 logger = logging.getLogger(__name__)
 
@@ -70,11 +68,10 @@ class DeviationListService:
         """
         Get the ASN.1 encoded deviation list data, optionally filtered by country.
         """
-        # Get the deviation list
-        deviation_list = await self.get_deviation_list(country)
-
-        # Encode the deviation list as ASN.1
-        return ASN1Encoder.encode_deviation_list(deviation_list.deviations)
+        del country
+        raise NativeOperationError(
+            "Deviation List encoding is unavailable until a canonical native signed format is configured"
+        )
 
     async def upload_deviation_list(
         self, deviation_list_data: bytes
@@ -82,56 +79,14 @@ class DeviationListService:
         """
         Process and store an uploaded deviation list.
         """
-        try:
-            # Parse the ASN.1 deviation list data
-            deviations = ASN1Decoder.decode_deviation_list(deviation_list_data)
-
-            # Save the raw deviation list file
-            storage_path = settings.DEVIATIONLIST_PATH
-            os.makedirs(storage_path, exist_ok=True)
-
-            dev_list_filename = (
-                f"deviationlist-{datetime.now().strftime('%Y%m%d%H%M%S')}.dl"
-            )
-            dev_list_path = os.path.join(storage_path, dev_list_filename)
-            with open(dev_list_path, "wb") as f:
-                f.write(deviation_list_data)
-
-            # Store in database
-            deviation_count = 0
-            for dev in deviations:
-                # Convert to dictionary for database
-                dev_dict = {
-                    "id": str(dev.id),
-                    "country_code": dev.country_code,
-                    "description": dev.description,
-                    "status": dev.status,
-                    "created": dev.created,
-                    "updated": dev.updated,
-                    "details": dev.details,
-                }
-
-                # Store in database
-                await DatabaseManager.store_deviation(dev_dict)
-                deviation_count += 1
-
-            # Log the operation
-            logger.info(f"Processed deviation list with {deviation_count} entries")
-
-            return DeviationListUploadResponse(
-                id=uuid.uuid4(),
-                version=1,
-                created=datetime.now(),
-                status=UploadStatus.PROCESSED,
-                deviation_count=deviation_count,
-            )
-
-        except Exception as e:
-            logger.exception(f"Failed to process deviation list: {e}")
-            return DeviationListUploadResponse(
-                id=uuid.uuid4(),
-                version=0,
-                created=datetime.now(),
-                status=UploadStatus.ERROR,
-                deviation_count=0,
-            )
+        del deviation_list_data
+        logger.error(
+            "Deviation List decoding is unavailable until a canonical native parser is configured"
+        )
+        return DeviationListUploadResponse(
+            id=uuid.uuid4(),
+            version=0,
+            created=datetime.now(),
+            status=UploadStatus.ERROR,
+            deviation_count=0,
+        )

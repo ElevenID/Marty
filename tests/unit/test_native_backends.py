@@ -15,9 +15,6 @@ from marty_plugin.native_backends import (
     backend_diagnostics,
     require_backend,
 )
-from marty_plugin.pkd_service.app.utils.certificate_validator import (
-    CertificateValidator,
-)
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -251,56 +248,72 @@ def test_legacy_iso_reference_apps_fail_closed() -> None:
         )
 
 
-def test_pkd_certificate_validator_routes_chain_to_native(monkeypatch) -> None:
-    anchors: list[bytes] = []
-    intermediates: list[bytes] = []
-    validated: list[str] = []
-
-    class Result:
-        valid = True
-
-    class FakeChainValidator:
-        def add_trust_anchor_der(self, value: bytes) -> None:
-            anchors.append(value)
-
-        def add_intermediate_der(self, value: bytes) -> None:
-            intermediates.append(value)
-
-        def validate_chain(self, chain: list[str]) -> Result:
-            validated.extend(chain)
-            return Result()
+def test_pkd_native_adapter_verifies_and_parses_signed_lists(monkeypatch) -> None:
+    calls: list[tuple[bytes, bytes]] = []
 
     native = ModuleType("marty_verification")
-    native.ChainValidator = FakeChainValidator
-    native.load_certificate_der = bytes
-    native.certificate_der_to_pem = lambda value: f"pem:{value.decode()}"
-    native.certificate_pem_to_der = lambda value: value.removeprefix("pem:").encode()
-
-    module = importlib.import_module(
-        "marty_plugin.pkd_service.app.utils.certificate_validator"
+    native.verify_master_list_signature = lambda value, signer: (
+        calls.append((value, signer)) or True
     )
+    native.parse_master_list = lambda _value: {
+        "certificates": [
+            {
+                "subject": "C=US,CN=CSCA",
+                "issuer": "C=US,CN=CSCA",
+                "serial_number": "01",
+                "country": "US",
+                "not_before": "2026-01-01T00:00:00Z",
+                "not_after": "2036-01-01T00:00:00Z",
+                "der_bytes": b"csca",
+            }
+        ]
+    }
+
+    module = importlib.import_module("marty_plugin.pkd_service.app.utils.native_pkd")
     monkeypatch.setattr(module, "require_backend", lambda _name: native)
 
-    validator = CertificateValidator(
-        trust_roots=[b"root"], other_certs=[b"intermediate"]
+    certificates = module.decode_signed_certificate_list(
+        b"signed-master-list",
+        b"signer",
+        label="Master List",
     )
-    assert validator.validate_chain([b"leaf", b"issuer"])
-    assert anchors == [b"root"]
-    assert intermediates == [b"intermediate"]
-    assert validated == ["pem:leaf", "pem:issuer"]
+    assert calls == [(b"signed-master-list", b"signer")]
+    assert len(certificates) == 1
+    assert certificates[0].country_code == "US"
+    assert certificates[0].certificate_data == b"csca"
 
 
-def test_pkd_certificate_validator_propagates_missing_backend(monkeypatch) -> None:
-    module = importlib.import_module(
-        "marty_plugin.pkd_service.app.utils.certificate_validator"
-    )
+def test_pkd_native_adapter_propagates_missing_backend(monkeypatch) -> None:
+    module = importlib.import_module("marty_plugin.pkd_service.app.utils.native_pkd")
 
     def unavailable(_name: str) -> None:
         raise NativeBackendUnavailable("native backend missing")
 
     monkeypatch.setattr(module, "require_backend", unavailable)
     with pytest.raises(NativeBackendUnavailable, match="native backend missing"):
-        CertificateValidator().validate(b"certificate")
+        module.decode_master_list(b"master-list")
+
+
+def test_pkd_legacy_python_kernel_modules_are_removed() -> None:
+    legacy_paths = (
+        "src/marty_plugin/pkd_service/app/utils/asn1_utils.py",
+        "src/marty_plugin/pkd_service/app/utils/certificate_validator.py",
+    )
+    assert all(not (ROOT / relative_path).exists() for relative_path in legacy_paths)
+
+    service_source = "\n".join(
+        path.read_text(encoding="utf-8")
+        for path in (ROOT / "src/marty_plugin/pkd_service/app").rglob("*.py")
+    )
+    assert "app.utils.asn1_utils" not in service_source
+    assert "app.utils.certificate_validator" not in service_source
+    assert "ASN1Encoder" not in service_source
+    assert "ASN1Decoder" not in service_source
+
+    requirements = (ROOT / "src/marty_plugin/pkd_service/requirements.txt").read_text(
+        encoding="utf-8"
+    )
+    assert "cryptography" not in requirements.lower()
 
 
 def test_trust_master_list_upload_uses_native_signature_and_parsing(

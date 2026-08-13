@@ -19,9 +19,13 @@ from app.models.pkd_models import (
     RevokedCertificate,
     UploadStatus,
 )
-from app.utils.asn1_utils import ASN1Decoder, ASN1Encoder
+from app.utils.native_pkd import (
+    decode_crl,
+    unsigned_artifact_unavailable,
+    validate_crl,
+)
 
-from marty_plugin.native_backends import NativeOperationError, require_backend
+from marty_plugin.native_backends import NativeOperationError
 
 logger = logging.getLogger(__name__)
 
@@ -77,16 +81,8 @@ class CRLService:
         """
         Get the ASN.1 encoded CRL data, optionally filtered by country.
         """
-        # Get the CRL data
-        crl = await self.get_crl(country)
-
-        # Encode the CRL as ASN.1
-        return ASN1Encoder.encode_crl(
-            issuer=crl.issuer,
-            this_update=crl.this_update,
-            next_update=crl.next_update,
-            revoked_certs=crl.revoked_certificates,
-        )
+        del country
+        raise unsigned_artifact_unavailable("CRL")
 
     async def upload_crl(self, crl_data: bytes) -> CrlUploadResponse:
         """
@@ -94,9 +90,7 @@ class CRLService:
         """
         try:
             # Parse the ASN.1 CRL data
-            issuer, this_update, next_update, revoked_certs = ASN1Decoder.decode_crl(
-                crl_data
-            )
+            issuer, this_update, next_update, revoked_certs = decode_crl(crl_data)
             if self.issuer_certificate_resolver is None:
                 raise NativeOperationError(
                     "CRL issuer certificate resolver is not configured"
@@ -104,9 +98,7 @@ class CRLService:
             issuer_certificate_der = await self.issuer_certificate_resolver(issuer)
             if issuer_certificate_der is None:
                 raise NativeOperationError("CRL issuer certificate was not found")
-            native = require_backend("marty_verification")
-            der_data = ASN1Decoder._pem_to_der(crl_data)
-            native.validate_crl(der_data, issuer_certificate_der)
+            der_data = validate_crl(crl_data, issuer_certificate_der)
 
             # Save the raw CRL file to file system
             storage_path = settings.CRL_PATH
