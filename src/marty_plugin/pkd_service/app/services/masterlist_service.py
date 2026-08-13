@@ -18,9 +18,12 @@ from app.models.pkd_models import (
     MasterListUploadResponse,
     UploadStatus,
 )
-from app.utils.asn1_utils import ASN1Decoder, ASN1Encoder
+from app.utils.native_pkd import (
+    decode_signed_certificate_list,
+    unsigned_artifact_unavailable,
+)
 
-from marty_plugin.native_backends import NativeOperationError, require_backend
+from marty_plugin.native_backends import NativeOperationError
 
 logger = logging.getLogger(__name__)
 
@@ -79,12 +82,8 @@ class MasterListService:
 
         Returns a properly ASN.1 encoded master list that follows ICAO specifications.
         """
-        # Get certificates
-        master_list = await self.get_master_list(country)
-        certificates = master_list.certificates
-
-        # Encode as ASN.1 master list
-        return ASN1Encoder.encode_master_list(certificates)
+        del country
+        raise unsigned_artifact_unavailable("Master List")
 
     async def upload_master_list(
         self, master_list_data: bytes
@@ -97,13 +96,11 @@ class MasterListService:
                 raise NativeOperationError(
                     "Master List signer certificate is not configured"
                 )
-            native = require_backend("marty_verification")
-            if not native.verify_master_list_signature(
-                master_list_data, self.signer_certificate_der
-            ):
-                raise NativeOperationError("Master List signature verification failed")
-            # Parse the ASN.1 master list data
-            certificates = ASN1Decoder.decode_master_list(master_list_data)
+            certificates = decode_signed_certificate_list(
+                master_list_data,
+                self.signer_certificate_der,
+                label="Master List",
+            )
 
             # Save the raw master list file to file system
             storage_path = settings.MASTERLIST_PATH

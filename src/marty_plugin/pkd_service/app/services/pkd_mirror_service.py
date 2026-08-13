@@ -17,9 +17,10 @@ import time
 from datetime import datetime, timezone
 
 from app.db.certificate_store import CertificateStore
-from app.utils.certificate_validator import CertificateValidator
 from app.utils.http_client import HttpClient
 from app.utils.pkd_payloads import parse_certificate_payload
+from marty_common.crypto.certificate_validator import CertificateChainValidator
+from marty_common.native_backends import NativeBackendUnavailable
 
 
 class PKDMirrorService:
@@ -70,12 +71,8 @@ class PKDMirrorService:
         self.is_syncing = False
         self.last_sync_time = None
         self.sync_thread = None
-        # Initialize CertificateValidator with trust roots if provided
-        self.cert_validator = CertificateValidator(
-            trust_roots=trust_roots,
-            other_certs=other_certs_for_validation,
-            logger=self.logger,
-        )
+        self.cert_validator = CertificateChainValidator(trust_roots or [])
+        self.validation_intermediates = list(other_certs_for_validation or [])
 
     def start_sync_scheduler(self) -> None:
         """
@@ -147,6 +144,8 @@ class PKDMirrorService:
             else:
                 self.logger.warning("PKD mirror synchronization completed with errors")
 
+        except NativeBackendUnavailable:
+            raise
         except Exception as e:
             self.logger.exception(f"Error during PKD mirror synchronization: {e}")
             success = False
@@ -196,6 +195,8 @@ class PKDMirrorService:
             store_func(data)
             self.logger.info(f"Successfully downloaded and stored {endpoint}")
 
+        except NativeBackendUnavailable:
+            raise
         except Exception as e:
             self.logger.exception(f"Error downloading or storing {endpoint}: {e}")
             return False
@@ -260,6 +261,7 @@ class PKDMirrorService:
         Returns:
             bool: True if all certificates are valid, False otherwise
         """
+        del usage  # Retained for compatibility; native policy selects key usage.
         try:
             certificates = self._parse_certificates(cert_data)
             if not certificates:
@@ -270,14 +272,18 @@ class PKDMirrorService:
 
             all_valid = True
             for cert in certificates:
-                if not self.cert_validator.validate(
-                    cert, usage=usage if usage else "digital_signature"
-                ):
+                result = self.cert_validator.validate_certificate_chain(
+                    cert,
+                    self.validation_intermediates,
+                )
+                if not result.is_valid:
                     self.logger.warning(
                         "Validation failed for a certificate in the PKD payload"
                     )
                     all_valid = False
 
+        except NativeBackendUnavailable:
+            raise
         except Exception as e:
             self.logger.exception(f"Certificate validation error: {e}")
             return False
@@ -300,10 +306,14 @@ class PKDMirrorService:
             bool: True if the certificate is valid, False otherwise
         """
         try:
-            return self.cert_validator.validate(
-                certificate, usage=usage if usage else "digital_signature"
-            )
+            del usage  # Retained for compatibility; native policy selects key usage.
+            return self.cert_validator.validate_certificate_chain(
+                certificate,
+                self.validation_intermediates,
+            ).is_valid
 
+        except NativeBackendUnavailable:
+            raise
         except Exception as e:
             self.logger.exception(f"Error validating certificate: {e}")
             return False
