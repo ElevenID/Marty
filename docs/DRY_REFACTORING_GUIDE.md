@@ -85,42 +85,12 @@ def __init__(self):
 - Validation and error handling
 - Service discovery integration
 
-### 3. Base Verification Engine (`marty_common/verification/base_verification.py`)
+### 3. Native Verification Kernels
 
-**Before:** Verification logic duplicated across visa, TD2, CMC services:
-
-```python
-# Similar patterns in visa_verification.py, td2_verification.py, etc.
-class VisaVerificationEngine:
-    async def verify_mrz(self, mrz_data):
-        # 40+ lines of MRZ validation logic
-
-    async def verify_check_digits(self, fields):
-        # 30+ lines of check digit validation
-
-    async def verify_dates(self, issue_date, expiry_date):
-        # 25+ lines of date validation logic
-```
-
-**After:** Shared base class with common patterns:
-
-```python
-from marty_common.verification.base_verification import BaseVerificationEngine
-
-class VisaVerificationEngine(BaseVerificationEngine):
-    async def verify_document(self, document, level):
-        # Use inherited methods:
-        mrz_result = await self.verify_mrz_structure(mrz_data, "visa")
-        date_result = await self.verify_date_validity(issue_date, expiry_date)
-        check_result = await self.verify_check_digits(check_fields)
-```
-
-**Benefits:**
-
-- Eliminated ~100 lines of duplicated validation logic per verification engine
-- Consistent verification result structure
-- Standardized confidence scoring
-- Extensible verification levels
+Deterministic document verification is consolidated in the canonical Rust
+crates. Python services map requests and native typed results, but do not
+inherit from or implement a shared Python verification engine. New verification
+behavior belongs in the canonical Rust owner and its generated bindings.
 
 ### 4. Docker Infrastructure
 
@@ -200,34 +170,12 @@ enable_metrics: true
 ./scripts/build-services.sh --service my-new-service
 ```
 
-### Creating a Verification Engine
+### Adding Verification Behavior
 
-```python
-from marty_common.verification.base_verification import (
-    BaseVerificationEngine,
-    VerificationLevel,
-    VerificationStep
-)
-
-class MyDocumentVerificationEngine(BaseVerificationEngine):
-    async def verify_document(self, document, level=VerificationLevel.STANDARD):
-        result = BaseVerificationResult()
-
-        # Use inherited common methods
-        mrz_result = await self.verify_mrz_structure(document.mrz, "my_doc")
-        result.add_step_result(mrz_result.step, mrz_result.status, mrz_result.message)
-
-        if level.value in [VerificationLevel.COMPREHENSIVE, VerificationLevel.MAXIMUM]:
-            date_result = await self.verify_date_validity(
-                document.issue_date,
-                document.expiry_date
-            )
-            result.add_step_result(date_result.step, date_result.status, date_result.message)
-
-        # Custom verification logic here
-        result.calculate_overall_confidence()
-        return result
-```
+Extend the canonical Rust crate, add shared golden vectors, expose the operation
+through the generated native binding, and keep the Python caller limited to
+request/result mapping. Required native operations must fail closed when they
+are unavailable.
 
 ## Migration Guide
 

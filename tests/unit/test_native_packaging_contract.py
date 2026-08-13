@@ -147,9 +147,6 @@ def test_legacy_emrtd_and_vds_paths_fail_closed() -> None:
     passport = (
         ROOT / "packages/marty-common/marty_common/models/passport.py"
     ).read_text()
-    cmc = (
-        ROOT / "packages/marty-common/marty_common/verification/cmc_verification.py"
-    ).read_text()
     vds_service = (
         ROOT / "packages/marty-common/marty_common/vds_nc/cmc_vds_nc_service.py"
     ).read_text()
@@ -167,9 +164,6 @@ def test_legacy_emrtd_and_vds_paths_fail_closed() -> None:
     assert "simulate successful authentication" not in passport
     assert "Create a basic DG1 from MRZ" not in passport
     assert "falling back to basic validation" not in passport
-    assert "assume not revoked if status is ACTIVE" not in cmc
-    assert "SOD signature structure is valid" not in cmc
-    assert "All data group hashes are valid" not in cmc
     assert "initialized with test keys" not in vds_service
     assert not vds_impl.exists()
     for prohibited in (
@@ -197,8 +191,6 @@ def test_shared_verification_kernels_do_not_import_python_cryptography() -> None
         "utils/asn1_utils.py",
         "utils/mrz_utils.py",
         "vc/sd_jwt_verifier.py",
-        "verification/authenticity_verification.py",
-        "verification/cmc_verification.py",
         "verification/trust_list_manager.py",
     )
     common = ROOT / "packages/marty-common/marty_common"
