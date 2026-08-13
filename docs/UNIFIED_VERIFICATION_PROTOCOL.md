@@ -67,41 +67,18 @@ The verification protocol implements a **5-layer hierarchical approach** with st
    - Missing native operations, trust material, or supported algorithms fail
      closed.
 
-2. **Document Detection** (`document_detection.py`)
-   - Pattern-based classification
-   - Confidence scoring
-   - Support for all major document types
-
-3. **MRZ Validation** (`mrz_validation.py`)
-   - Format-specific structure validation
-   - Check digit algorithms
-   - Comprehensive error reporting
-
-4. **Authenticity Verification** (`authenticity_verification.py`)
-   - Chip-based verification (SOD/DSC)
-   - VDS-NC verification framework
-   - Method detection and fallback logic
-
-5. **Semantics Validation** (`semantics_validation.py`)
-   - Date validation and Y2K window handling
-   - Validity period and age consistency checks
-   - Document category constraints
-   - Issuer policy flag validation
-   - Cross-field consistency validation
-
-6. **Trust Verification** (`trust_verification.py`)
+2. **Trust orchestration** (`trust_verification.py`)
    - PKD resolver with certificate caching
-   - Certificate chain validation
    - Trust anchor resolution
-   - Revocation status checking framework
+   - Mapping native certificate and revocation results
 
-7. **Integration Testing** (`tests/integration/test_comprehensive_verification.py`)
+3. **Integration Testing** (`tests/integration/test_comprehensive_verification.py`)
    - End-to-end protocol demonstration
    - Multi-document type testing with real data
    - Performance and edge case testing
    - Hierarchical result reporting
 
-8. **Standalone Demo** (`scripts/demos/standalone_verification_demo.py`)
+4. **Standalone Demo** (`scripts/demos/standalone_verification_demo.py`)
    - Self-contained verification demonstration
    - No external dependencies required
    - Mock implementations for all layers

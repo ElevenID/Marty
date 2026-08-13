@@ -6,6 +6,12 @@ from pathlib import Path
 
 VERIFICATION_ROOT = Path(__file__).parents[1] / "marty_common" / "verification"
 RETIRED_PYTHON_VERIFIERS = (
+    VERIFICATION_ROOT / "authenticity_verification.py",
+    VERIFICATION_ROOT / "base_verification.py",
+    VERIFICATION_ROOT / "cmc_verification.py",
+    VERIFICATION_ROOT / "document_detection.py",
+    VERIFICATION_ROOT / "mrz_validation.py",
+    VERIFICATION_ROOT / "semantics_validation.py",
     VERIFICATION_ROOT / "unified_verification.py",
     VERIFICATION_ROOT / "unified_verification_simple.py",
 )
