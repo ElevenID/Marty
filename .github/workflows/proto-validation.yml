@@ -3,12 +3,11 @@ name: Protocol validation
 on:
   pull_request:
     paths: ["proto/**", "src/compile_protos.py", ".github/workflows/proto-validation.yml"]
-  push:
-    branches: [main]
-    paths: ["proto/**", "src/compile_protos.py", ".github/workflows/proto-validation.yml"]
+  merge_group:
+    types: [checks_requested]
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.event.merge_group.head_sha || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
