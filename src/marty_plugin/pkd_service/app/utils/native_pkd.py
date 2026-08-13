@@ -6,9 +6,9 @@ import base64
 from datetime import datetime, timezone
 from uuid import uuid4
 
-from app.models.pkd_models import Certificate, CertificateStatus, RevokedCertificate
-
 from marty_plugin.native_backends import NativeOperationError, require_backend
+
+from ..models.pkd_models import Certificate, CertificateStatus, RevokedCertificate
 
 _REASON_CODES = {
     "KeyCompromise": 1,
