@@ -113,15 +113,17 @@ jobs:
             VCS_REF=${{ github.sha }}
           provenance: false
           cache-from: type=gha,scope=marty-ci-image
-          # PR feedback consumes the shared cache but avoids the measured
-          # 70-second full-cache export. Merge candidates refresh it once.
-          cache-to: ${{ github.event_name == 'pull_request' && '' || 'type=gha,mode=max,scope=marty-ci-image' }}
+          # Canonical cache exports happen after merge in warm-ci-caches.yml.
+          # PR and merge-queue feedback only consumes that shared cache.
 
   ci-gate:
     name: CI Gate
     if: always()
     needs: [build-native-wheels, test, image]
     runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
     env:
       RESULTS: ${{ join(needs.*.result, ' ') }}
     steps:
@@ -131,3 +133,25 @@ jobs:
           for result in $RESULTS; do
             test "$result" = success
           done
+      - name: Summarize CI performance
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b
+        with:
+          script: |
+            const {owner, repo} = context.repo;
+            const {data: run} = await github.rest.actions.getWorkflowRun({owner, repo, run_id: context.runId});
+            const {data} = await github.rest.actions.listJobsForWorkflowRun({
+              owner, repo, run_id: context.runId, filter: 'latest', per_page: 100,
+            });
+            const created = new Date(run.created_at);
+            const rows = data.jobs.filter(job => job.started_at && job.completed_at).map(job => ({
+              name: job.name,
+              queue: Math.max(0, Math.round((new Date(job.started_at) - created) / 1000)),
+              run: Math.max(0, Math.round((new Date(job.completed_at) - new Date(job.started_at)) / 1000)),
+            })).sort((a, b) => b.run - a.run);
+            const maxQueue = Math.max(0, ...rows.map(row => row.queue));
+            core.summary.addHeading('CI performance').addTable([
+              [{data: 'Longest jobs', header: true}, {data: 'Queue', header: true}, {data: 'Runtime', header: true}],
+              ...rows.slice(0, 10).map(row => [row.name, `${row.queue}s`, `${row.run}s`]),
+            ]).addRaw(`Longest observed queue delay: ${maxQueue}s.`);
+            if (maxQueue > 300) core.warning(`Runner queue delay reached ${maxQueue}s.`);
+            await core.summary.write();
