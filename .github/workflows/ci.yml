@@ -113,7 +113,9 @@ jobs:
             VCS_REF=${{ github.sha }}
           provenance: false
           cache-from: type=gha,scope=marty-ci-image
-          cache-to: type=gha,mode=max,scope=marty-ci-image
+          # PR feedback consumes the shared cache but avoids the measured
+          # 70-second full-cache export. Merge candidates refresh it once.
+          cache-to: ${{ github.event_name == 'pull_request' && '' || 'type=gha,mode=max,scope=marty-ci-image' }}
 
   ci-gate:
     name: CI Gate
