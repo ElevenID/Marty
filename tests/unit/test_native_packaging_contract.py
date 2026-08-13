@@ -4,6 +4,23 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 
 
+def test_retired_python_asn1_models_cannot_return() -> None:
+    """eMRTD ASN.1 parsing is owned by the native verification package."""
+
+    assert not (
+        ROOT / "packages/marty-common/marty_common/models/asn1_structures.py"
+    ).exists()
+    governed_files = (
+        ROOT / "pyproject.toml",
+        ROOT / "mypy.ini",
+        ROOT / "src/marty_plugin/pkd_service/requirements.txt",
+    )
+    assert all(
+        "asn1crypto" not in path.read_text(encoding="utf-8")
+        for path in governed_files
+    )
+
+
 def test_native_wheel_downloads_are_versioned_and_digest_verified() -> None:
     script = (ROOT / "scripts" / "download-native-wheels.sh").read_text(
         encoding="utf-8"

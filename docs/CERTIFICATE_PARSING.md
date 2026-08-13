@@ -316,7 +316,7 @@ pyasn1-modules==0.3.0
 certifi==2023.11.17
 pyOpenSSL==23.3.0
 pycryptodome==3.19.0
-asn1crypto==1.5.1
+marty-verification-py==0.1.46
 ```
 
 ### Environment Variables

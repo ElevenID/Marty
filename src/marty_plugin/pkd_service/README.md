@@ -54,7 +54,7 @@ docker-compose logs -f pkd-service
 
 - Python 3.10+
 - FastAPI
-- ASN.1 libraries (asn1crypto, cryptography)
+- Released `marty-verification` native bindings for ASN.1 and certificate processing
 
 ### Local Development
 
