@@ -1,29 +1,45 @@
 status: complete
 search_scope:
+  - current_module_or_crate
   - current_repository
-  - released_dependency_artifacts
-  - registered_sibling_repository
+  - workspace_crates_packages_and_services
+  - bindings_adapters_ffi_and_api_layers
+  - registered_sibling_repositories_when_the_capability_crosses_repo_boundaries
 search_queries:
-  - "marty-msf v1.0.0 release wheel digest"
-  - "marty-msf v1.0.2 immutable release provenance"
-  - "marty-msf direct URL dependency lock"
+  - "Cedar resource owner lookup organization API key fallback"
+  - "resolve_resource_lookup presentation policy detail route"
+  - "gateway API key organization required permission scopes"
+  - "internal resource-owners issuance trust profiles"
+  - "credential template API key required permission"
+  - "presentation policy API key policy read authorization"
+  - "resource lookup timeout foreign tenant read"
 candidate_implementations:
-  - path: pyproject.toml
-    language: TOML
-    disposition: update_existing_canonical_direct_dependency
-  - path: marty-microservices-framework/v1.0.2
+  - path: packages/marty-common/marty_common/cedar_middleware.py
     language: Python
-    disposition: reuse_verified_immutable_release
+    disposition: extend_existing_canonical_authorization_boundary
+  - path: packages/marty-common/marty_common/cedar_actions.py
+    language: Python
+    disposition: reuse_existing_detail_route_lookup_registry
+  - path: marty-ui/services/gateway/proxy.py
+    language: Python
+    disposition: reuse_existing_gateway_owned_permission_forwarding_contract
+  - path: marty-ui/services/trust_profile/main.py
+    language: Python
+    disposition: reuse_existing_minimal_internal_owner_endpoint_pattern
+  - path: marty-ui/services/credential_template/main.py
+    language: Python
+    disposition: preserve_existing_complete_api_key_context_contract
 no_match_statement: ""
-decision: reuse_existing
+decision: extend_existing
 canonical_implementation:
-  path: marty-microservices-framework/v1.0.2
+  path: packages/marty-common/marty_common/cedar_middleware.py
   language: Python
 rust_disposition: rust_not_applicable
 non_rust_rationale: >-
-  This change selects an existing Python framework release and updates dependency
-  metadata; it introduces no protocol, cryptographic, validation, or portable
-  domain implementation.
+  The change controls HTTP middleware orchestration, downstream service
+  availability/status handling, gateway-owned header forwarding, and request
+  authorization state. It introduces no portable domain, protocol,
+  cryptographic, or validation algorithm for Rust to own.
 non_rust_exception_approval: ""
 intentional_duplicate_exception:
   rationale: ""
