@@ -28,6 +28,19 @@ def test_identifier_routes_use_minimal_internal_owner_lookups() -> None:
 
 def test_public_protocol_and_collection_routes_do_not_become_owner_lookups() -> None:
     assert resolve_resource_lookup("/v1/issuance/offers/transaction-b") is None
+    assert (
+        resolve_resource_lookup(
+            "/v1/issuance/delivery-records/canvas-credentials/provenance"
+        )
+        is None
+    )
+    assert (
+        resolve_resource_lookup(
+            "/v1/issuance/organizations/org-a/canvas-mirror-health"
+        )
+        is None
+    )
+    assert resolve_resource_lookup("/v1/issuance/oid4vci-clients") is None
     assert resolve_resource_lookup("/v1/issued-credentials/mine") is None
     assert resolve_resource_lookup("/v1/trust-profiles") is None
     assert resolve_resource_lookup("/v1/issuer-entities") is None

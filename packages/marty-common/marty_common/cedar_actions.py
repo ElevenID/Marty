@@ -82,6 +82,9 @@ RESOURCE_LOOKUP_MAP: dict[str, tuple[str, str, set[str]]] = {
             "didcomm",
             "initiate",
             "transactions",
+            "delivery-records",
+            "oid4vci-clients",
+            "organizations",
         },
     ),
     "policy-sets": (
