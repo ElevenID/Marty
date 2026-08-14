@@ -7,7 +7,7 @@ search_queries:
   - "marty-common package and runtime version"
   - "root runtime marty-common pin"
   - "marty-common immutable tag publication workflow"
-  - "previous marty-common 0.2.9 release changes"
+  - "previous marty-common 0.2.10 release changes and failed publication log"
   - "marty-msf immutable GitHub release publication and verification"
 candidate_implementations:
   - path: packages/marty-common/pyproject.toml
@@ -31,8 +31,10 @@ rust_disposition: rust_not_applicable
 non_rust_rationale: >-
   This task changes release metadata and publication safeguards only. The
   released authorization behavior already resides in the merged Python HTTP
-  middleware; no new protocol, cryptographic, validation, or portable domain
-  logic is added.
+  middleware. The workflow retains the proven marty-msf post-publication
+  immutability and digest checks while omitting a repository-settings read that
+  the GitHub Actions token cannot authorize. No new protocol, cryptographic,
+  validation, or portable domain logic is added.
 non_rust_exception_approval: ""
 intentional_duplicate_exception:
   rationale: ""
