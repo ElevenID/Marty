@@ -40,6 +40,7 @@ _MARTY_VERIFICATION_CAPABILITIES = (
     "certificate_der_to_pem",
     "certificate_pem_to_der",
     "compute_check_digit",
+    "compare_passport_hashes_json",
     "dtc_assemble_signature",
     "dtc_create",
     "dtc_prepare_signing",

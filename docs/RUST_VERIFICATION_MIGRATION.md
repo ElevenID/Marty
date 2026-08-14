@@ -66,3 +66,32 @@ Monitor `NativeBackendUnavailable` and `NativeOperationError` rates,
 verification failures by normalized error code, certificate/trust-anchor
 failures, and p50/p95/p99 verification latency during deployment. Roll back the
 application release if needed; do not bypass the native startup requirement.
+
+## Wave-two deletion roadmap
+
+Wave two is ordered by the amount of non-Rust implementation that can be
+deleted without removing a public behavior. Each item lands native behavioral
+fixtures first, exercises those fixtures through Rust and Python bindings, and
+then deletes the replaced implementation in the same pre-v1 change.
+
+1. Credential policy, evidence reconciliation, and key-attestation decisions:
+   native kernels and thin Python orchestration adapters are implemented; core
+   and credential-service pull requests are in the merge train.
+2. Passport chip protocols and integrity reporting: in progress. The native
+   data-group comparison, validity, mismatch-risk, and recommendation kernel
+   replaces the former 703-line Python implementation. BAC/PACE secure
+   messaging, APDU codecs, Active Authentication/ISO 9796, and EAC are the
+   remaining parts of this item. Hardware transport callbacks remain Python;
+   protocol state and cryptography do not.
+3. Subscription entitlement and webhook decision code: consolidate duplicate
+   service/UI policy kernels in Rust, preserving persistence and network I/O as
+   orchestration.
+4. Trust synchronization normalization: move certificate/master-list/CRL/OCSP
+   transformation and comparison into the existing Rust trust implementation;
+   retain scheduling, downloads, and storage in Python.
+5. Authenticator presentation and enrollment decisions: move Dart decision and
+   protocol kernels behind generated Rust mobile bindings while retaining
+   platform UI and secure-hardware adapters.
+
+No intermediate beta deployment is made while these changes are landing. The
+completed aggregate is tested across repositories and deployed to beta once.
