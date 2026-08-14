@@ -1,45 +1,36 @@
 status: complete
 search_scope:
-  - current_module_or_crate
+  - current_package
   - current_repository
-  - workspace_crates_packages_and_services
-  - bindings_adapters_ffi_and_api_layers
-  - registered_sibling_repositories_when_the_capability_crosses_repo_boundaries
+  - release_workflows_and_contracts
 search_queries:
-  - "Cedar resource owner lookup organization API key fallback"
-  - "resolve_resource_lookup presentation policy detail route"
-  - "gateway API key organization required permission scopes"
-  - "internal resource-owners issuance trust profiles"
-  - "credential template API key required permission"
-  - "presentation policy API key policy read authorization"
-  - "resource lookup timeout foreign tenant read"
+  - "marty-common package and runtime version"
+  - "root runtime marty-common pin"
+  - "marty-common immutable tag publication workflow"
+  - "previous marty-common 0.2.8 release changes"
 candidate_implementations:
-  - path: packages/marty-common/marty_common/cedar_middleware.py
+  - path: packages/marty-common/pyproject.toml
+    language: TOML
+    disposition: update_existing_package_version
+  - path: packages/marty-common/marty_common/__init__.py
     language: Python
-    disposition: extend_existing_canonical_authorization_boundary
-  - path: packages/marty-common/marty_common/cedar_actions.py
-    language: Python
-    disposition: reuse_existing_detail_route_lookup_registry
-  - path: marty-ui/services/gateway/proxy.py
-    language: Python
-    disposition: reuse_existing_gateway_owned_permission_forwarding_contract
-  - path: marty-ui/services/trust_profile/main.py
-    language: Python
-    disposition: reuse_existing_minimal_internal_owner_endpoint_pattern
-  - path: marty-ui/services/credential_template/main.py
-    language: Python
-    disposition: preserve_existing_complete_api_key_context_contract
+    disposition: update_existing_runtime_version
+  - path: pyproject.toml
+    language: TOML
+    disposition: align_existing_root_runtime_pin
+  - path: .github/workflows/publish-pypi.yml
+    language: YAML
+    disposition: reuse_unchanged_immutable_publication_workflow
 no_match_statement: ""
-decision: extend_existing
+decision: reuse_existing
 canonical_implementation:
-  path: packages/marty-common/marty_common/cedar_middleware.py
+  path: packages/marty-common
   language: Python
 rust_disposition: rust_not_applicable
 non_rust_rationale: >-
-  The change controls HTTP middleware orchestration, downstream service
-  availability/status handling, gateway-owned header forwarding, and request
-  authorization state. It introduces no portable domain, protocol,
-  cryptographic, or validation algorithm for Rust to own.
+  This task changes release metadata and package selection only. The released
+  authorization behavior already resides in the merged Python HTTP middleware;
+  no new protocol, cryptographic, validation, or portable domain logic is added.
 non_rust_exception_approval: ""
 intentional_duplicate_exception:
   rationale: ""
