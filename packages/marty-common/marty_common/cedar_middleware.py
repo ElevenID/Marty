@@ -182,7 +182,12 @@ class CedarAuthMiddleware(BaseHTTPMiddleware):
         org_id = payload.get("organization_id")
         return org_id if isinstance(org_id, str) and org_id else None
 
-    async def _lookup_resource_org_id(self, request: Request, path: str) -> str | None:
+    async def _lookup_resource_org_id(
+        self,
+        request: Request,
+        path: str,
+        required_permission: str,
+    ) -> str | None:
         lookup = resolve_resource_lookup(path)
         if not lookup:
             return None
@@ -190,39 +195,105 @@ class CedarAuthMiddleware(BaseHTTPMiddleware):
         service_registry = getattr(request.app.state, "service_registry", None)
         http_client = getattr(request.app.state, "http_client", None)
         if service_registry is None or http_client is None:
-            return None
+            logger.error("Resource-owner lookup dependencies are not configured")
+            raise HTTPException(
+                status_code=503,
+                detail="Resource owner lookup unavailable",
+            )
 
         service_name, lookup_path = lookup
-        service_url = service_registry.get_service_url(service_name)
+        try:
+            service_url = service_registry.get_service_url(service_name)
+        except Exception as exc:
+            logger.warning(
+                "Resource-owner service resolution failed for service=%s",
+                service_name,
+            )
+            raise HTTPException(
+                status_code=503,
+                detail="Resource owner lookup unavailable",
+            ) from exc
         if not service_url:
-            return None
+            logger.error("Resource-owner lookup service is unavailable: %s", service_name)
+            raise HTTPException(
+                status_code=503,
+                detail="Resource owner lookup unavailable",
+            )
+
+        headers = self._forward_headers(request, service_name)
+        headers["X-Required-Permission"] = required_permission
 
         try:
             response = await http_client.get(
                 f"{service_url}{lookup_path}",
                 timeout=10.0,
-                headers=self._forward_headers(request, service_name),
+                headers=headers,
             )
-        except Exception:
-            return None
+        except Exception as exc:
+            logger.warning(
+                "Resource-owner lookup failed for service=%s",
+                service_name,
+            )
+            raise HTTPException(
+                status_code=503,
+                detail="Resource owner lookup unavailable",
+            ) from exc
 
+        if response.status_code == 404:
+            raise HTTPException(status_code=404, detail="Resource not found")
+        if response.status_code == 403:
+            raise HTTPException(status_code=403, detail="Resource access denied")
         if response.status_code >= 400:
-            return None
+            logger.warning(
+                "Resource-owner lookup returned status=%s for service=%s",
+                response.status_code,
+                service_name,
+            )
+            raise HTTPException(
+                status_code=502,
+                detail="Resource owner lookup failed",
+            )
 
         try:
             payload = response.json()
-        except Exception:
-            return None
+        except Exception as exc:
+            logger.warning(
+                "Resource-owner lookup returned invalid JSON for service=%s",
+                service_name,
+            )
+            raise HTTPException(
+                status_code=502,
+                detail="Resource owner lookup failed",
+            ) from exc
 
         org_id = payload.get("organization_id") if isinstance(payload, dict) else None
-        return org_id if isinstance(org_id, str) and org_id else None
+        normalized_org_id = org_id.strip() if isinstance(org_id, str) else ""
+        if not normalized_org_id:
+            logger.warning(
+                "Resource-owner lookup omitted organization_id for service=%s",
+                service_name,
+            )
+            raise HTTPException(
+                status_code=502,
+                detail="Resource owner lookup failed",
+            )
+        return normalized_org_id
 
-    async def _resolve_request_org_id(self, request: Request, path: str) -> str | None:
+    async def _resolve_request_org_id(
+        self,
+        request: Request,
+        path: str,
+        required_permission: str,
+    ) -> str | None:
         org_id = extract_org_id(path)
         if org_id:
             return org_id
 
-        org_id = await self._lookup_resource_org_id(request, path)
+        org_id = await self._lookup_resource_org_id(
+            request,
+            path,
+            required_permission,
+        )
         if org_id:
             return org_id
 
@@ -251,14 +322,26 @@ class CedarAuthMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
 
         required_permission, resource_name = resolved
-        org_id = await self._resolve_request_org_id(request, path)
+        try:
+            org_id = await self._resolve_request_org_id(
+                request,
+                path,
+                required_permission,
+            )
+        except HTTPException as exc:
+            return JSONResponse(
+                status_code=exc.status_code,
+                content={"detail": exc.detail},
+            )
         if not org_id:
             return await call_next(request)
 
         if getattr(request.state, "auth_source", None) == "api_key":
             api_key_org_id = getattr(request.state, "api_key_organization_id", None)
             if api_key_org_id != org_id:
-                return JSONResponse(status_code=403, content={"detail": "API key does not have access to this organization"})
+                return JSONResponse(
+                    status_code=403, content={"detail": "API key does not have access to this organization"}
+                )
 
             api_key_scopes = list(getattr(request.state, "api_key_scopes", []) or [])
             if not self._api_key_allowed(required_permission, api_key_scopes):
@@ -308,11 +391,8 @@ class CedarAuthMiddleware(BaseHTTPMiddleware):
 
         if not allowed:
             logger.warning(
-                "Gateway deny: user=%s org=%s permission=%s roles=%s",
-                user_id,
-                org_id,
+                "Gateway deny for permission=%s",
                 required_permission,
-                sorted(membership.role_names),
             )
             return JSONResponse(status_code=403, content={"detail": "Action not authorized"})
 
