@@ -42,16 +42,16 @@ def test_checksum_manifest_cannot_include_itself() -> None:
     assert "! -name SHA256SUMS" in checksum_command.group("command")
 
 
-def test_release_requires_repository_immutability_and_exact_asset_digests() -> None:
+def test_release_verifies_immutability_and_exact_asset_digests_after_publish() -> None:
     workflow = (ROOT / ".github" / "workflows" / "publish-pypi.yml").read_text(
         encoding="utf-8"
     )
 
-    assert "repos/$GITHUB_REPOSITORY/immutable-releases" in workflow
-    assert "jq -e '.enabled == true'" in workflow
+    assert "repos/$GITHUB_REPOSITORY/immutable-releases" not in workflow
     assert 'gh release view "$TAG"' in workflow
     assert 'gh release create "$TAG" release/*' in workflow
     assert "--verify-tag" in workflow
+    assert "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" in workflow
     assert ".draft == false and .prerelease == false and .immutable == true" in workflow
     assert ".assets[] | select(.name == $name and .digest == $digest)" in workflow
     assert "softprops/action-gh-release" not in workflow

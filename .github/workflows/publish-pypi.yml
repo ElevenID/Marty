@@ -74,10 +74,6 @@ jobs:
         run: |
           set -euo pipefail
 
-          immutable_settings="$(gh api -H 'X-GitHub-Api-Version: 2026-03-10' \
-            "repos/$GITHUB_REPOSITORY/immutable-releases")"
-          jq -e '.enabled == true' <<<"$immutable_settings" >/dev/null
-
           tag_object="$(git rev-parse "refs/tags/$TAG")"
           remote_object="$(git ls-remote --tags origin "refs/tags/$TAG" | awk '{print $1}')"
           test "$remote_object" = "$tag_object"
@@ -92,6 +88,8 @@ jobs:
             --generate-notes \
             --title "marty-common $TAG"
 
+          # GITHUB_TOKEN cannot read repository immutable-release settings, so
+          # the published release response is the authoritative workflow check.
           gh api -H 'X-GitHub-Api-Version: 2026-03-10' \
             "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" > published-release.json
           jq -e '.draft == false and .prerelease == false and .immutable == true' \
