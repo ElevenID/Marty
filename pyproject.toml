@@ -12,7 +12,7 @@ requires-python = ">=3.11"
 license = {text = "AGPL-3.0-only"}
 dependencies = [
     # Core plugin dependencies
-    "marty-common==0.2.11",
+    "marty-common==0.2.12",
     "pydantic>=2.4.2",
     "pydantic-settings>=2.0.0",
     # Mandatory native security and protocol kernels
