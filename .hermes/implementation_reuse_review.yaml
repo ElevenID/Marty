@@ -1,0 +1,34 @@
+status: complete
+search_scope:
+  - current_repository
+  - released_dependency_artifacts
+  - registered_sibling_repository
+search_queries:
+  - "marty-msf v1.0.0 release wheel digest"
+  - "marty-msf v1.0.2 immutable release provenance"
+  - "marty-msf direct URL dependency lock"
+candidate_implementations:
+  - path: pyproject.toml
+    language: TOML
+    disposition: update_existing_canonical_direct_dependency
+  - path: marty-microservices-framework/v1.0.2
+    language: Python
+    disposition: reuse_verified_immutable_release
+no_match_statement: ""
+decision: reuse_existing
+canonical_implementation:
+  path: marty-microservices-framework/v1.0.2
+  language: Python
+rust_disposition: rust_not_applicable
+non_rust_rationale: >-
+  This change selects an existing Python framework release and updates dependency
+  metadata; it introduces no protocol, cryptographic, validation, or portable
+  domain implementation.
+non_rust_exception_approval: ""
+intentional_duplicate_exception:
+  rationale: ""
+  divergence_owner: ""
+  synchronization_or_compatibility_strategy: ""
+  retirement_or_convergence_plan: ""
+  architecture_decision_ref: ""
+  human_approval: ""
