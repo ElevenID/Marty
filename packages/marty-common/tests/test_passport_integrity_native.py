@@ -18,11 +18,14 @@ crypto_package = types.ModuleType("marty_common.crypto")
 crypto_package.__path__ = [str(PACKAGE_ROOT / "crypto")]
 rfid_package = types.ModuleType("marty_common.rfid")
 rfid_package.__path__ = [str(PACKAGE_ROOT / "rfid")]
+security_package = types.ModuleType("marty_common.security")
+security_package.__path__ = [str(PACKAGE_ROOT / "security")]
 utils_package = types.ModuleType("marty_common.utils")
 utils_package.__path__ = [str(PACKAGE_ROOT / "utils")]
 sys.modules.setdefault("marty_common", common_package)
 sys.modules.setdefault("marty_common.crypto", crypto_package)
 sys.modules.setdefault("marty_common.rfid", rfid_package)
+sys.modules.setdefault("marty_common.security", security_package)
 sys.modules.setdefault("marty_common.utils", utils_package)
 crypto_bridge = types.ModuleType("marty_common.crypto_bridge")
 
@@ -38,7 +41,17 @@ sys.modules.setdefault("marty_common.crypto_bridge", crypto_bridge)
 
 from marty_common.crypto.hash_comparison import DataGroupHashResult, HashComparisonEngine  # noqa: E402
 from marty_common.crypto.sod_parser import HashAlgorithm  # noqa: E402
+from marty_common.native_backends import NativeBackendUnavailable  # noqa: E402
 from marty_common.rfid.secure_messaging import SecureMessaging  # noqa: E402
+from marty_common.security.active_authentication import (  # noqa: E402
+    ActiveAuthenticationChallenge,
+    ActiveAuthenticationProtocol,
+)
+from marty_common.security.iso9796_verifier import (  # noqa: E402
+    ISO9796Scheme,
+    ISO9796Verifier,
+    PassportActiveAuthenticationVerifier,
+)
 
 
 FIXTURE = Path(__file__).parents[3] / "tests" / "fixtures" / "passport_integrity_behavior.json"
@@ -147,3 +160,60 @@ def test_bac_response_mac_failure_is_rejected() -> None:
     response[-1] ^= 1
     with pytest.raises(ValueError, match="MAC verification failed"):
         secure_messaging.complete_basic_access_control(keys, bytes(response))
+
+
+def test_shared_active_authentication_apdu_behavior() -> None:
+    vector = json.loads(
+        (Path(__file__).parents[3] / "tests" / "fixtures" / "passport_chip_behavior.json").read_text()
+    )["active_authentication"]
+    protocol = ActiveAuthenticationProtocol()
+    challenge = ActiveAuthenticationChallenge(
+        bytes.fromhex(vector["challenge_hex"]), "SHA-256", 128
+    )
+    assert protocol.create_aa_apdu_command(challenge).hex().upper() == vector[
+        "expected_command_apdu"
+    ]
+    response = protocol.parse_aa_response(bytes.fromhex(vector["successful_response"]), challenge)
+    assert response.signature.hex().upper() == vector["expected_signature"]
+    for raw_response in vector["error_responses"]:
+        with pytest.raises((RuntimeError, ValueError)):
+            protocol.parse_aa_response(bytes.fromhex(raw_response), challenge)
+    for key_size in vector["invalid_challenge_sizes_bits"]:
+        with pytest.raises((RuntimeError, ValueError)):
+            protocol.generate_challenge(key_size)
+
+
+def test_native_active_authentication_round_trip_and_exact_challenge() -> None:
+    from cryptography.hazmat.primitives.asymmetric import rsa
+
+    private_key = rsa.generate_private_key(public_exponent=65537, key_size=1024)
+    public_key = private_key.public_key()
+    challenge = ActiveAuthenticationChallenge(b"0123456789abcdef", "SHA-256", 128)
+    protocol = ActiveAuthenticationProtocol()
+    raw_response = protocol.create_mock_aa_response(challenge, private_key)
+    response = protocol.parse_aa_response(raw_response, challenge)
+    assert protocol.verify_active_authentication(response, challenge, public_key)
+    assert response.recovered_message == challenge.challenge
+
+    wrong_challenge = ActiveAuthenticationChallenge(b"1123456789abcdef", "SHA-256", 128)
+    assert not protocol.verify_active_authentication(response, wrong_challenge, public_key)
+
+    verifier = ISO9796Verifier()
+    signature = verifier.create_test_signature(challenge.challenge, private_key)
+    result = verifier.verify_signature(
+        signature, challenge.challenge, public_key, ISO9796Scheme.SCHEME_1
+    )
+    assert result.is_valid
+    assert result.recovered_message == challenge.challenge
+    assert PassportActiveAuthenticationVerifier().verify_active_authentication_response(
+        challenge.challenge, signature, public_key
+    )
+
+
+def test_active_authentication_missing_native_capability_fails_closed(monkeypatch) -> None:
+    import marty_verification
+
+    monkeypatch.delattr(marty_verification, "active_authentication_build_apdu")
+    challenge = ActiveAuthenticationChallenge(b"0123456789abcdef", "SHA-256", 128)
+    with pytest.raises(NativeBackendUnavailable, match="active_authentication_build_apdu"):
+        ActiveAuthenticationProtocol().create_aa_apdu_command(challenge)

@@ -81,10 +81,14 @@ then deletes the replaced implementation in the same pre-v1 change.
    data-group comparison, validity, mismatch-risk, and recommendation kernel
    replaces the former 703-line Python implementation. BAC derivation, mutual
    authentication, session establishment, and protected APDU exchange now use
-   a stateful native binding verified against ICAO Annex D. PACE, the remaining
-   APDU compatibility codecs, Active Authentication/ISO 9796, and EAC are the
-   remaining parts of this item. Hardware transport callbacks remain Python;
-   protocol state and cryptography do not.
+   a stateful native binding verified against ICAO Annex D. Active
+   Authentication challenge generation, INTERNAL AUTHENTICATE framing and
+   response validation, exact challenge verification, ISO 9796 recovery, and
+   simulator signing are also native; the former duplicate Python RSA and hash
+   implementations have been deleted after shared behavioral coverage passed.
+   PACE, the remaining APDU compatibility codecs, and EAC are the remaining
+   parts of this item. Hardware transport callbacks remain Python; protocol
+   state and cryptography do not.
 3. Subscription entitlement and webhook decision code: consolidate duplicate
    service/UI policy kernels in Rust, preserving persistence and network I/O as
    orchestration.

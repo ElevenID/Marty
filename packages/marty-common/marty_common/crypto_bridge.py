@@ -34,6 +34,10 @@ _MARTY_RS_CAPABILITIES = (
 )
 
 _MARTY_VERIFICATION_CAPABILITIES = (
+    "active_authentication_build_apdu",
+    "active_authentication_generate_challenge",
+    "active_authentication_parse_response",
+    "active_authentication_verify",
     "ChainValidator",
     "NativeBacSession",
     "ValidationConfig",
@@ -63,6 +67,9 @@ _MARTY_VERIFICATION_CAPABILITIES = (
     "get_certificate_info",
     "get_certificate_public_key",
     "hash_data",
+    "iso9796_recover",
+    "iso9796_scheme1_sign",
+    "iso9796_verify",
     "load_certificate_der",
     "load_certificate_pem",
     "load_private_key_pem",
