@@ -191,6 +191,15 @@ SPECIAL_ROUTE_RULES: list[tuple[re.Pattern[str], dict[str, str], str]] = [
         "issuance",
     ),
     (
+        re.compile(r"^/v1/issuance/[^/]+/revocation-status$"),
+        {
+            "GET": "issuance:view",
+            "HEAD": "issuance:view",
+            "OPTIONS": "issuance:view",
+        },
+        "issuance",
+    ),
+    (
         re.compile(r"^/v1/issuance/[^/]+/revoke$"),
         {"POST": "issuance:revoke"},
         "issued-credential",
