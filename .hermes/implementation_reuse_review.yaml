@@ -1,37 +1,33 @@
 status: complete
 search_scope:
-  - current_package
+  - current_module_or_package
   - current_repository
-  - release_workflows_and_contracts
+  - registered_marty_ui_gateway_consumer
 search_queries:
-  - "marty-common package and runtime version"
-  - "root runtime marty-common pin"
-  - "marty-common immutable publication workflow"
-  - "previous marty-common 0.2.13 release changes"
+  - "marty-common resource owner static route classification"
+  - "presentation policy inline evaluate gateway route"
+  - "previous static issuance and flow route classifier fixes"
+  - "marty-ui current static first-level gateway route inventory"
 candidate_implementations:
-  - path: packages/marty-common/pyproject.toml
-    language: TOML
-    disposition: update_existing_package_version
-  - path: packages/marty-common/marty_common/__init__.py
+  - path: packages/marty-common/marty_common/cedar_actions.py
     language: Python
-    disposition: update_existing_runtime_version
-  - path: pyproject.toml
-    language: TOML
-    disposition: align_existing_root_runtime_pin
-  - path: .github/workflows/publish-pypi.yml
-    language: YAML
-    disposition: reuse_verified_immutable_publication_workflow
+    disposition: extend_existing_canonical_route_classifier
+  - path: packages/marty-common/tests/test_cedar_resource_owners.py
+    language: Python
+    disposition: extend_existing_owned_classifier_regression
+  - path: https://github.com/ElevenID/Marty/pull/55
+    language: GitHub pull request
+    disposition: reuse_previous_static_route_correction_pattern
 no_match_statement: ""
 decision: reuse_existing
 canonical_implementation:
-  path: packages/marty-common
+  path: packages/marty-common/marty_common/cedar_actions.py
   language: Python
 rust_disposition: rust_not_applicable
 non_rust_rationale: >-
-  This task advances release metadata for the already-merged HTTP route
-  classifier correction and reuses the verified immutable publication
-  workflow. It adds no protocol, cryptographic, validation, or portable domain
-  logic.
+  This is an HTTP route-to-authorization classification correction in the
+  existing shared Python gateway middleware package. It adds no protocol,
+  cryptographic, validation, or portable domain logic for Rust to own.
 non_rust_exception_approval: ""
 intentional_duplicate_exception:
   rationale: ""
