@@ -78,8 +78,8 @@ dependencies = [
 [project.optional-dependencies]
 # Rust FFI bindings (for crypto_bridge functionality)
 ffi = [
-    "marty-rs==0.1.46",               # Provides the canonical _marty_rs module
-    "marty-verification-py==0.1.46",  # Provides marty_verification
+    "marty-rs==0.1.56",               # Provides the canonical _marty_rs module
+    "marty-verification-py==0.1.56",  # Provides marty_verification
 ]
 
 # Development dependencies

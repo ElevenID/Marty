@@ -16,9 +16,9 @@ def test_retired_python_asn1_models_cannot_return() -> None:
         ROOT / "src/marty_plugin/pkd_service/requirements.txt",
     )
     assert all(
-        "asn1crypto" not in path.read_text(encoding="utf-8")
-        for path in governed_files
+        "asn1crypto" not in path.read_text(encoding="utf-8") for path in governed_files
     )
+    assert '"pyasn1' not in (ROOT / "pyproject.toml").read_text(encoding="utf-8")
 
 
 def test_native_wheel_downloads_are_versioned_and_digest_verified() -> None:
@@ -26,7 +26,7 @@ def test_native_wheel_downloads_are_versioned_and_digest_verified() -> None:
         encoding="utf-8"
     )
 
-    assert "MARTY_CORE_NATIVE_TAG:-v0.1.46" in script
+    assert "MARTY_CORE_NATIVE_TAG:-v0.1.56" in script
     assert "MARTY_CREDENTIALS_NATIVE_TAG" not in script
     assert "marty_iso18013" in script
     assert "marty_verification_py" in script
@@ -39,8 +39,8 @@ def test_native_wheel_downloads_are_versioned_and_digest_verified() -> None:
     package_metadata = (
         ROOT / "packages" / "marty-common" / "pyproject.toml"
     ).read_text(encoding="utf-8")
-    assert '"marty-rs==0.1.46"' in package_metadata
-    assert '"marty-verification-py==0.1.46"' in package_metadata
+    assert '"marty-rs==0.1.56"' in package_metadata
+    assert '"marty-verification-py==0.1.56"' in package_metadata
 
 
 def test_release_image_embeds_and_validates_native_wheels() -> None:
@@ -76,7 +76,7 @@ def test_ci_builds_all_native_wheels_from_an_immutable_core_revision() -> None:
     for distribution in ("marty_rs", "marty_verification_py", "marty_iso18013"):
         assert f"require_one_wheel {distribution}" in build_script
 
-    assert "MARTY_CORE_REVISION: c8a028e803e7278f7842f5085855ac12a80b14ba" in workflows
+    assert "MARTY_CORE_REVISION: 8d165100b061b00f5be65b386d21bb8c532a1e98" in workflows
     assert "repository: ElevenID/marty-core" in workflows
     assert "ref: ${{ env.MARTY_CORE_REVISION }}" in workflows
     assert "bash scripts/build-native-wheels.sh" in workflows

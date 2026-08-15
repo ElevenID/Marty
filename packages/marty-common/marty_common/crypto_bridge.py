@@ -47,6 +47,16 @@ _MARTY_VERIFICATION_CAPABILITIES = (
     "dtc_verify",
     "ecdsa_p256_generate",
     "ecdsa_p384_generate",
+    "emrtd_inspect_rsa_public_key_json",
+    "emrtd_parse_biometric_template_json",
+    "emrtd_parse_dg15_json",
+    "emrtd_parse_ef_com_json",
+    "emrtd_parse_ef_dg1_json",
+    "emrtd_parse_ef_dg2_json",
+    "emrtd_parse_elementary_file_json",
+    "emrtd_parse_tlv_json",
+    "emrtd_rsa_public_key_spki",
+    "emrtd_validate_biometric_quality_json",
     "generate_random_bytes",
     "get_certificate_info",
     "get_certificate_public_key",
@@ -210,13 +220,53 @@ def load_pem_x509_certificate(pem_data: str | bytes) -> Certificate:
 
 
 class RSAPublicKeyBridge:
-    """Retired Python RSA key-construction adapter."""
+    """Serialization-compatible view of a Rust-validated RSA public key."""
 
-    def __init__(self, _modulus: int, _public_exponent: int) -> None:
-        raise NativeOperationError(
-            "Python RSA SubjectPublicKeyInfo construction is retired; parse and "
-            "verify DG15 through the native eMRTD implementation"
-        )
+    def __init__(self, modulus: int, public_exponent: int) -> None:
+        from marty_common.emrtd_native import inspect_rsa_public_key, rsa_public_key_spki
+
+        self._der = rsa_public_key_spki(modulus, public_exponent)
+        info = inspect_rsa_public_key(self._der)
+        self.key_size = int(info["key_size"])
+        self._fingerprint_sha256 = str(info["fingerprint_sha256"])
+        self._valid_for_active_authentication = bool(info["valid_for_active_authentication"])
+
+    @classmethod
+    def from_native_dg15(
+        cls,
+        *,
+        spki_der: bytes,
+        key_size: int,
+        fingerprint_sha256: str,
+        valid_for_active_authentication: bool,
+    ) -> RSAPublicKeyBridge:
+        """Build a view from metadata already validated by the Rust DG15 parser."""
+
+        value = cls.__new__(cls)
+        value._der = bytes(spki_der)
+        value.key_size = key_size
+        value._fingerprint_sha256 = fingerprint_sha256
+        value._valid_for_active_authentication = valid_for_active_authentication
+        return value
+
+    def public_bytes(self, encoding: Any, format: Any = None) -> bytes:  # noqa: A002
+        """Return the native canonical SubjectPublicKeyInfo encoding."""
+
+        del format
+        encoding_name = str(getattr(encoding, "name", encoding)).upper()
+        if encoding_name.endswith("DER"):
+            return self._der
+        if encoding_name.endswith("PEM"):
+            return _marty_verification.save_public_key_pem(self._der).encode("ascii")
+        raise ValueError(f"Unsupported public-key encoding: {encoding}")
+
+    @property
+    def fingerprint_sha256(self) -> str | None:
+        return self._fingerprint_sha256
+
+    @property
+    def valid_for_active_authentication(self) -> bool:
+        return self._valid_for_active_authentication
 
 
 CertificateChainValidator = _marty_verification.ChainValidator
