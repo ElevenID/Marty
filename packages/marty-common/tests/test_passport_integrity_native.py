@@ -171,6 +171,26 @@ def test_bac_response_mac_failure_is_rejected() -> None:
         secure_messaging.complete_basic_access_control(keys, bytes(response))
 
 
+def test_shared_pace_compatibility_behavior() -> None:
+    vector = json.loads(
+        (Path(__file__).parents[3] / "tests" / "fixtures" / "passport_chip_behavior.json").read_text()
+    )["pace_compatibility"]
+    messaging = SecureMessaging()
+    assert messaging._derive_pace_password_key(vector["password"]).hex().upper() == vector[
+        "password_key"
+    ]
+    public_key = messaging._native_pace.start_pace_with_private_key(
+        vector["password"],
+        bytes.fromhex(vector["encrypted_nonce"]),
+        bytes.fromhex(vector["reader_private_key"]),
+    )
+    assert public_key.hex().upper() == vector["reader_public_key"]
+    keys = messaging.complete_pace_protocol(bytes.fromhex(vector["chip_public_key"]))
+    assert keys.k_s_enc.hex().upper() == vector["session_encryption_key"]
+    assert keys.k_s_mac.hex().upper() == vector["session_mac_key"]
+    assert keys.ssc.to_bytes(8, "big").hex().upper() == vector["ssc"]
+
+
 def test_shared_active_authentication_apdu_behavior() -> None:
     vector = json.loads(
         (Path(__file__).parents[3] / "tests" / "fixtures" / "passport_chip_behavior.json").read_text()

@@ -90,8 +90,11 @@ then deletes the replaced implementation in the same pre-v1 change.
    agreement, key derivation, and authenticated encryption now use one native
    implementation; placeholder hash-based key agreement and Python AES/HMAC
    have been deleted. Non-standard RSA key agreement and unavailable Brainpool
-   support fail closed instead of manufacturing shared secrets. PACE and the
-   remaining APDU compatibility codecs are the remaining parts of this item.
+   support fail closed instead of manufacturing shared secrets. The established
+   PACE compatibility API now delegates CAN/MRZ password derivation, nonce
+   decryption, P-256 agreement, and session-key construction to native state;
+   its duplicate Python hash, parity, padding, and key-agreement code is gone.
+   The remaining APDU compatibility codecs are the final part of this item.
    Hardware transport callbacks remain Python; protocol state and cryptography
    do not.
 3. Subscription entitlement and webhook decision code: consolidate duplicate

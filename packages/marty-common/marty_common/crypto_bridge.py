@@ -42,6 +42,7 @@ _MARTY_VERIFICATION_CAPABILITIES = (
     "NativeBacSession",
     "NativeEacChipAuthentication",
     "NativeEacSecureMessaging",
+    "NativePaceSession",
     "ValidationConfig",
     "build_self_signed_certificate_with_key",
     "certificate_der_to_pem",
