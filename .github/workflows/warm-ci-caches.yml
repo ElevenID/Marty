@@ -22,7 +22,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  MARTY_CORE_REVISION: c8a028e803e7278f7842f5085855ac12a80b14ba
+  MARTY_CORE_REVISION: 359df1d20f152e21783fe43078d753fa1b494ce4
 
 jobs:
   image:

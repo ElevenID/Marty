@@ -24,6 +24,10 @@ Python cryptographic fallback.
 - TD1/TD2/TD3 MRZ parsing and check digits, SOD parsing and signature checks,
   data-group hashes, CSCA/DSC chains, master lists, CRLs, and OCSP structures
   route through `marty_verification`.
+- BER/DER TLV, EF.COM, EF.DG1, EF.DG2, generic elementary-file dispatch,
+  facial/fingerprint/iris records and quality policy, and DG15 RSA/SPKI parsing
+  and fingerprinting route through one bounded `marty_verification` kernel.
+  Python retains the existing result DTOs and chip-reader choreography only.
 - JWT, SD-JWT, mDoc, signing, key generation, and presentation verification in
   credential services route through `_marty_rs`. Provider/KMS detached
   signatures and ECDSA signature normalization also cross this native boundary.
@@ -46,9 +50,9 @@ Python cryptographic fallback.
 
 ## Packaging and rollout
 
-Marty pins the canonical core native v0.1.46 release built from merged core
-commit `2a1e2743ff0499adbe473ea242e179681f874b3c` for `marty_iso18013`,
-`marty_verification`, and `_marty_rs`. CI and release jobs download the exact
+Marty pins the canonical core native v0.1.56 release and the immutable core
+revision declared by its workflows for `marty_iso18013`, `marty_verification`,
+and `_marty_rs`. CI and release jobs download or build the exact
 GitHub release wheels, require GitHub-provided SHA-256 asset digests to match,
 and install only those wheels. Production images verify all native backends
 during the image build. Linux x86_64 and aarch64 wheels are required for the
