@@ -27,6 +27,12 @@ def test_identifier_routes_use_minimal_internal_owner_lookups() -> None:
         "trust-profiles",
         "/internal/v1/resource-owners/issuer-entities/issuer-b",
     )
+    assert resolve_resource_lookup(
+        "/v1/presentation-policies/evaluate-policy/evaluate"
+    ) == (
+        "presentation-policies",
+        "/v1/presentation-policies/evaluate-policy",
+    )
 
 
 def test_issuance_revocation_status_combines_action_and_owner_lookup() -> None:
@@ -62,6 +68,7 @@ def test_public_protocol_and_collection_routes_do_not_become_owner_lookups() -> 
     assert resolve_resource_lookup("/v1/issued-credentials/mine") is None
     assert resolve_resource_lookup("/v1/trust-profiles") is None
     assert resolve_resource_lookup("/v1/issuer-entities") is None
+    assert resolve_resource_lookup("/v1/presentation-policies/evaluate") is None
     assert resolve_resource_lookup("/v1/flows/capabilities") is None
     assert (
         resolve_resource_lookup("/v1/flows/webhooks/application-approved") is None

@@ -40,7 +40,7 @@ RESOURCE_LOOKUP_MAP: dict[str, tuple[str, str, set[str]]] = {
     "presentation-policies": (
         "presentation-policies",
         "/v1/presentation-policies/{resource_id}",
-        set(),
+        {"evaluate"},
     ),
     "deployment-profiles": (
         "deployment-profiles",
