@@ -84,7 +84,7 @@ jobs:
       - name: Compile and test
         run: |
           python -m compileall -q src
-          python -m pytest packages/marty-common/tests tests/unit -q
+          python -m pytest tests/unit packages/marty-common/tests -q
       - name: Verify package metadata
         run: |
           python -m pip install build twine

@@ -19,6 +19,7 @@ maturin build --release --compatibility off \
   --out "$destination"
 maturin build --release --compatibility off \
   --manifest-path "$core_directory/marty-verification/Cargo.toml" \
+  --features 'pyo3/extension-module,python,csca,eudi,cert-builder' \
   --out "$destination"
 maturin build --release --compatibility off \
   --manifest-path "$core_directory/marty-iso18013/Cargo.toml" \
