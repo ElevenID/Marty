@@ -42,6 +42,12 @@ sys.modules.setdefault("marty_common.crypto_bridge", crypto_bridge)
 from marty_common.crypto.hash_comparison import DataGroupHashResult, HashComparisonEngine  # noqa: E402
 from marty_common.crypto.sod_parser import HashAlgorithm  # noqa: E402
 from marty_common.native_backends import NativeBackendUnavailable  # noqa: E402
+from marty_common.rfid.apdu_commands import (  # noqa: E402
+    APDUCommand,
+    APDUProcessor,
+    APDUResponse,
+    PassportAPDU,
+)
 from marty_common.rfid.secure_messaging import SecureMessaging  # noqa: E402
 from marty_common.security.active_authentication import (  # noqa: E402
     ActiveAuthenticationChallenge,
@@ -189,6 +195,41 @@ def test_shared_pace_compatibility_behavior() -> None:
     assert keys.k_s_enc.hex().upper() == vector["session_encryption_key"]
     assert keys.k_s_mac.hex().upper() == vector["session_mac_key"]
     assert keys.ssc.to_bytes(8, "big").hex().upper() == vector["ssc"]
+
+
+def test_shared_native_apdu_behavior() -> None:
+    vector = json.loads(
+        (Path(__file__).parents[3] / "tests" / "fixtures" / "passport_chip_behavior.json").read_text()
+    )["apdu"]
+    for expected in vector["commands"]:
+        command = APDUCommand(
+            expected["cla"],
+            expected["ins"],
+            expected["p1"],
+            expected["p2"],
+            bytes.fromhex(expected["data"]) if expected["data"] is not None else None,
+            expected["le"],
+        )
+        assert command.to_bytes().hex().upper() == expected["encoded"]
+    extended = vector["extended"]
+    encoded = APDUCommand(0, 0xDA, 0, 0, bytes([extended["data_byte"]]) * 256).to_bytes()
+    assert len(encoded) == extended["encoded_length"]
+    assert encoded.hex().upper().startswith(extended["prefix"])
+    assert [
+        command.to_bytes().hex().upper()
+        for command in APDUProcessor().build_read_ef(
+            vector["read_length"], vector["read_offset"]
+        )
+    ] == vector["read_commands"]
+    for expected in vector["responses"]:
+        response = APDUResponse.from_bytes(bytes.fromhex(expected["encoded"]))
+        assert response.is_success is expected["success"]
+        assert response.is_warning is expected["warning"]
+        assert response.is_error is expected["error"]
+        assert response.status_description == expected["description"]
+    assert PassportAPDU.select_data_group(15).to_bytes().hex().upper() == "00A4020C02010F"
+    with pytest.raises(ValueError, match="Unsupported passport data group"):
+        PassportAPDU.select_data_group(16)
 
 
 def test_shared_active_authentication_apdu_behavior() -> None:

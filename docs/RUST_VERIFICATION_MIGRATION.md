@@ -94,7 +94,10 @@ then deletes the replaced implementation in the same pre-v1 change.
    PACE compatibility API now delegates CAN/MRZ password derivation, nonce
    decryption, P-256 agreement, and session-key construction to native state;
    its duplicate Python hash, parity, padding, and key-agreement code is gone.
-   The remaining APDU compatibility codecs are the final part of this item.
+   Short and extended APDU encoding, response parsing/status classification,
+   chunked READ BINARY construction, and passport data-group selection are now
+   native as well. Python retains only typed command/response models and reader
+   orchestration; the passport chip/integrity migration item is complete.
    Hardware transport callbacks remain Python; protocol state and cryptography
    do not.
 3. Subscription entitlement and webhook decision code: consolidate duplicate
