@@ -47,6 +47,15 @@ from marty_common.security.active_authentication import (  # noqa: E402
     ActiveAuthenticationChallenge,
     ActiveAuthenticationProtocol,
 )
+from marty_common.security.eac_protocol import (  # noqa: E402
+    ChipAuthenticationError,
+    EACChipAuthentication,
+    EACCryptoAlgorithm,
+    EACError,
+    EACSecureMessaging,
+    EACTerminalAuthentication,
+    MockEACCertificate,
+)
 from marty_common.security.iso9796_verifier import (  # noqa: E402
     ISO9796Scheme,
     ISO9796Verifier,
@@ -217,3 +226,71 @@ def test_active_authentication_missing_native_capability_fails_closed(monkeypatc
     challenge = ActiveAuthenticationChallenge(b"0123456789abcdef", "SHA-256", 128)
     with pytest.raises(NativeBackendUnavailable, match="active_authentication_build_apdu"):
         ActiveAuthenticationProtocol().create_aa_apdu_command(challenge)
+
+
+def test_shared_eac_secure_messaging_behavior() -> None:
+    vector = json.loads(
+        (Path(__file__).parents[3] / "tests" / "fixtures" / "eac_behavior.json").read_text()
+    )["secure_messaging"]
+    messaging = EACSecureMessaging(
+        bytes.fromhex(vector["shared_secret"]),
+        EACCryptoAlgorithm(vector["algorithm"]),
+    )
+    assert messaging.secure_channel.mac_key.hex().upper() == vector["mac_key"]
+    assert messaging.secure_channel.encryption_key.hex().upper() == vector["encryption_key"]
+    protected = bytes(
+        messaging._native.encrypt_apdu_with_iv(
+            bytes.fromhex(vector["plaintext"]), bytes.fromhex(vector["iv"])
+        )
+    )
+    assert protected.hex().upper() == vector["protected"]
+    assert messaging.decrypt_apdu(protected).hex().upper() == vector["plaintext"]
+
+    tampered = bytearray(protected)
+    tampered[0] ^= 1
+    with pytest.raises(EACError, match="MAC verification failed"):
+        messaging.decrypt_apdu(bytes(tampered))
+
+
+def test_native_eac_key_agreement_and_unsupported_algorithms() -> None:
+    placeholder = object()
+    left = EACChipAuthentication(placeholder)
+    right = EACChipAuthentication(placeholder)
+    left_public, _ = left.generate_ephemeral_keypair()
+    right_public, _ = right.generate_ephemeral_keypair()
+    assert left.perform_chip_authentication(right_public) == right.perform_chip_authentication(
+        left_public
+    )
+
+    fixture = json.loads(
+        (Path(__file__).parents[3] / "tests" / "fixtures" / "eac_behavior.json").read_text()
+    )
+    for algorithm in fixture["unsupported_algorithms"]:
+        with pytest.raises(ChipAuthenticationError):
+            EACChipAuthentication(
+                placeholder, EACCryptoAlgorithm(algorithm)
+            ).generate_ephemeral_keypair()
+
+
+def test_native_eac_terminal_signature_and_missing_backend_failure(monkeypatch) -> None:
+    import marty_verification
+    from cryptography.hazmat.primitives import serialization
+
+    certificate, private_key = MockEACCertificate.create_mock_terminal_certificate()
+    terminal = EACTerminalAuthentication(certificate, private_key)
+    terminal.set_certificate_chain([certificate])
+    challenge = b"chip-terminal-authentication-challenge"
+    signature = terminal.perform_terminal_authentication(challenge)
+    assert marty_verification.eac_verify_certificate_signature(
+        certificate.algorithm.value,
+        certificate.public_key.public_bytes(
+            encoding=serialization.Encoding.DER,
+            format=serialization.PublicFormat.SubjectPublicKeyInfo,
+        ),
+        challenge,
+        signature,
+    )
+
+    monkeypatch.delattr(marty_verification, "NativeEacSecureMessaging")
+    with pytest.raises(NativeBackendUnavailable, match="NativeEacSecureMessaging"):
+        EACSecureMessaging(b"shared", EACCryptoAlgorithm.ECDH_P256_SHA256)

@@ -86,9 +86,14 @@ then deletes the replaced implementation in the same pre-v1 change.
    response validation, exact challenge verification, ISO 9796 recovery, and
    simulator signing are also native; the former duplicate Python RSA and hash
    implementations have been deleted after shared behavioral coverage passed.
-   PACE, the remaining APDU compatibility codecs, and EAC are the remaining
-   parts of this item. Hardware transport callbacks remain Python; protocol
-   state and cryptography do not.
+   EAC terminal signatures, certificate-signature checks, P-256/P-384 chip key
+   agreement, key derivation, and authenticated encryption now use one native
+   implementation; placeholder hash-based key agreement and Python AES/HMAC
+   have been deleted. Non-standard RSA key agreement and unavailable Brainpool
+   support fail closed instead of manufacturing shared secrets. PACE and the
+   remaining APDU compatibility codecs are the remaining parts of this item.
+   Hardware transport callbacks remain Python; protocol state and cryptography
+   do not.
 3. Subscription entitlement and webhook decision code: consolidate duplicate
    service/UI policy kernels in Rust, preserving persistence and network I/O as
    orchestration.
