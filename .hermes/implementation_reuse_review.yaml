@@ -4,16 +4,23 @@ search_scope:
   - current_repository
   - release_workflows_and_contracts
 search_queries:
-  - "flow route resource-owner lookup classification"
-  - "static flow gateway route segments"
-  - "existing reserved resource segments"
+  - "marty-common package and runtime version"
+  - "root runtime marty-common pin"
+  - "marty-common immutable publication workflow"
+  - "previous marty-common 0.2.13 release changes"
 candidate_implementations:
-  - path: packages/marty-common/marty_common/cedar_actions.py
+  - path: packages/marty-common/pyproject.toml
+    language: TOML
+    disposition: update_existing_package_version
+  - path: packages/marty-common/marty_common/__init__.py
     language: Python
-    disposition: extend_existing_classifier
-  - path: packages/marty-common/tests/test_cedar_resource_owners.py
-    language: Python
-    disposition: extend_existing_regression_coverage
+    disposition: update_existing_runtime_version
+  - path: pyproject.toml
+    language: TOML
+    disposition: align_existing_root_runtime_pin
+  - path: .github/workflows/publish-pypi.yml
+    language: YAML
+    disposition: reuse_verified_immutable_publication_workflow
 no_match_statement: ""
 decision: reuse_existing
 canonical_implementation:
@@ -21,9 +28,10 @@ canonical_implementation:
   language: Python
 rust_disposition: rust_not_applicable
 non_rust_rationale: >-
-  This task corrects HTTP authorization route classification in the existing
-  Python gateway middleware. It adds no protocol, cryptographic, validation,
-  or portable domain logic suitable for the Rust core.
+  This task advances release metadata for the already-merged HTTP route
+  classifier correction and reuses the verified immutable publication
+  workflow. It adds no protocol, cryptographic, validation, or portable domain
+  logic.
 non_rust_exception_approval: ""
 intentional_duplicate_exception:
   rationale: ""
