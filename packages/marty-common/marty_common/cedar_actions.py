@@ -55,7 +55,7 @@ RESOURCE_LOOKUP_MAP: dict[str, tuple[str, str, set[str]]] = {
     "flows": (
         "flows",
         "/v1/flows/{resource_id}",
-        {"definitions", "instances", "verify", "siop"},
+        {"capabilities", "definitions", "instances", "siop", "verify", "webhooks"},
     ),
     "application-templates": (
         "issuance",

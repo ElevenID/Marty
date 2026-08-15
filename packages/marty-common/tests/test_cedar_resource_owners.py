@@ -62,3 +62,7 @@ def test_public_protocol_and_collection_routes_do_not_become_owner_lookups() -> 
     assert resolve_resource_lookup("/v1/issued-credentials/mine") is None
     assert resolve_resource_lookup("/v1/trust-profiles") is None
     assert resolve_resource_lookup("/v1/issuer-entities") is None
+    assert resolve_resource_lookup("/v1/flows/capabilities") is None
+    assert (
+        resolve_resource_lookup("/v1/flows/webhooks/application-approved") is None
+    )
