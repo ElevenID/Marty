@@ -17,7 +17,7 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
-  MARTY_CORE_REVISION: 8d165100b061b00f5be65b386d21bb8c532a1e98
+  MARTY_CORE_REVISION: 359df1d20f152e21783fe43078d753fa1b494ce4
 
 jobs:
   build-native-wheels:
