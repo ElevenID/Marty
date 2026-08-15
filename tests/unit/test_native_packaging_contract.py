@@ -75,6 +75,7 @@ def test_ci_builds_all_native_wheels_from_an_immutable_core_revision() -> None:
         assert f'{package}/Cargo.toml"' in build_script
     for distribution in ("marty_rs", "marty_verification_py", "marty_iso18013"):
         assert f"require_one_wheel {distribution}" in build_script
+    assert "pyo3/extension-module,python,csca,eudi,cert-builder" in build_script
 
     assert "MARTY_CORE_REVISION: 359df1d20f152e21783fe43078d753fa1b494ce4" in workflows
     assert "repository: ElevenID/marty-core" in workflows
