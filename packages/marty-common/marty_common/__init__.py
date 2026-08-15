@@ -19,7 +19,7 @@ Contents:
 - cedar_middleware: Cedar authorization middleware
 """
 
-__version__ = "0.2.12"
+__version__ = "0.2.13"
 
 from .authorization import (
     AuthorizationContext,
