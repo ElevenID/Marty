@@ -35,6 +35,7 @@ _MARTY_RS_CAPABILITIES = (
 
 _MARTY_VERIFICATION_CAPABILITIES = (
     "ChainValidator",
+    "NativeBacSession",
     "ValidationConfig",
     "build_self_signed_certificate_with_key",
     "certificate_der_to_pem",

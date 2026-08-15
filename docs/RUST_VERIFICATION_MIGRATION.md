@@ -79,8 +79,10 @@ then deletes the replaced implementation in the same pre-v1 change.
    and credential-service pull requests are in the merge train.
 2. Passport chip protocols and integrity reporting: in progress. The native
    data-group comparison, validity, mismatch-risk, and recommendation kernel
-   replaces the former 703-line Python implementation. BAC/PACE secure
-   messaging, APDU codecs, Active Authentication/ISO 9796, and EAC are the
+   replaces the former 703-line Python implementation. BAC derivation, mutual
+   authentication, session establishment, and protected APDU exchange now use
+   a stateful native binding verified against ICAO Annex D. PACE, the remaining
+   APDU compatibility codecs, Active Authentication/ISO 9796, and EAC are the
    remaining parts of this item. Hardware transport callbacks remain Python;
    protocol state and cryptography do not.
 3. Subscription entitlement and webhook decision code: consolidate duplicate
