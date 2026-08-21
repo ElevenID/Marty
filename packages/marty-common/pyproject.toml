@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "marty-common"
-version = "0.2.15"
+version = "0.2.16"
 description = "Marty Common - Shared infrastructure for Marty digital identity services"
 authors = [
     {name = "Marty Team"}
