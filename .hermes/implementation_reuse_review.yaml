@@ -1,41 +1,37 @@
 status: complete
 search_scope:
-  - marty-common native compatibility bridge and typed backend loader
-  - document-signer certificate issuance helper
-  - Core v0.1.59 released verifier capability profile
-  - UI v1.1.199 artifact-only startup failure
-  - owned native-backend tests and immutable release workflow
+  - current_package
+  - current_repository
+  - release_workflows_and_contracts
 search_queries:
-  - "build_self_signed_certificate_with_key global verifier capability"
-  - "document signer operation-local cert-builder requirement"
-  - "Core v0.1.59 python csca eudi verifier profile"
-  - "NativeBackendUnavailable missing certificate builder UI startup"
-  - "lazy native capability fail closed compatibility wrapper"
+  - "marty-common package and runtime version"
+  - "root runtime marty-common pin"
+  - "marty-common immutable publication workflow"
+  - "previous marty-common 0.2.15 release changes"
 candidate_implementations:
-  - path: packages/marty-common/marty_common/crypto_bridge.py
+  - path: packages/marty-common/pyproject.toml
+    language: TOML
+    disposition: update_existing_package_version
+  - path: packages/marty-common/marty_common/__init__.py
     language: Python
-    disposition: extend_existing_bridge_with_operation_scoped_capability_loading
-  - path: packages/marty-common/marty_common/crypto/document_signer_certificate.py
-    language: Python
-    disposition: reuse_existing_operation_local_fail_closed_capability_check
-  - path: tests/unit/test_native_backends.py
-    language: Python
-    disposition: extend_existing_owned_native_backend_regressions
+    disposition: update_existing_runtime_version
+  - path: pyproject.toml
+    language: TOML
+    disposition: align_existing_root_runtime_pin
   - path: .github/workflows/publish-pypi.yml
     language: YAML
-    disposition: reuse_existing_immutable_publication_workflow_after_fix_merge
+    disposition: reuse_verified_immutable_publication_workflow
 no_match_statement: ""
-decision: extend_existing
+decision: reuse_existing
 canonical_implementation:
-  path: packages/marty-common/marty_common/crypto_bridge.py
+  path: packages/marty-common
   language: Python
 rust_disposition: rust_not_applicable
 non_rust_rationale: >-
-  The canonical cryptographic implementations remain in Rust. This change only
-  scopes loading of an existing optional certificate-issuance binding to the
-  operation that uses it. Verifier startup retains strict requirements for its
-  actual profile, and certificate construction still raises a typed error when
-  the installed native backend lacks the required capability.
+  This task advances release metadata for the already-merged verifier-profile
+  compatibility correction and reuses the verified immutable publication
+  workflow. It adds no protocol, cryptographic, validation, or portable domain
+  logic.
 non_rust_exception_approval: ""
 intentional_duplicate_exception:
   rationale: ""
