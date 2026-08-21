@@ -95,6 +95,66 @@ def test_common_crypto_bridge_exposes_native_did_key_generation() -> None:
     assert '"d":' in private_jwk
 
 
+def test_common_crypto_bridge_scopes_certificate_builder_to_the_operation(
+    monkeypatch,
+) -> None:
+    from marty_common import crypto_bridge
+
+    bridge_source = (
+        ROOT / "packages/marty-common/marty_common/crypto_bridge.py"
+    ).read_text(encoding="utf-8")
+    bridge_tree = ast.parse(bridge_source)
+    verifier_capabilities = next(
+        node.value
+        for node in bridge_tree.body
+        if isinstance(node, ast.Assign)
+        and any(
+            isinstance(target, ast.Name)
+            and target.id == "_MARTY_VERIFICATION_CAPABILITIES"
+            for target in node.targets
+        )
+    )
+    startup_capabilities = {
+        item.value
+        for item in verifier_capabilities.elts
+        if isinstance(item, ast.Constant) and isinstance(item.value, str)
+    }
+    assert "build_self_signed_certificate_with_key" not in startup_capabilities
+
+    calls = []
+    native = SimpleNamespace(
+        build_self_signed_certificate_with_key=lambda **kwargs: kwargs["result"]
+    )
+
+    def load_backend(name, required_capabilities):
+        calls.append((name, tuple(required_capabilities)))
+        return native
+
+    monkeypatch.setattr(crypto_bridge, "load_native_backend", load_backend)
+
+    assert crypto_bridge.build_self_signed_certificate_with_key(result=b"cert") == b"cert"
+    assert calls == [
+        ("marty_verification", ("build_self_signed_certificate_with_key",))
+    ]
+
+
+def test_common_crypto_bridge_certificate_builder_remains_fail_closed(
+    monkeypatch,
+) -> None:
+    from marty_common import crypto_bridge
+
+    def unavailable(_name, _required_capabilities):
+        raise NativeBackendUnavailable("certificate builder profile unavailable")
+
+    monkeypatch.setattr(crypto_bridge, "load_native_backend", unavailable)
+
+    with pytest.raises(
+        NativeBackendUnavailable,
+        match="certificate builder profile unavailable",
+    ):
+        crypto_bridge.build_self_signed_certificate_with_key(result=b"unused")
+
+
 def test_common_crypto_rejects_legacy_fake_signatures_and_password_hashes() -> None:
     from marty_common.crypto import hash_password, verify_password, verify_signature
 
