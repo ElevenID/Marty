@@ -48,7 +48,6 @@ _MARTY_VERIFICATION_CAPABILITIES = (
     "NativeEacSecureMessaging",
     "NativePaceSession",
     "ValidationConfig",
-    "build_self_signed_certificate_with_key",
     "certificate_der_to_pem",
     "certificate_pem_to_der",
     "compute_check_digit",
@@ -132,6 +131,22 @@ def _export_public(module: Any) -> set[str]:
 
 _VERIFICATION_EXPORTS = _export_public(_marty_verification)
 _MARTY_RS_EXPORTS = _export_public(_marty_rs)
+
+
+def build_self_signed_certificate_with_key(*args: Any, **kwargs: Any) -> bytes:
+    """Build a certificate through an explicitly capable native backend.
+
+    Certificate issuance is not a verifier-startup requirement.  Load and
+    validate this optional capability only when a caller actually requests the
+    operation, while retaining the same typed fail-closed error when the
+    installed verifier profile does not provide it.
+    """
+
+    native = load_native_backend(
+        "marty_verification",
+        ("build_self_signed_certificate_with_key",),
+    )
+    return native.build_self_signed_certificate_with_key(*args, **kwargs)
 
 
 def sha256(data: bytes) -> bytes:
@@ -381,6 +396,7 @@ __all__ = sorted(
         "RSAPublicKeyBridge",
         "SubjectAlternativeName",
         "UniformResourceIdentifier",
+        "build_self_signed_certificate_with_key",
         "get_available_functions",
         "get_module_status",
         "issue_open_badge_ob2",
