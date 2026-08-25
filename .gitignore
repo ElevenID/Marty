@@ -57,9 +57,6 @@ venv.bak/
 .DS_Store?
 ._*
 
-# Framework (local development)
-marty-microservices-framework/
-
 # Node.js
 node_modules/
 

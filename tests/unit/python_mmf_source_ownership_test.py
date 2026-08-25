@@ -13,6 +13,13 @@ RETIRED_PATHS = (
     / "crypto"
     / "credential_kms.py",
     ROOT / "src" / "notifications",
+    ROOT / "src" / "marty_plugin" / "csca_service",
+)
+
+HISTORICAL_GUIDES = (
+    ROOT / "docs" / "guides" / "CERTIFICATE_MANAGEMENT_MIGRATION_PLAN.md",
+    ROOT / "docs" / "guides" / "CONFIGURATION_CONSOLIDATION_GUIDE.md",
+    ROOT / "docs" / "guides" / "NATIVE_DEVELOPMENT.md",
 )
 
 
@@ -96,3 +103,23 @@ def test_consumer_zero_framework_adapters_remain_absent() -> None:
 
     returned = [path for path in retired if (ROOT / path).exists()]
     assert not returned, f"consumer-zero framework adapters returned: {returned}"
+
+
+def test_retained_python_mmf_guides_are_explicitly_historical() -> None:
+    for guide in HISTORICAL_GUIDES:
+        introduction = " ".join(
+            line.lstrip("> ")
+            for line in guide.read_text(encoding="utf-8").splitlines()[:16]
+        )
+        assert "Historical record" in introduction, guide
+        assert "not a supported" in introduction or "not a current" in introduction, (
+            guide
+        )
+        assert "Do not" in introduction, guide
+
+
+def test_retired_framework_is_not_a_build_context() -> None:
+    for ignore_file in (ROOT / ".dockerignore", ROOT / ".gitignore"):
+        assert "marty-microservices-framework/" not in ignore_file.read_text(
+            encoding="utf-8"
+        )
