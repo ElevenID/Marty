@@ -1,11 +1,18 @@
 from __future__ import annotations
 
+import io
 import json
+import urllib.error
 from pathlib import Path
 
 import pytest
 
-from scripts.retire_oci_packages import RetirementError, load_manifest, retire_packages
+from scripts.retire_oci_packages import (
+    GitHubPackagesApi,
+    RetirementError,
+    load_manifest,
+    retire_packages,
+)
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -91,3 +98,21 @@ def test_manifest_rejects_a_different_repository(tmp_path: Path) -> None:
 
     with pytest.raises(RetirementError, match="repository does not match"):
         load_manifest(path, "ElevenID/other")
+
+
+def test_api_error_includes_github_message(monkeypatch: pytest.MonkeyPatch) -> None:
+    def fail(*_args: object, **_kwargs: object) -> None:
+        raise urllib.error.HTTPError(
+            "https://api.github.test/package",
+            400,
+            "Bad Request",
+            {},
+            io.BytesIO(b'{"message":"package cannot be deleted yet"}'),
+        )
+
+    monkeypatch.setattr("urllib.request.urlopen", fail)
+
+    with pytest.raises(RetirementError, match="package cannot be deleted yet"):
+        GitHubPackagesApi("test", "https://api.github.test").delete_version(
+            "ElevenID", "marty", 1
+        )

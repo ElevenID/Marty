@@ -41,8 +41,17 @@ class GitHubPackagesApi:
         except urllib.error.HTTPError as exc:
             if exc.code == 404:
                 return None
+            message = ""
+            try:
+                error_payload = json.loads(exc.read().decode("utf-8"))
+                if isinstance(error_payload, dict) and isinstance(
+                    error_payload.get("message"), str
+                ):
+                    message = f": {error_payload['message']}"
+            except (UnicodeDecodeError, json.JSONDecodeError, OSError):
+                pass
             raise RetirementError(
-                f"GitHub API returned {exc.code} for {method} {path}"
+                f"GitHub API returned {exc.code} for {method} {path}{message}"
             ) from exc
         except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
             raise RetirementError(f"GitHub API request failed for {path}: {exc}") from exc
@@ -162,6 +171,13 @@ def main() -> int:
         result = retire_packages(manifest, GitHubPackagesApi(args.token, args.api_url))
         args.result.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
     except (OSError, RetirementError) as exc:
+        failure = {"status": "failed", "error": str(exc)}
+        try:
+            args.result.write_text(
+                json.dumps(failure, indent=2) + "\n", encoding="utf-8"
+            )
+        except OSError:
+            pass
         raise SystemExit(f"OCI package retirement failed: {exc}") from exc
     print(
         f"OCI retirement complete: {len(result['deleted'])} deleted, "
