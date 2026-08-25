@@ -1,28 +1,11 @@
-"""
-Marty MMF Plugin
+"""Retained Marty identity compatibility modules.
 
-This module implements Marty as a plugin for the Marty Microservices Framework (MMF).
-It integrates Marty's trust, PKI, and document processing services with the MMF 
-infrastructure for unified configuration, observability, and deployment.
+The former Python MMF plugin entry point and runtime were retired after their
+behavior moved to the canonical Rust platform. Import concrete compatibility
+modules directly while their remaining behavior is audited and ported.
 """
 
 __version__ = "1.0.0"
 __author__ = "Marty Development Team"
 
-from .plugin import MartyPlugin
-from .config import MartyTrustPKIConfig
-from .services import (
-    TrustAnchorService,
-    PKDService,
-    DocumentSignerService,
-    CSCAService
-)
-
-__all__ = [
-    "MartyPlugin",
-    "MartyTrustPKIConfig",
-    "TrustAnchorService",
-    "PKDService",
-    "DocumentSignerService",
-    "CSCAService"
-]
+__all__: list[str] = []

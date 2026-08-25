@@ -12,15 +12,15 @@ This module follows hexagonal architecture with:
 - domain/: Entities, value objects, events
 - application/: Ports (interfaces) and services
 - infrastructure/: Adapters (REST, persistence, trust)
-- plugin/: MMF integration
+- plugin/: FastAPI application integration
 
 Quick Start:
     from digital_identity.plugin import register_plugin
     from fastapi import FastAPI
-    
+
     app = FastAPI()
     plugin = register_plugin(app, config={"enabled": True})
-    
+
     # In lifespan:
     await plugin.startup()
     # ... on shutdown:
@@ -29,39 +29,38 @@ Quick Start:
 
 __version__ = "0.1.0"
 
-# Main plugin registration
-from digital_identity.plugin import DigitalIdentityPlugin, register_plugin
-
+# FastAPI application registration (the compatibility name is retained)
 # Domain entities
 from digital_identity.domain.entities import (
-    TrustProfile,
     CredentialTemplate,
-    PresentationPolicy,
     DeploymentProfile,
     Flow,
     FlowExecution,
+    PresentationPolicy,
+    TrustProfile,
 )
 
 # Value objects
 from digital_identity.domain.value_objects import (
-    TrustProfileType,
-    FlowType,
-    FlowStatus,
     ApprovalStrategy,
     ClaimDefinition,
+    FlowStatus,
+    FlowType,
     RevocationPolicy,
     TimePolicy,
     # CredentialRequirement,  # TODO: Add this value object
     # FlowHooks,  # TODO: Add this value object
     # EnvironmentConfig,  # TODO: Add this value object
+    TrustProfileType,
 )
 
 # Database management
 from digital_identity.infrastructure.persistence import (
-    init_database,
     close_database,
     get_database_manager,
+    init_database,
 )
+from digital_identity.plugin import DigitalIdentityPlugin, register_plugin
 
 __all__ = [
     # Version
