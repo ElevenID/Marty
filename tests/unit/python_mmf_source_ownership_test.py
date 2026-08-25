@@ -1,5 +1,7 @@
 """Prevent parity-gated Python MMF compatibility packages from returning."""
 
+import ast
+
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -46,3 +48,16 @@ def test_retired_root_mmf_plugin_delivery_surface_is_absent() -> None:
 
     assert not any(path.is_file() for path in (ROOT / "deploy/helm/marty").rglob("*"))
     assert not any(path.is_file() for path in (ROOT / "k8s").rglob("*"))
+
+
+def test_retained_trust_api_has_no_transitive_server_import() -> None:
+    api = ROOT / "src/marty_plugin/trust_svc/api.py"
+    module = ast.parse(api.read_text(encoding="utf-8"), filename=str(api))
+    top_level_imports = {
+        alias.name
+        for node in module.body
+        if isinstance(node, ast.Import)
+        for alias in node.names
+    }
+
+    assert "uvicorn" not in top_level_imports

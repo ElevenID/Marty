@@ -10,7 +10,6 @@ import logging
 from datetime import datetime, timezone
 from typing import Any, Optional
 
-import uvicorn
 from fastapi import Depends, FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -530,6 +529,8 @@ app = create_app()
 
 
 if __name__ == "__main__":
+    import uvicorn
+
     uvicorn.run(
         "api:app",
         host=config.service.host,
