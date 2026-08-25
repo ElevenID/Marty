@@ -1,4 +1,12 @@
+<!-- markdownlint-disable-file -->
+<!-- cspell:disable -->
+
 # Native Development Setup
+
+> **Historical record:** This guide describes a retired nested Python/React
+> workspace that is not a supported repository layout. Current development uses
+> the Rust services and documented workflows in `marty-ui`; it does not require
+> a Python MMF `PYTHONPATH`. Do not use the commands or dependency mounts below.
 
 This guide describes the **hybrid TDD development environment** for fast feedback during development.
 

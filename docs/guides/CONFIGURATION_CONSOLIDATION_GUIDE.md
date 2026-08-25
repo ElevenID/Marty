@@ -1,4 +1,13 @@
+<!-- markdownlint-disable-file -->
+<!-- cspell:disable -->
+
 # Marty Configuration Consolidation Guide
+
+> **Historical record:** This proposal describes the retired Python MMF
+> configuration system and is not a supported integration or operations guide.
+> Current service configuration belongs to the shared Rust platform crates and
+> the Rust service plane in `marty-ui`. Do not restore the `framework` imports
+> or Python MMF configuration adapters shown below.
 
 This document explains how to migrate Marty services to use the unified Marty Microservices Framework (MMF) configuration system while maintaining backward compatibility.
 

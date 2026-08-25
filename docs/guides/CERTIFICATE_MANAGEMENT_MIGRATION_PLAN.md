@@ -1,4 +1,13 @@
+<!-- markdownlint-disable-file -->
+<!-- cspell:disable -->
+
 # Certificate Management Migration Plan
+
+> **Historical record:** This unimplemented plan targeted the retired Python
+> MMF plugin system and is not a current architecture or backlog. Supported
+> CSCA registry and signing behavior belongs to the Rust trust-profile and
+> signing-keys services in `marty-ui` and their shared Rust crates. Do not
+> create the Python plugin paths proposed below.
 
 ## Executive Summary
 
