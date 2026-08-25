@@ -67,7 +67,6 @@ packages = [
     "src/entitlements",
     "src/events",
     "src/marty_plugin",
-    "src/notifications",
     "src/proto",
     "src/revocation",
     "src/trust_registry",
