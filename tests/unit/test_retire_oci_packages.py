@@ -20,15 +20,26 @@ ROOT = Path(__file__).resolve().parents[2]
 
 class FakeApi:
     def __init__(self, versions: dict[tuple[str, int], dict]) -> None:
-        self.versions = versions
-        self.deleted: list[tuple[str, str, int]] = []
+        self.version_data = versions
+        self.deleted: list[tuple[str, str]] = []
 
     def version(self, owner: str, package: str, version_id: int) -> dict | None:
         assert owner == "ElevenID"
-        return self.versions.get((package, version_id))
+        return self.version_data.get((package, version_id))
 
-    def delete_version(self, owner: str, package: str, version_id: int) -> None:
-        self.deleted.append((owner, package, version_id))
+    def package_versions(self, package: str) -> list[dict]:
+        return [
+            version
+            for (version_package, _), version in self.version_data.items()
+            if version_package == package
+        ]
+
+    def versions(self, owner: str, package: str) -> list[dict]:
+        assert owner == "ElevenID"
+        return self.package_versions(package)
+
+    def delete_package(self, owner: str, package: str) -> None:
+        self.deleted.append((owner, package))
 
 
 def manifest() -> dict:
@@ -42,6 +53,7 @@ def test_manifest_is_exact_complete_and_recovery_bound() -> None:
     assert document["recovery_bundle_sha256"] == (
         "BD460B770D24A92ECDAD535222854C5D512E93E4EE4A3B4E433FD15B73976A6B"
     )
+    assert document["deletion_mode"] == "complete-packages-after-exact-inventory"
     assert [package["name"] for package in document["packages"]] == [
         "marty",
         "charts/marty",
@@ -64,14 +76,16 @@ def test_retirement_verifies_every_live_identity_before_deleting() -> None:
     result = retire_packages(document, api)
 
     assert len(result["deleted"]) == 9
+    assert result["deleted_packages"] == ["marty", "charts/marty"]
     assert result["already_absent"] == []
-    assert len(api.deleted) == 9
+    assert api.deleted == [("ElevenID", "marty"), ("ElevenID", "charts/marty")]
 
 
 def test_retirement_is_resumable_for_absent_versions() -> None:
     result = retire_packages(manifest(), FakeApi({}))
 
     assert result["deleted"] == []
+    assert result["deleted_packages"] == []
     assert len(result["already_absent"]) == 9
 
 
@@ -88,6 +102,28 @@ def test_retirement_fails_closed_on_live_identity_mismatch(field: str, value: ob
     api = FakeApi({("marty", version["id"]): live})
 
     with pytest.raises(RetirementError, match="identity does not match"):
+        retire_packages(document, api)
+    assert api.deleted == []
+
+
+def test_retirement_rejects_an_undeclared_live_version_before_deleting() -> None:
+    document = manifest()
+    versions = {}
+    for package in document["packages"]:
+        for version in package["versions"]:
+            versions[(package["name"], version["id"])] = {
+                "id": version["id"],
+                "name": version["digest"],
+                "metadata": {"container": {"tags": version["tags"]}},
+            }
+    versions[("marty", 999)] = {
+        "id": 999,
+        "name": "sha256:" + "f" * 64,
+        "metadata": {"container": {"tags": ["unexpected"]}},
+    }
+    api = FakeApi(versions)
+
+    with pytest.raises(RetirementError, match="undeclared version"):
         retire_packages(document, api)
     assert api.deleted == []
 
@@ -113,6 +149,6 @@ def test_api_error_includes_github_message(monkeypatch: pytest.MonkeyPatch) -> N
     monkeypatch.setattr("urllib.request.urlopen", fail)
 
     with pytest.raises(RetirementError, match="package cannot be deleted yet"):
-        GitHubPackagesApi("test", "https://api.github.test").delete_version(
-            "ElevenID", "marty", 1
+        GitHubPackagesApi("test", "https://api.github.test").delete_package(
+            "ElevenID", "marty"
         )

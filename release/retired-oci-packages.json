@@ -2,6 +2,7 @@
   "schema_version": 1,
   "repository": "ElevenID/Marty",
   "approval": "wave-three-post-migration-cleanup",
+  "deletion_mode": "complete-packages-after-exact-inventory",
   "recovery_bundle_sha256": "BD460B770D24A92ECDAD535222854C5D512E93E4EE4A3B4E433FD15B73976A6B",
   "packages": [
     {
