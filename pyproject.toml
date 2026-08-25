@@ -4,9 +4,9 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "marty-trust-pki-plugin"
+name = "marty-identity-compat"
 version = "1.0.0"
-description = "Marty Trust PKI Plugin for MMF - Enterprise-grade PKI and trust services for secure digital identity document management (eMRTD, mDL, DTC) with ICAO compliance"
+description = "Retained Marty identity compatibility modules pending audited Rust ownership"
 readme = "README.md"
 requires-python = ">=3.11"
 license = {text = "AGPL-3.0-only"}
@@ -47,8 +47,6 @@ dependencies = [
     # Testing framework for plugin validation
     "pytest>=7.4.3",
     "pytest-asyncio>=0.21.1",
-    # MMF Framework integration
-    "marty-msf @ https://github.com/ElevenID/marty-microservices-framework/releases/download/v1.0.2/marty_msf-1.0.2-py3-none-any.whl#sha256=c1fa95bf0c61b76081e5d251316860a9d38a450998785766bbe25932e7808bfd", # Marty Microservices Framework
     "grpcio>=1.76.0",
 ]
 
@@ -145,10 +143,6 @@ log_cli_date_format = "%Y-%m-%d %H:%M:%S"
 [project.scripts]
 # Core Marty domain utilities (keep protobuf compilation for domain logic)
 compile-protos = "src.compile_protos:compile_all_protos"
-
-# MMF Plugin Entry Points
-[project.entry-points."mmf.plugins"]
-marty = "marty_plugin.plugin:MartyPlugin"
 
 [tool.ruff.lint]
 # Start with basic essential checks only

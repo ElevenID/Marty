@@ -91,35 +91,10 @@ jobs:
           python -m build
           python -m twine check dist/*
 
-  image:
-    needs: build-native-wheels
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
-        with:
-          name: marty-native-linux
-          path: native-wheels
-      - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e
-      - uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a
-        with:
-          context: .
-          file: docker/mmf-plugin.Dockerfile
-          target: production
-          push: false
-          tags: marty:ci
-          build-args: |
-            VERSION=ci
-            VCS_REF=${{ github.sha }}
-          provenance: false
-          cache-from: type=gha,scope=marty-ci-image
-          # Canonical cache exports happen after merge in warm-ci-caches.yml.
-          # PR and merge-queue feedback only consumes that shared cache.
-
   ci-gate:
     name: CI Gate
     if: always()
-    needs: [build-native-wheels, test, image]
+    needs: [build-native-wheels, test]
     runs-on: ubuntu-latest
     permissions:
       actions: read

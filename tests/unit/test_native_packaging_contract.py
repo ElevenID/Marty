@@ -43,25 +43,6 @@ def test_native_wheel_downloads_are_versioned_and_digest_verified() -> None:
     assert '"marty-verification-py==0.1.56"' in package_metadata
 
 
-def test_release_image_embeds_and_validates_native_wheels() -> None:
-    dockerfile = (ROOT / "docker" / "mmf-plugin.Dockerfile").read_text(encoding="utf-8")
-    release_workflow = (ROOT / ".github" / "workflows" / "cd.yml").read_text(
-        encoding="utf-8"
-    )
-
-    assert "COPY native-wheels /native-wheels" in dockerfile
-    assert "COPY packages/marty-common ./packages/marty-common" in dockerfile
-    assert "./packages/marty-common" in dockerfile
-    assert "libdbus-1-3 libpcsclite1" in dockerfile
-    assert "--find-links=/native-wheels" in dockerfile
-    assert "require_native_backends()" in dockerfile
-    assert "download-native-wheels.sh all" in release_workflow
-
-    metadata = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
-    assert '"marty-common==0.2.16"' in metadata
-    assert 'marty-common = { path = "packages/marty-common" }' in metadata
-
-
 def test_ci_builds_all_native_wheels_from_an_immutable_core_revision() -> None:
     build_script = (ROOT / "scripts" / "build-native-wheels.sh").read_text(
         encoding="utf-8"
