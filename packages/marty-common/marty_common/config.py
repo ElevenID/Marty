@@ -1,24 +1,16 @@
 """
 DEPRECATED: Legacy configuration loading utilities.
 
-This module is DEPRECATED. Use the unified configuration system instead:
+This module is retained only for compatibility. New services use the shared
+Rust `mmf-config` crate instead:
 
     # Instead of:
     from marty_common.config import Config
     config = Config()
     
-    # Use:
-    from framework.config_factory import create_service_config
-    config = create_service_config("config/services/your_service.yaml")
-
-The unified configuration system provides:
-- Type safety with dataclasses
-- Environment variable expansion  
-- Service-specific configuration files
-- Validation and error handling
-- Modern configuration patterns
-
-For migration guide, see: marty-microservices-framework/docs/modern_service_guide.md
+Do not introduce a Python framework dependency when changing this compatibility
+module. Move supported configuration behavior to `mmf-config` with a
+language-neutral contract.
 """
 
 from __future__ import annotations
@@ -39,8 +31,7 @@ from marty_common.infrastructure import (
 
 # Issue deprecation warning
 warnings.warn(
-    "marty_common.config is deprecated. Use the unified configuration system: "
-    "framework.config_factory.create_service_config()",
+    "marty_common.config is deprecated; new services use the Rust mmf-config crate",
     DeprecationWarning,
     stacklevel=2
 )
@@ -54,14 +45,12 @@ class Config:
     """
     DEPRECATED: Legacy configuration object.
     
-    Use the unified configuration system instead:
-        from framework.config_factory import create_service_config
-        config = create_service_config("config/services/your_service.yaml")
+    New services use the Rust mmf-config crate.
     """
 
     def __init__(self, environment: str | None = None) -> None:
         warnings.warn(
-            "Config class is deprecated. Use framework.config_factory.create_service_config()",
+            "Config class is deprecated; new services use the Rust mmf-config crate",
             DeprecationWarning,
             stacklevel=2
         )

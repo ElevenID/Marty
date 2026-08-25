@@ -8,7 +8,12 @@ from pathlib import Path
 PACKAGE_ROOT = Path(__file__).parents[1]
 SOURCE_ROOT = PACKAGE_ROOT / "marty_common"
 RETIRED_CREDENTIAL_KMS = SOURCE_ROOT / "crypto" / "credential_kms.py"
-RETIRED_IMPORT_ROOTS = {"mmf", "marty_msf", "marty_microservices_framework"}
+RETIRED_IMPORT_ROOTS = {
+    "framework",
+    "mmf",
+    "marty_msf",
+    "marty_microservices_framework",
+}
 
 
 def _retired_imports(path: Path) -> list[str]:

@@ -61,3 +61,38 @@ def test_retained_trust_api_has_no_transitive_server_import() -> None:
     }
 
     assert "uvicorn" not in top_level_imports
+
+
+def test_compatibility_source_has_no_legacy_framework_imports() -> None:
+    retired_roots = {"framework", "mmf", "marty_msf"}
+    violations: list[str] = []
+
+    for source_root in (ROOT / "src", ROOT / "scripts"):
+        for path in source_root.rglob("*.py"):
+            module = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+            for node in ast.walk(module):
+                if isinstance(node, ast.Import):
+                    imports = (alias.name.split(".", 1)[0] for alias in node.names)
+                elif isinstance(node, ast.ImportFrom) and node.module:
+                    imports = (node.module.split(".", 1)[0],)
+                else:
+                    continue
+                for imported in imports:
+                    if imported in retired_roots:
+                        relative = path.relative_to(ROOT).as_posix()
+                        violations.append(f"{relative}:{node.lineno}:{imported}")
+
+    assert not violations, f"retired Python framework imports returned: {violations}"
+
+
+def test_consumer_zero_framework_adapters_remain_absent() -> None:
+    retired = (
+        "packages/marty-common/marty_common/config_migration.py",
+        "scripts/validate_observability_migration.py",
+        "src/marty_plugin/trust_svc/config_unified.py",
+        "src/marty_plugin/trust_anchor/modern_grpc_service.py",
+        "src/marty_plugin/trust_anchor/observable_grpc_service.py",
+    )
+
+    returned = [path for path in retired if (ROOT / path).exists()]
+    assert not returned, f"consumer-zero framework adapters returned: {returned}"
