@@ -23,7 +23,7 @@ class GitHubPackagesApi:
     token: str
     api_url: str = "https://api.github.com"
 
-    def _request(self, method: str, path: str) -> dict[str, Any] | None:
+    def _request(self, method: str, path: str) -> Any | None:
         request = urllib.request.Request(
             f"{self.api_url.rstrip('/')}/{path.lstrip('/')}",
             method=method,
@@ -55,25 +55,43 @@ class GitHubPackagesApi:
             ) from exc
         except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
             raise RetirementError(f"GitHub API request failed for {path}: {exc}") from exc
-        if not isinstance(payload, dict):
-            raise RetirementError(f"GitHub API returned a non-object for {path}")
         return payload
 
     def version(self, owner: str, package: str, version_id: int) -> dict[str, Any] | None:
         encoded = urllib.parse.quote(package, safe="")
-        return self._request(
+        payload = self._request(
             "GET", f"orgs/{owner}/packages/container/{encoded}/versions/{version_id}"
         )
+        if payload is not None and not isinstance(payload, dict):
+            raise RetirementError(f"GitHub API returned a non-object for {package}@{version_id}")
+        return payload
 
-    def delete_version(self, owner: str, package: str, version_id: int) -> None:
+    def versions(self, owner: str, package: str) -> list[dict[str, Any]]:
         encoded = urllib.parse.quote(package, safe="")
-        result = self._request(
-            "DELETE", f"orgs/{owner}/packages/container/{encoded}/versions/{version_id}"
-        )
-        if result is None:
-            raise RetirementError(
-                f"package version disappeared during deletion: {package}@{version_id}"
+        versions: list[dict[str, Any]] = []
+        for page in range(1, 101):
+            payload = self._request(
+                "GET",
+                f"orgs/{owner}/packages/container/{encoded}/versions?per_page=100&page={page}",
             )
+            if payload is None:
+                return []
+            if not isinstance(payload, list) or not all(
+                isinstance(version, dict) for version in payload
+            ):
+                raise RetirementError(
+                    f"GitHub API returned an invalid version inventory for {package}"
+                )
+            versions.extend(payload)
+            if len(payload) < 100:
+                return versions
+        raise RetirementError(f"package version inventory exceeds safety limit: {package}")
+
+    def delete_package(self, owner: str, package: str) -> None:
+        encoded = urllib.parse.quote(package, safe="")
+        result = self._request("DELETE", f"orgs/{owner}/packages/container/{encoded}")
+        if result is None:
+            raise RetirementError(f"package disappeared during deletion: {package}")
 
 
 def load_manifest(path: Path, repository: str) -> dict[str, Any]:
@@ -85,6 +103,8 @@ def load_manifest(path: Path, repository: str) -> dict[str, Any]:
         raise RetirementError("retirement manifest schema_version must be 1")
     if manifest.get("repository") != repository:
         raise RetirementError("retirement manifest repository does not match the workflow")
+    if manifest.get("deletion_mode") != "complete-packages-after-exact-inventory":
+        raise RetirementError("retirement manifest does not authorize complete-package deletion")
     if not manifest.get("recovery_bundle_sha256"):
         raise RetirementError("retirement manifest has no recovery bundle checksum")
     packages = manifest.get("packages")
@@ -130,9 +150,16 @@ def retire_packages(
     manifest: dict[str, Any], api: GitHubPackagesApi
 ) -> dict[str, list[str]]:
     owner, _, _ = str(manifest["repository"]).partition("/")
-    result: dict[str, list[str]] = {"deleted": [], "already_absent": []}
-    verified: list[tuple[str, int]] = []
-    for package, version_id, digest, tags in _expected_versions(manifest):
+    result: dict[str, list[str]] = {
+        "deleted": [],
+        "deleted_packages": [],
+        "already_absent": [],
+    }
+    expected = _expected_versions(manifest)
+    expected_by_package: dict[str, dict[int, tuple[str, list[str]]]] = {}
+    verified_by_package: dict[str, list[int]] = {}
+    for package, version_id, digest, tags in expected:
+        expected_by_package.setdefault(package, {})[version_id] = (digest, tags)
         identity = f"{package}@{version_id}"
         live = api.version(owner, package, version_id)
         if live is None:
@@ -143,12 +170,41 @@ def retire_packages(
             raise RetirementError(f"live package identity does not match {identity}")
         if not isinstance(live_tags, list) or sorted(live_tags) != tags:
             raise RetirementError(f"live package tags do not match {identity}")
-        verified.append((package, version_id))
+        verified_by_package.setdefault(package, []).append(version_id)
 
-    for package, version_id in verified:
-        identity = f"{package}@{version_id}"
-        api.delete_version(owner, package, version_id)
-        result["deleted"].append(identity)
+    # Prove the manifest covers the complete live package inventory before the
+    # first package-level deletion. This prevents a newly published or omitted
+    # version from being swept up by complete-package retirement.
+    for package, expected_versions in expected_by_package.items():
+        inventory = api.versions(owner, package)
+        inventory_ids: set[int] = set()
+        for live in inventory:
+            version_id = live.get("id")
+            if not isinstance(version_id, int) or version_id not in expected_versions:
+                raise RetirementError(
+                    f"live package inventory contains an undeclared version: {package}@{version_id}"
+                )
+            digest, tags = expected_versions[version_id]
+            live_tags = live.get("metadata", {}).get("container", {}).get("tags")
+            if live.get("name") != digest or not isinstance(live_tags, list):
+                raise RetirementError(
+                    f"live package inventory does not match {package}@{version_id}"
+                )
+            if sorted(live_tags) != tags:
+                raise RetirementError(
+                    f"live package inventory tags do not match {package}@{version_id}"
+                )
+            inventory_ids.add(version_id)
+        if inventory_ids != set(verified_by_package.get(package, [])):
+            raise RetirementError(f"package inventory changed during verification: {package}")
+
+    for package in expected_by_package:
+        live_ids = verified_by_package.get(package, [])
+        if not live_ids:
+            continue
+        api.delete_package(owner, package)
+        result["deleted_packages"].append(package)
+        result["deleted"].extend(f"{package}@{version_id}" for version_id in live_ids)
     return result
 
 
@@ -180,7 +236,8 @@ def main() -> int:
             pass
         raise SystemExit(f"OCI package retirement failed: {exc}") from exc
     print(
-        f"OCI retirement complete: {len(result['deleted'])} deleted, "
+        f"OCI retirement complete: {len(result['deleted_packages'])} packages and "
+        f"{len(result['deleted'])} live versions deleted, "
         f"{len(result['already_absent'])} already absent."
     )
     return 0
