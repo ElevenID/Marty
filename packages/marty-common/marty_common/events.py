@@ -1,8 +1,8 @@
 """
 Domain Event Base Classes and Utilities
 
-Provides the foundation for event-driven communication between services.
-Uses the marty-microservices-framework messaging infrastructure.
+Provides retained language-neutral domain-event data structures. Runtime
+delivery is owned by the Rust `mmf-messaging` crate.
 """
 
 from __future__ import annotations
