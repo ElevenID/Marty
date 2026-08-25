@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "repository": "ElevenID/Marty",
+  "approval": "wave-three-post-migration-cleanup",
+  "recovery_bundle_sha256": "BD460B770D24A92ECDAD535222854C5D512E93E4EE4A3B4E433FD15B73976A6B",
+  "packages": [
+    {
+      "name": "marty",
+      "versions": [
+        {"id": 1039127570, "digest": "sha256:333c10b72e4cb7f26b1b3d5da47462e980de8c75e95bfab7e898b459541ed43c", "tags": []},
+        {"id": 1039127596, "digest": "sha256:2cfd8c2faf606eca6f379e00a532a613963ae100200bf05c3b20061b0087822d", "tags": []},
+        {"id": 1039127613, "digest": "sha256:32d8d2fdfb839c9bc070057114b3e11d885e55b5f8a5bbe7592dc771ebb099b3", "tags": []},
+        {"id": 1039127633, "digest": "sha256:4cd0491666ea256d3e394d25d5862a4d46aac6639fa860c36e3b39ac2b875c7e", "tags": []},
+        {"id": 1039127803, "digest": "sha256:c472ee852ec8ba716998cd339994819c555583f19c5cb27448a0109c8dd290d0", "tags": []},
+        {"id": 1039127830, "digest": "sha256:87e3459399ae2673d1485a2a6e4208f69df2272375746744aad4f00533371d1a", "tags": ["sha256-6aa84468cec6905c8bafd384ac15a1a9ccfbe313bcbdd4daeea89f3a049d41dc"]},
+        {"id": 1039127972, "digest": "sha256:cd833980574cd7bd6f23c9cef0349b5f7cc7a21c5ad96f37d99ac7f1c4575f6b", "tags": ["sha256-6aa84468cec6905c8bafd384ac15a1a9ccfbe313bcbdd4daeea89f3a049d41dc.sig"]},
+        {"id": 1039127649, "digest": "sha256:6aa84468cec6905c8bafd384ac15a1a9ccfbe313bcbdd4daeea89f3a049d41dc", "tags": ["1.0.0"]}
+      ]
+    },
+    {
+      "name": "charts/marty",
+      "versions": [
+        {"id": 1039128958, "digest": "sha256:d7d3570fa8663ef5aefa30e1b982f2aad19e51c626359f6056b4a3e2e3983a88", "tags": ["1.0.0"]}
+      ]
+    }
+  ]
+}

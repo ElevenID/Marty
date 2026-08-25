@@ -1,0 +1,47 @@
+name: Retire root OCI packages
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: Type DELETE_RETIRED_MARTY_V1_0_0_OCI
+        required: true
+        type: string
+
+concurrency:
+  group: retire-root-oci-packages
+  cancel-in-progress: false
+
+permissions: {}
+
+jobs:
+  retire:
+    name: Verify archived identities and delete retired versions
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Require exact retirement confirmation
+        env:
+          CONFIRMATION: ${{ inputs.confirmation }}
+        run: test "$CONFIRMATION" = DELETE_RETIRED_MARTY_V1_0_0_OCI
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+      - name: Retire only the recovery-bound OCI versions
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          python scripts/retire_oci_packages.py
+          --manifest release/retired-oci-packages.json
+          --repository "$GITHUB_REPOSITORY"
+          --result retired-oci-deletion-result.json
+      - name: Preserve deletion result
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: retired-oci-deletion-result
+          path: retired-oci-deletion-result.json
+          if-no-files-found: error
+          retention-days: 90
