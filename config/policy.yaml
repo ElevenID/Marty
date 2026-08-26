@@ -1,3 +1,5 @@
+# Compatibility configuration retained for Python adapters and tests.
+# This is not a Rust service registry or deployment manifest; see docs/architecture.md.
 # Policy configuration for Marty services
 # SECURITY ENFORCED - NO BACKWARD COMPATIBILITY
 

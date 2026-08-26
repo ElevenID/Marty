@@ -43,4 +43,5 @@ mkdir -p data/inspection
 mkdir -p data/trust
 
 echo "Environment setup complete!"
-echo "You can now run 'uv run -m src.apps.<service>' to start a specific microservice."
+echo "Run 'uv run pytest' to validate the retained compatibility package."
+echo "Deploy supported Rust services from the marty-ui release artifacts."

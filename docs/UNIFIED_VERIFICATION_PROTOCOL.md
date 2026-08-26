@@ -145,12 +145,12 @@ class VerificationResult:
 
 ## Integration Points
 
-The protocol integrates with existing Marty components:
+The protocol integrates with canonical Rust owners:
 
-- **MRZ Parser**: `src/marty_common/utils/mrz_parser.py`
-- **CMC Verification**: `src/apps/cmc_engine/`
-- **VDS-NC Processing**: VDS-NC verification utilities
-- **PKD Services**: `src/csca_service/` and trust infrastructure
+- **MRZ and passport-chip verification**: `marty-verification`
+- **CMC and VDS-NC profiles**: `marty-oid4vci::formats::vds_nc_profile`
+- **Credential issuance and document signing**: `marty-credentials`
+- **CSCA, DSC, and registry trust**: the `marty-ui` trust-profile service
 
 ## Security Considerations
 

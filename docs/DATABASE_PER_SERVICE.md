@@ -1,5 +1,10 @@
 # Database Per Service Implementation
 
+> **Historical record:** This document describes a retired Python microservice
+> design. It is not a current deployment guide, and its named launcher and
+> service modules do not exist. Do not use these paths to build or operate
+> Marty; deploy the Rust services from `marty-ui` release artifacts.
+
 This implementation provides database isolation per service following the microservices pattern of "database per service". Each service has its own database schema and manages its own data lifecycle.
 
 ## Architecture

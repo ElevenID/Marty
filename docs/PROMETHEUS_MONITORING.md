@@ -1,5 +1,10 @@
 # Marty Platform Prometheus Monitoring Implementation
 
+> **Historical record:** This document covers the retired Python microservice
+> monitoring stack. It is not a current operations guide. Do not use its
+> removed runtime, Helm, or deployment paths; current telemetry belongs to the
+> Rust MMF observability crate and `marty-ui` release stack.
+
 This document describes the comprehensive Prometheus monitoring implementation for the Marty microservices platform.
 
 ## 🎯 Overview

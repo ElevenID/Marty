@@ -1,32 +1,7 @@
+# Compatibility configuration retained for Python adapters and tests.
+# This is not a Rust service registry or deployment manifest; see docs/architecture.md.
 # Production environment configuration
 # MAXIMUM SECURITY ENFORCED - NO EXCEPTIONS
-
-# Production security (MAXIMUM ENFORCEMENT)
-security:
-  grpc_tls:
-    enabled: true  # ALWAYS enabled in production
-    mtls: true  # ALWAYS enabled for production
-    require_client_auth: true  # ALWAYS required
-    server_cert: "/etc/tls/server/tls.crt"
-    server_key: "/etc/tls/server/tls.key"
-    client_ca: "/etc/tls/ca/ca.crt"
-    client_cert: "/etc/tls/client/tls.crt"
-    client_key: "/etc/tls/client/tls.key"
-
-  auth:
-    required: true  # ALWAYS required in production
-    jwt:
-      enabled: true
-      algorithm: "RS256"  # Stronger algorithm for production
-      public_key: "/etc/jwt/public.key"
-    client_cert:
-      enabled: true  # ALWAYS enabled
-
-  authz:
-    enabled: true  # ALWAYS enabled
-    default_action: "deny"  # ALWAYS deny
-    strict_mode: true
-    audit_all_requests: true
 
 # Production environment configuration
 # Uses YAML anchors to inherit common patterns and reduce duplication
@@ -75,6 +50,14 @@ services:
       certificate_id: document-signer-default-dsc
       offer_ttl_seconds: 600
       token_ttl_seconds: 600
+      credential_ttl_seconds: 604800
+      default_credential_type: "eu.europa.ec.eudiw.pid"
+      default_audience: "${SD_JWT_DEFAULT_AUDIENCE:-https://verifier.prod.marty}"
+      storage_prefix: "sd-jwt"
+
+  passport_engine:
+    signing_algorithm: rsa2048
+    signing_key_id: document-signer-default
 
   trust_anchor:
     certificate_store_path: "/app/data/trust"
@@ -96,51 +79,28 @@ services:
   open_badges:
     trust_store_path: "data/trust/open_badges/trust_store.json"
 
-# Production logging (standard level)
-logging:
-  level: INFO
-  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-  handlers:
-    - console
-    - file
-
-# Production security (enhanced)
-security:
-  tls_enabled: true
-  require_client_cert: true
-  cert_validation_timeout: 30
-
-# Production database (higher capacity)
-database:
-  pool_size: 20
-  max_overflow: 40
-  pool_timeout: 30
-  pool_recycle: 3600
-
 # Monitoring configuration
 monitoring:
   metrics_enabled: true
   health_check_enabled: true
   prometheus_port: 9090
-      credential_ttl_seconds: 604800
-      default_credential_type: "eu.europa.ec.eudiw.pid"
-      default_audience: "${SD_JWT_DEFAULT_AUDIENCE:-https://verifier.prod.marty}"
-      storage_prefix: "sd-jwt"
-  passport_engine:
-    signing_algorithm: rsa2048
-    signing_key_id: document-signer-default
-  dtc_engine:
-    signing_algorithm: rsa2048
-    signing_key_id: document-signer-default
 
 # Logging
 logging:
   level: INFO
   format: '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
   file: logs/production.log
+  handlers:
+    - console
+    - file
 
 # Database - per service databases for production
 database:
+  pool_size: 20
+  max_overflow: 40
+  pool_timeout: 30
+  pool_recycle: 3600
+
   document_signer:
     url: "${DOCUMENT_SIGNER_DATABASE_URL:-postgresql+asyncpg://${DB_USER}:${DB_PASSWORD}@db:5432/marty_document_signer_production}"
     host: db
@@ -175,6 +135,9 @@ database:
 
 # Security
 security:
+  tls_enabled: true
+  require_client_cert: true
+  cert_validation_timeout: 30
   key_directory: '/secrets/keys'
   key_rotation_days: 30
   certificate_validity_days: 365
@@ -182,12 +145,26 @@ security:
   hsm_config: '/secrets/hsm/config.json'
   grpc_tls:
     enabled: true
+    mtls: true
     server_cert: "/secrets/tls/server.crt"
     server_key: "/secrets/tls/server.key"
     client_ca: "/secrets/tls/ca.crt"
     client_cert: ""
     client_key: ""
     require_client_auth: true
+  auth:
+    required: true
+    jwt:
+      enabled: true
+      algorithm: "RS256"
+      public_key: "/etc/jwt/public.key"
+    client_cert:
+      enabled: true
+  authz:
+    enabled: true
+    default_action: "deny"
+    strict_mode: true
+    audit_all_requests: true
 
 # Object storage
 object_storage:

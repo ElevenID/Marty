@@ -1,5 +1,10 @@
 # Production Readiness Remediation Plan
 
+> **Historical record:** This plan predates retirement of the Python
+> microservice launcher and image layout. It is not a current production plan.
+> Do not deploy its named paths; use immutable Rust service artifacts from the
+> `marty-ui` release stack.
+
 ## 1. Goal
 
 Deliver a roadmap to close the production gaps called out in the latest review. For each finding we capture the current state, highlight the risk, and outline a pragmatic sequence of changes to land in a production-grade design.
@@ -88,11 +93,14 @@ Deliver a roadmap to close the production gaps called out in the latest review. 
 
 ## 8. Microservice Separation & Deployment
 
-**Current**: Each gRPC microservice has a dedicated entrypoint under `src/apps/<service>` and container images boot via the module-specific runner. `src/main.py` is retained only as a shim for legacy tooling.
+**Historical state**: Each Python gRPC microservice was intended to have a dedicated
+entrypoint. Those launchers and their generic compatibility shim are retired;
+current runtime services are Rust-owned and released from `marty-ui`.
 
 **Direction**:
 
-1. Finalize service-specific packaging (Helm charts, Terraform modules) so deployments no longer reference the shimmed `src/main.py` path.
+1. Keep deployment ownership in `marty-ui` and prevent references to the retired
+   Python launcher paths from returning.
 2. Produce one container image per service, share base layers via a monorepo build (e.g., Docker buildx or Bazel).
 3. Update CI/CD to build, test, and deploy each service independently; add service-level health checks and Helm charts.
 
