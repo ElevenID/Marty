@@ -187,6 +187,8 @@ def test_architecture_classifies_legacy_names_without_advertising_servers() -> N
     assert "A name in this repository does not imply" in normalized
     assert "CSCA parity record" in architecture
     assert "Removal gate for retained compatibility code" in architecture
+    assert "retired Python `CreateCertificate` default" in normalized
+    assert "pre-existing self-signed Rust bootstrap" in normalized
     assert "marty-ui` `signing-keys" in architecture
     assert "marty-microservices-framework" in architecture
     assert "config/production.yaml" in architecture
