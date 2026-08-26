@@ -1,5 +1,10 @@
 # Resilience Layer
 
+> **Historical record:** This describes the retired Python service runtime's
+> resilience integration. It is not a current runtime guide. Do not configure
+> the removed launcher; current retry, circuit-breaker, and failure-policy
+> behavior is owned by the shared Rust MMF resilience crate.
+
 This document describes the resilience features added to the Marty microservice platform.
 
 ## Overview

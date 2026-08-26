@@ -1,5 +1,10 @@
 # Marty Observability Implementation Summary
 
+> **Historical record:** This summarizes observability work for the retired
+> Python microservice runtime. It is not a current implementation or operations
+> guide. Do not use the removed runtime paths; shared Rust observability is
+> provided by the canonical MMF crates and `marty-ui` services.
+
 ## Overview
 
 This implementation provides a comprehensive observability solution for the Marty microservices platform, focusing on "Observability you can trust" with metrics, tracing, and logs.

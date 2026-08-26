@@ -1,5 +1,10 @@
 # Marty Educational Developer Guide
 
+> **Historical record:** This guide describes the retired Python microservice
+> application. It is not a current build or deployment guide. Do not use its
+> service launchers or image examples; current runtime services and deployment
+> artifacts are owned by the Rust `marty-ui` platform.
+
 **Technical documentation for learning ICAO standards through practical implementation**
 
 > Contributions must follow the repository security, testing, and release policies.
@@ -843,7 +848,7 @@ COPY config/ ./config/
 COPY proto/ ./proto/
 
 EXPOSE 8080
-CMD ["python", "-m", "src.main"]
+CMD ["python", "-m", "<historical-service-entrypoint>"]
 ```
 
 ## Support Resources

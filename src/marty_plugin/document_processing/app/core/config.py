@@ -4,11 +4,13 @@ Configuration for the Document Processing API service
 
 import os
 
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
     """Settings for the Document Processing service"""
+
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     # API configuration
     API_ROOT_PATH: str = ""  # Root path for the API
@@ -60,9 +62,5 @@ class Settings(BaseSettings):
 
     DOCUMENT_SIGNER_HOST: str = os.getenv("DOCUMENT_SIGNER_HOST", "localhost")
     DOCUMENT_SIGNER_PORT: int = int(os.getenv("DOCUMENT_SIGNER_PORT", "8082"))
-
-    class Config:
-        env_file = ".env"
-
 
 settings = Settings()

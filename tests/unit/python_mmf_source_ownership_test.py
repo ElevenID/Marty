@@ -4,6 +4,8 @@ import ast
 
 from pathlib import Path
 
+import yaml
+
 ROOT = Path(__file__).resolve().parents[2]
 RETIRED_PATHS = (
     ROOT
@@ -16,10 +18,23 @@ RETIRED_PATHS = (
     ROOT / "src" / "marty_plugin" / "csca_service",
 )
 
+RETIRED_DELIVERY_PATHS = (
+    ROOT / "src" / "main.py",
+    ROOT / "src" / "document_signer",
+    ROOT / "src" / "marty_plugin" / "passport_engine",
+    ROOT / "src" / "marty_plugin" / "inspection_system",
+)
+
 HISTORICAL_GUIDES = (
     ROOT / "docs" / "guides" / "CERTIFICATE_MANAGEMENT_MIGRATION_PLAN.md",
     ROOT / "docs" / "guides" / "CONFIGURATION_CONSOLIDATION_GUIDE.md",
     ROOT / "docs" / "guides" / "NATIVE_DEVELOPMENT.md",
+    ROOT / "docs" / "DATABASE_PER_SERVICE.md",
+    ROOT / "docs" / "DEVELOPER_GUIDE.md",
+    ROOT / "docs" / "OBSERVABILITY_IMPLEMENTATION.md",
+    ROOT / "docs" / "PROMETHEUS_MONITORING.md",
+    ROOT / "docs" / "RESILIENCE.md",
+    ROOT / "docs" / "production_readiness_plan.md",
 )
 
 
@@ -123,3 +138,148 @@ def test_retired_framework_is_not_a_build_context() -> None:
         assert "marty-microservices-framework/" not in ignore_file.read_text(
             encoding="utf-8"
         )
+
+
+def test_retired_python_service_launchers_are_not_executable_surfaces() -> None:
+    retired_tokens = ("src.apps", "src/apps", "apps.runtime", "src.main")
+    violations: list[str] = []
+
+    for source_root in (ROOT / "src", ROOT / "scripts"):
+        for path in source_root.rglob("*"):
+            if not path.is_file() or (
+                path.suffix not in {".py", ".sh"} and path.name != "Dockerfile"
+            ):
+                continue
+            content = path.read_text(encoding="utf-8")
+            for token in retired_tokens:
+                if token in content:
+                    violations.append(f"{path.relative_to(ROOT).as_posix()}:{token}")
+
+    assert not violations, f"retired Python launch surfaces returned: {violations}"
+
+
+def test_dead_python_delivery_paths_remain_absent() -> None:
+    returned = [
+        path.relative_to(ROOT)
+        for path in RETIRED_DELIVERY_PATHS
+        if path.is_file()
+        or (path.is_dir() and any(candidate.is_file() for candidate in path.rglob("*")))
+    ]
+
+    assert not returned, f"dead Python delivery paths returned: {returned}"
+
+
+def test_deployment_boundary_names_only_current_release_owners() -> None:
+    deployment = (ROOT / "docs" / "deployment.md").read_text(encoding="utf-8")
+
+    assert "does not provide a deployable Python microservice stack" in deployment
+    assert "marty-ui" in deployment
+    assert "marty-microservices-framework" in deployment
+    assert "src.apps" not in deployment
+    assert "src/main.py" not in deployment
+
+
+def test_architecture_classifies_legacy_names_without_advertising_servers() -> None:
+    architecture = (ROOT / "docs" / "architecture.md").read_text(encoding="utf-8")
+    normalized = " ".join(architecture.split())
+
+    assert "this repository is not a deployable Python" in normalized
+    assert "A name in this repository does not imply" in normalized
+    assert "CSCA parity record" in architecture
+    assert "Removal gate for retained compatibility code" in architecture
+    assert "marty-ui` `signing-keys" in architecture
+    assert "marty-microservices-framework" in architecture
+    assert "config/production.yaml" in architecture
+
+    for dead_link in (
+        "../src/csca_service/",
+        "../src/document_signer/",
+        "../src/inspection_system/",
+        "../src/passport_engine/",
+    ):
+        assert dead_link not in architecture
+
+
+def test_legacy_yaml_names_are_classified_as_compatibility_configuration() -> None:
+    for relative in (
+        "config/base.yaml",
+        "config/development.yaml",
+        "config/testing.yaml",
+        "config/production.yaml",
+        "config/policy.yaml",
+        "config/annex9_data_retention.yaml",
+    ):
+        introduction = " ".join(
+            (ROOT / relative).read_text(encoding="utf-8").splitlines()[:4]
+        )
+        assert "Compatibility configuration" in introduction, relative
+        assert "not a Rust service registry or deployment manifest" in introduction, (
+            relative
+        )
+
+
+def test_compatibility_yaml_is_valid_and_has_no_silent_duplicate_keys() -> None:
+    class UniqueKeyLoader(yaml.SafeLoader):
+        pass
+
+    def construct_unique_mapping(
+        loader: UniqueKeyLoader, node: yaml.MappingNode, deep: bool = False
+    ) -> dict:
+        loader.flatten_mapping(node)
+        mapping = {}
+        for key_node, value_node in node.value:
+            key = loader.construct_object(key_node, deep=deep)
+            assert key not in mapping, f"duplicate YAML key: {key!r}"
+            mapping[key] = loader.construct_object(value_node, deep=deep)
+        return mapping
+
+    UniqueKeyLoader.add_constructor(
+        yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG,
+        construct_unique_mapping,
+    )
+
+    loaded = {}
+    for relative in (
+        "config/base.yaml",
+        "config/development.yaml",
+        "config/testing.yaml",
+        "config/production.yaml",
+        "config/policy.yaml",
+        "config/annex9_data_retention.yaml",
+    ):
+        try:
+            loaded[relative] = yaml.load(
+                (ROOT / relative).read_text(encoding="utf-8"),
+                Loader=UniqueKeyLoader,
+            )
+        except (AssertionError, yaml.YAMLError) as exc:
+            raise AssertionError(f"invalid compatibility YAML in {relative}: {exc}") from exc
+
+    production = loaded["config/production.yaml"]
+    assert production["services"]["document_signer"]["sd_jwt"][
+        "credential_ttl_seconds"
+    ] == 604800
+    assert production["services"]["passport_engine"]["signing_algorithm"] == (
+        "rsa2048"
+    )
+    assert production["services"]["dtc_engine"]["signing_algorithm"] == "ecdsa-p256"
+    assert production["database"]["pool_size"] == 20
+    assert "document_signer" in production["database"]
+    assert production["security"]["grpc_tls"]["mtls"] is True
+    assert production["security"]["auth"]["required"] is True
+    assert production["security"]["authz"]["default_action"] == "deny"
+
+    development = loaded["config/development.yaml"]
+    assert development["security"]["grpc_tls"]["mtls"] is True
+    assert development["security"]["auth"]["required"] is True
+    assert development["security"]["authz"]["default_action"] == "deny"
+
+    testing = loaded["config/testing.yaml"]
+    assert testing["security"]["grpc_tls"]["mtls"] is True
+    assert testing["security"]["auth"]["required"] is True
+    assert testing["security"]["authz"]["default_action"] == "deny"
+    assert testing["services"]["postgres"]["health_check_retries"] == 10
+    assert "document-signer" in testing["services"]
+    assert "document-signer" in testing["test_modes"]["integration"][
+        "services_required"
+    ]

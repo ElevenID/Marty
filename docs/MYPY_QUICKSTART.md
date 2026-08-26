@@ -29,7 +29,7 @@ This repository now has comprehensive mypy type checking with strict mode enable
 
 ```bash
 # Check specific files
-uv run mypy src/main.py
+uv run mypy src packages
 
 # Check entire source directory
 uv run mypy src/

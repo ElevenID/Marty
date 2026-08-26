@@ -57,12 +57,17 @@ except ServiceClientError as exc:
 else:
     raise AssertionError("retired mock verification adapter returned successfully")
 """
-    subprocess.run(
-        [sys.executable, "-c", script],
-        check=True,
-        cwd=ROOT,
-        env=environment,
-    )
+    with TemporaryDirectory() as directory:
+        Path(directory, ".env").write_text(
+            "UNRELATED_COMPATIBILITY_SETTING=must-not-break-startup\n",
+            encoding="utf-8",
+        )
+        subprocess.run(
+            [sys.executable, "-c", script],
+            check=True,
+            cwd=directory,
+            env=environment,
+        )
 
 
 def test_shared_software_key_management_uses_native_or_fails_closed() -> None:

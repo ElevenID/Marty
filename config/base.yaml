@@ -1,3 +1,5 @@
+# Compatibility configuration retained for Python adapters and tests.
+# This is not a Rust service registry or deployment manifest; see docs/architecture.md.
 # Base configuration for Marty services
 # This file contains common configuration patterns shared across all environments
 # to reduce duplication and ensure consistency.

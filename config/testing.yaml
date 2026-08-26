@@ -1,3 +1,5 @@
+# Compatibility configuration retained for Python adapters and tests.
+# This is not a Rust service registry or deployment manifest; see docs/architecture.md.
 # Testing environment configuration for Kubernetes
 # SECURITY ENFORCED - NO EXCEPTIONS
 
@@ -26,54 +28,37 @@ security:
     enabled: true  # ALWAYS enabled
     default_action: "deny"  # ALWAYS deny
 
+  key_directory: 'tests/fixtures/keys'
+  key_rotation_days: 365
+  certificate_validity_days: 365
+
 # Kubernetes cluster configuration
 cluster_name: marty-test
 namespace: marty-test
 cleanup_after_tests: false  # Set to true for CI environments
 
-# Test modes and required services
-test_modes:
-  unit:
-    services_required: []
-  integration:
-    services_required:
-      - postgres
-      - trust-anchor
-      - csca-service
-      - document-signer
-      - passport-engine
-  e2e:
-    services_required:
-      - postgres
-      - trust-anchor
-      - csca-service
-      - document-signer
-      - inspection-system
-      - passport-engine
-      - mdl-engine
-      - mdoc-engine
-      - dtc-engine
-      - credential-ledger
-      - ui-app
-
 # Service configurations for Kubernetes deployment
 services:
   postgres:
-    startup_delay: 30
+    startup_delay: 15
     dependencies: []
     ready_replicas: 1
+    health_check_retries: 10
+    required_for: ["integration", "e2e"]
   trust-anchor:
-    startup_delay: 45
+    startup_delay: 5
     dependencies: ["postgres"]
     ready_replicas: 1
     port: 9080
+    required_for: ["integration", "e2e"]
   csca-service:
-    startup_delay: 30
+    startup_delay: 5
     dependencies: ["postgres", "trust-anchor"]
     ready_replicas: 1
     port: 8081
     signing_algorithm: rsa2048
     signing_key_id: document-signer-default
+    required_for: ["integration", "e2e"]
   document_signer:
     signing_algorithm: rsa2048
     signing_key_id: document-signer-default
@@ -101,6 +86,41 @@ services:
 
   open_badges:
     trust_store_path: "data/trust/open_badges/trust_store.json"
+
+  document-signer:
+    startup_delay: 5
+    dependencies: ["postgres", "trust-anchor"]
+    required_for: ["e2e"]
+
+  inspection-system:
+    startup_delay: 5
+    dependencies: ["postgres", "csca-service"]
+    required_for: ["e2e"]
+
+  passport-engine:
+    startup_delay: 5
+    dependencies: ["postgres", "document-signer"]
+    required_for: ["e2e"]
+
+  mdl-engine:
+    startup_delay: 5
+    dependencies: ["postgres"]
+    required_for: ["e2e"]
+
+  mdoc-engine:
+    startup_delay: 5
+    dependencies: ["postgres"]
+    required_for: ["e2e"]
+
+  dtc-engine:
+    startup_delay: 5
+    dependencies: ["postgres"]
+    required_for: ["e2e"]
+
+  open-badges:
+    startup_delay: 5
+    dependencies: ["postgres"]
+    required_for: ["e2e"]
 
 # Logging
 logging:
@@ -142,20 +162,6 @@ database:
     password: dev_password
     name: marty_passport_engine
 
-# Security
-security:
-  key_directory: 'tests/fixtures/keys'
-  key_rotation_days: 365
-  certificate_validity_days: 365
-  grpc_tls:
-    enabled: false
-    server_cert: ""
-    server_key: ""
-    client_ca: ""
-    client_cert: ""
-    client_key: ""
-    require_client_auth: false
-
 # Object storage
 object_storage:
   bucket: "marty-test"
@@ -192,58 +198,6 @@ orchestration:
   service_startup_delay: 5  # Default delay between service starts
   cleanup_timeout: 30  # Time to wait for services to stop during cleanup
 
-# Service-specific configurations for orchestration
-services:
-  postgres:
-    startup_delay: 15  # Postgres needs more time to initialize
-    health_check_retries: 10
-    required_for: ["integration", "e2e"]
-
-  trust-anchor:
-    startup_delay: 5
-    dependencies: ["postgres"]
-    required_for: ["integration", "e2e"]
-
-  csca-service:
-    startup_delay: 5
-    dependencies: ["postgres", "trust-anchor"]
-    required_for: ["integration", "e2e"]
-
-  document-signer:
-    startup_delay: 5
-    dependencies: ["postgres", "trust-anchor"]
-    required_for: ["e2e"]
-
-  inspection-system:
-    startup_delay: 5
-    dependencies: ["postgres", "csca-service"]
-    required_for: ["e2e"]
-
-  passport-engine:
-    startup_delay: 5
-    dependencies: ["postgres", "document-signer"]
-    required_for: ["e2e"]
-
-  mdl-engine:
-    startup_delay: 5
-    dependencies: ["postgres"]
-    required_for: ["e2e"]
-
-  mdoc-engine:
-    startup_delay: 5
-    dependencies: ["postgres"]
-    required_for: ["e2e"]
-
-  dtc-engine:
-    startup_delay: 5
-    dependencies: ["postgres"]
-    required_for: ["e2e"]
-
-  open-badges:
-    startup_delay: 5
-    dependencies: ["postgres"]
-    required_for: ["e2e"]
-
 # Test environment modes
 test_modes:
   unit:
@@ -258,7 +212,7 @@ test_modes:
 
   integration:
     description: "Integration tests with core services"
-    services_required: ["postgres", "trust-anchor", "csca-service"]
+    services_required: ["postgres", "trust-anchor", "csca-service", "document-signer", "passport-engine"]
     parallel_execution: false
 
   e2e:
