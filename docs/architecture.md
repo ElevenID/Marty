@@ -87,9 +87,12 @@ metadata, and issued/renewed/revoked outbox events. Private key material is not
 accepted or returned by the lifecycle API.
 
 Supported CSCA signing algorithms are represented by stable Rust contract
-values for RSA 2048/3072/4096 and ECDSA P-256/P-384/P-521. An omitted algorithm
-preserves the historical P-256 default. Issuer signing choice is independent of
-the child document-signer certificate key type.
+values for RSA 2048/3072/4096 and ECDSA P-256/P-384/P-521. The retired Python
+`CreateCertificate` default is represented by the RSA-2048 enum default. The
+pre-existing self-signed Rust bootstrap constructor separately retains its
+P-256 default when the new optional request field is omitted, so existing Rust
+callers are not silently changed. Issuer signing choice is independent of the
+child document-signer certificate key type.
 
 ## Configuration boundary
 
