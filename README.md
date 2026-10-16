@@ -48,3 +48,5 @@ repository.
 ## License
 
 AGPL-3.0-only. See [LICENSE](LICENSE).
+
+Retained unfinished feature scope: [revocation and MRZ follow-ups](docs/features/revocation-and-mrz-follow-ups.md).

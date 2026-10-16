@@ -391,4 +391,4 @@ A: Yes! Set `status_list_strategy: "registry"` and provide `status_list_base_url
 - `RevocationProfile_Proposal.md` - Architecture and design
 - `RevocationProfile_Implementation_Summary.md` - Implementation details
 - `RevocationProfile_Integration_Architecture.md` - Integration flows
-- `RevocationProfile_Verification_Report.md` - Test results
+- [Open feature requirements](features/revocation-and-mrz-follow-ups.md) - retained unfinished work and acceptance boundaries
