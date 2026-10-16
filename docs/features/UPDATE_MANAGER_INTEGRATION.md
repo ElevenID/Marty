@@ -254,6 +254,8 @@ tracing::info!(
 
 ## Related Documentation
 
-- [RUNTIME_CONFIG_INTEGRATION_SUMMARY.md](./RUNTIME_CONFIG_INTEGRATION_SUMMARY.md)
-- [DEPLOYMENT_PROFILE_IMPLEMENTATION_STATUS.md](./DEPLOYMENT_PROFILE_IMPLEMENTATION_STATUS.md)
-- [marty-sync ProfileSyncProvider](../marty-verifier/crates/marty-sync/src/profile_sync.rs)
+- [Deployment-profile reference](../guides/DEPLOYMENT_PROFILE_QUICK_REFERENCE.md)
+- [marty-sync ProfileSyncProvider](https://github.com/ElevenID/marty-verifier/blob/main/crates/marty-sync/src/profile_sync.rs)
+
+Unfinished deployment-profile acceptance is retained in
+[the feature follow-ups](revocation-and-mrz-follow-ups.md).

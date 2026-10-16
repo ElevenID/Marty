@@ -46,7 +46,7 @@ async def setup_obv3():
     print("   2. Add REST API endpoints for publish/unpublish")
     print("   3. Add integration tests")
     print("   4. Update UI with publish buttons\n")
-    print("📖 See OBV3_IMPLEMENTATION_COMPLETE.md for full checklist\n")
+    print("📖 See src/digital_identity/docs/OBV3_READINESS.md for full checklist\n")
     
     return True
 
