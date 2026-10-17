@@ -191,3 +191,12 @@ tests/e2e/videos/
 /reports/validation_results.json
 /reports/observability_migration_summary.md
 /validation_results.json
+
+# Retired synthetic master-list runs; keep reviewed fixtures eligible elsewhere.
+/data/asn1_test/
+/data/final_asn1_test/
+/data/final_test/
+/data/ml_test/
+/data/ml_test_new/
+/data/small_test/
+/data/test_master_lists/

@@ -29,171 +29,104 @@ This security policy applies to:
 - Associated infrastructure and deployment configurations
 - Third-party dependencies and integrations
 
-## Security Measures
+## Current repository checks
 
-### Automated Security Testing
+The compatibility repository retains these configured controls:
 
-We implement comprehensive automated security testing including:
+- [Bandit pre-commit hook](../.pre-commit-config.yaml), pinned to
+  [1.9.4](https://github.com/PyCQA/bandit/releases/tag/1.9.4), recursively scans
+  current `src` and `packages/marty-common/marty_common` sources. Scanner
+  exclusions live in [pyproject.toml](../pyproject.toml); tests and both generated
+  protobuf namespaces are excluded. Existing rule selection remains explicit
+  in the hook, with narrow reviewed annotations for false positives.
+- The same pre-commit configuration retains detect-secrets with the existing
+  baseline. Running or installing hooks is distinct from CI enforcement.
+- [CodeQL](../.github/workflows/codeql.yml) runs Python analysis through the
+  organization workflow. [Organization quality](../.github/workflows/organization-quality.yml)
+  configures workflow validation and dependency review.
+- [License compliance](../.github/workflows/license-compliance.yml) configures
+  metadata checks, dependency inventory and SBOM generation under its declared
+  triggers. An SBOM is an inventory, not a vulnerability or compliance verdict.
+- [Dependabot](../.github/dependabot.yml) schedules dependency updates. Review,
+  CI and merge protections still govern landing changes; this is not a promise
+  of automatic remediation or deployment.
 
-- **Static Application Security Testing (SAST)**: Code analysis with Bandit, Semgrep, and CodeQL
-- **Dynamic Application Security Testing (DAST)**: Runtime vulnerability testing
-- **Software Composition Analysis (SCA)**: Dependency vulnerability scanning with Safety and pip-audit
-- **Container Security**: Image scanning with Trivy and Docker Scout
-- **Secrets Detection**: Automated scanning for exposed credentials with TruffleHog and detect-secrets
+Run the current Bandit hook with:
 
-### Security Hardening
+```sh
+uv run --no-project --with pre-commit==4.3.0 pre-commit run bandit --all-files
+```
 
-Our platform implements multiple layers of security:
+See [check ownership](features/compatibility-check-ownership.md) for execution
+and coverage limits. A finding, failed scanner or skipped check is not a pass.
+Keep generated scan output in ignored directories or bounded CI artifacts.
 
-#### Authentication & Authorization
+The unconsumed security-automation and alternate Bandit YAML files are retired.
+Their enabled flags did not configure current hooks or workflows.
+[Crypto boundaries](../config/security/crypto_boundaries.yaml) and
+[security policy](../config/security/security_policy.yaml) remain, along with
+the [crypto-boundary validator](../scripts/validation/validate_crypto_boundaries.py).
+Retained policies do not independently prove runtime enforcement.
 
-- Multi-factor authentication (MFA) support
-- Role-based access control (RBAC)
-- JWT token-based authentication with RS256 signing
-- Configurable password policies
-- Rate limiting and IP filtering
+The separate [manual security scanner](../scripts/security_scan.sh) remains.
+It contains dependency, code, secrets and container scanning paths, but
+suppresses some errors and targets some retired deployment assets. Review
+execution failures and incomplete coverage; its completion message is not a
+release gate. No replacement parity for all its capabilities is established.
 
-#### Data Protection
+## Open security automation and acceptance requirements
 
-- Encryption at rest and in transit (AES-256-GCM, TLS 1.3)
-- Automated key rotation
-- Data classification and retention policies
-- GDPR compliance features
+Current runtime security belongs to the
+[Marty UI stack](https://github.com/ElevenID/marty-ui),
+[Marty Core](https://github.com/ElevenID/marty-core) and
+[shared native framework](https://github.com/ElevenID/marty-microservices-framework).
+Reconcile these inherited requirements with owners and executed positive/negative
+tests. The retired YAML did not implement them:
 
-#### Network Security
+- SAST, dependency auditing, secrets, container/image and infrastructure-as-code
+  analysis with deliberate scope, pinned tools, freshness, failure propagation,
+  reports and reviewed triage. Semgrep, Safety/pip-audit, TruffleHog/git-secrets,
+  Trivy/Grype/Syft, Docker Scout, Snyk, Clair, Checkov/Terrascan and kube-score
+  were named tools or proposals, not all demonstrated current CI controls.
+- Authenticated dynamic testing and penetration/vulnerability assessment in
+  isolated authorized environments; ZAP/Burp and optional IAST need qualification.
+  Define schedules, review/approval boundaries and pre-/post-deployment behavior
+  rather than restoring arbitrary enabled flags or automatic policy changes.
+- Authentication/MFA/session lifecycle, role/tenant access control, credential/key
+  custody and rotation through managed secrets and KMS/HSM, parameterized queries,
+  input/URL validation, encryption, transport verification, network isolation,
+  secure headers and rate limits. Algorithm names/config presence are not proof.
+- Sanitized access, privilege-escalation, configuration-change, suspicious-activity
+  and possible-exfiltration events; tested dashboards, alert delivery/routing/
+  escalation and incident runbooks. ELK deployment, anomaly detection, continuous
+  staffing and response SLAs need separate operational qualification. See
+  [observability requirements](CENTRALIZED_LOGGING.md).
+- Reviewed severity thresholds, exceptions and remediation policy, with explicit
+  behavior on missing tools, invalid results and failed scans. Qualify updates
+  before auto-applying security-sensitive configuration changes.
+- Control mapping and evidence for applicable OWASP/NIST/ISO/SOC and privacy
+  obligations. Retain access logs, approved configuration/policies, training
+  records and audit trails with reviewed access, encryption, retention/deletion,
+  integrity and independent verification. Seven-year retention and immutable/
+  third-party audit flags were proposals, not verified compliance or storage.
+- Secure coding, awareness, incident-response and privacy training; vulnerability
+  remediation, scan coverage, incident, training and audit metrics; access reviews,
+  response exercises and runbook updates. Establish owners and evidence before
+  claiming these are operational.
 
-- TLS 1.2+ enforcement
-- Comprehensive CORS policies
-- Security headers (CSP, HSTS, X-Frame-Options, etc.)
-- Network segmentation and access controls
+## Developer and operator practices
 
-#### Infrastructure Security
+Use least privilege, synthetic test identities, data minimization, authorization
+and validated input. Keep production credentials out of source and reports.
+Supply secrets through the selected deployment owner's managed configuration;
+rotate them using reviewed procedures. Use supported service-owned KMS/HSM
+boundaries for cryptographic operations.
 
-- Container security best practices
-- Secrets management integration
-- Infrastructure as Code (IaC) security scanning
-- Kubernetes security policies
+Review dependencies, run applicable scans, investigate findings and check actual
+coverage and failures. Review access, recovery, network and incident handling
+with deployed owners; example configuration does not establish these controls.
 
-### Monitoring & Incident Response
-
-- Real-time security monitoring and alerting
-- Centralized logging with ELK stack
-- Automated anomaly detection
-- 24/7 security monitoring
-- Incident response procedures with defined SLAs
-
-### Compliance & Governance
-
-We maintain compliance with industry standards:
-
-- OWASP Top 10 security controls
-- NIST Cybersecurity Framework
-- ISO 27001 security management
-- SOC 2 Type II compliance readiness
-
-## Security Configuration
-
-### Environment-Specific Settings
-
-Security configurations are environment-specific:
-
-- **Development**: Relaxed settings for developer productivity
-- **Staging**: Production-like security with testing accommodations  
-- **Production**: Maximum security hardening
-
-### Configuration Files
-
-Security settings are managed through:
-
-- `config/security/security_policy.yaml` - Main security policy
-- `config/security/bandit.yaml` - Code analysis configuration
-- `config/security/automation.yaml` - CI/CD security automation
-
-## Security Best Practices
-
-### For Developers
-
-1. **Secure Coding**:
-   - Follow OWASP secure coding guidelines
-   - Use parameterized queries to prevent SQL injection
-   - Validate and sanitize all inputs
-   - Implement proper error handling without information disclosure
-
-2. **Authentication & Session Management**:
-   - Never hardcode credentials in source code
-   - Use secure session management
-   - Implement proper logout functionality
-   - Follow principle of least privilege
-
-3. **Data Handling**:
-   - Encrypt sensitive data at rest and in transit
-   - Implement proper data validation
-   - Follow data minimization principles
-   - Handle personal data according to privacy regulations
-
-4. **Dependencies**:
-   - Keep all dependencies updated
-   - Regularly scan for vulnerabilities
-   - Use only trusted and well-maintained packages
-   - Implement dependency pinning
-
-### For Operations
-
-1. **Infrastructure Security**:
-   - Keep all systems updated and patched
-   - Implement network segmentation
-   - Use security monitoring and logging
-   - Regular security assessments
-
-2. **Access Control**:
-   - Implement strong authentication mechanisms
-   - Use principle of least privilege
-   - Regular access reviews and cleanup
-   - Monitor for suspicious access patterns
-
-3. **Incident Response**:
-   - Maintain updated incident response procedures
-   - Regular tabletop exercises
-   - Clear escalation procedures
-   - Post-incident reviews and improvements
-
-## Security Tools
-
-### Required Tools
-
-- **Bandit**: Python security linter
-- **Safety**: Python dependency vulnerability scanner
-- **TruffleHog**: Secrets detection
-- **Trivy**: Container vulnerability scanner
-- **Semgrep**: Static analysis security scanner
-
-### Recommended Tools
-
-- **CodeQL**: Advanced static analysis
-- **Docker Scout**: Container security analysis
-- **detect-secrets**: Secrets baseline management
-- **pip-audit**: Python package vulnerability scanner
-
-## Security Training
-
-All team members are required to complete:
-
-- Secure coding training
-- Security awareness training
-- Incident response training
-- Privacy and compliance training
-
-## Security Metrics
-
-We track and report on:
-
-- Vulnerability discovery and remediation times
-- Security scan coverage and results
-- Incident response metrics
-- Training completion rates
-- Compliance audit results
-
-## Contact Information
+## Contact information
 
 - **Security Team**: <security@marty-platform.com>
 - **Emergency Contact**: <security-emergency@marty-platform.com>
@@ -201,21 +134,5 @@ We track and report on:
 
 ## Legal
 
-This security policy is subject to change. For the most current version, please refer to our GitHub repository. All security reports should follow responsible disclosure practices.
-
----
-
-**Last Updated**: December 2024  
-**Next Review**: March 2025
-
-## Secrets Management
-
-Refer to `docs/SECRETS_MANAGEMENT.md` for the authoritative guidance on handling credentials.
-
-Key points:
-
-- No hard-coded production credentials (searches for `pkiadmin / secret` must not appear outside docs/examples)
-- Use environment variable indirection or `_FILE` pattern
-- Prefer Docker / Kubernetes secrets in non-prod, Vault or cloud secret managers in prod
-- Rotate all secrets regularly; document procedures
-- Plan migration to HSM/KMS for cryptographic key operations
+This security policy is subject to change. Refer to the repository for the
+current version. All reports should follow responsible disclosure practices.

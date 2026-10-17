@@ -4,7 +4,9 @@ The retained pre-commit configuration provides format/lint, secret detection,
 protobuf generation and security checks. Bandit scans actual `src` and
 `packages/marty-common/marty_common` sources recursively using
 `pyproject.toml`; tests and both generated protobuf namespaces are excluded
-by the scanner itself. Its prior hook rule selection is preserved. Run it with:
+by the scanner itself. The hook uses Bandit 1.9.4; the development dependency
+requires at least that version. Existing hook rule selection is preserved.
+Run it with:
 
 ```sh
 uv run --no-project --with pre-commit==4.3.0 pre-commit run bandit --all-files
@@ -38,3 +40,7 @@ dependencies and positive/negative checks on reviewed current modules before
 introducing a new gate. Documentation coverage likewise needs a reviewed source
 scope and baseline before re-enabling it. Do not hide existing errors, lower
 thresholds, or claim coverage from hooks that select zero files.
+
+The unused alternate security YAML is retired; it was not loaded by this hook.
+See [security controls and open requirements](../SECURITY.md) for current
+workflow ownership and remaining security-automation qualification.
