@@ -2,7 +2,7 @@ name: Protocol validation
 
 on:
   pull_request:
-    paths: ["proto/**", "src/compile_protos.py", ".github/workflows/proto-validation.yml"]
+    paths: ["proto/**", "src/compile_protos.py", "src/proto/**", "src/marty_plugin/proto/**", "tests/unit/test_proto_compatibility.py", "pyproject.toml", ".github/workflows/proto-validation.yml"]
   merge_group:
     types: [checks_requested]
 
@@ -21,7 +21,29 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
         with:
           python-version: "3.12"
-      - run: python -m pip install grpcio-tools
+      - run: python -m pip install grpcio-tools==1.76.0 protobuf==6.31.1 grpcio==1.76.0 pytest==8.4.2 pytest-asyncio==1.2.0
+      - name: Verify canonical generation and compatibility imports
+        run: |
+          python src/compile_protos.py
+          git diff --exit-code -- src/marty_plugin/proto/v1 src/proto/v1
+          python -m pytest --noconftest tests/unit/test_proto_compatibility.py -q
+      - name: Verify wheel compatibility namespaces
+        shell: bash
+        run: |
+          python -m pip wheel --no-deps --wheel-dir /tmp/marty-wheel .
+          cd /tmp
+          python - <<'PY'
+          import glob
+          import importlib
+          import pickle
+          import sys
+          sys.path.insert(0, glob.glob('/tmp/marty-wheel/*.whl')[0])
+          old = importlib.import_module('proto.v1.dtc_engine_pb2')
+          current = importlib.import_module('marty_plugin.proto.v1.dtc_engine_pb2')
+          assert old is current
+          message = old.CreateDTCRequest(passport_number='wheel')
+          assert pickle.loads(pickle.dumps(message)) == message
+          PY
       - name: Compile all public protocol definitions
         shell: bash
         run: |

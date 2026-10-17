@@ -29,7 +29,7 @@ DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x10\x63mc_engine.
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
-_builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'cmc_engine_pb2', _globals)
+_builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'marty_plugin.proto.v1.cmc_engine_pb2', _globals)
 if not _descriptor._USE_C_DESCRIPTORS:
   DESCRIPTOR._loaded_options = None
   _globals['_CMCSECURITYMODEL']._serialized_start=5071

@@ -28,7 +28,7 @@ DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x14storage_policy
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
-_builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'storage_policy_pb2', _globals)
+_builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'marty_plugin.proto.v1.storage_policy_pb2', _globals)
 if not _descriptor._USE_C_DESCRIPTORS:
   DESCRIPTOR._loaded_options = None
   _globals['_DATACATEGORY']._serialized_start=4031

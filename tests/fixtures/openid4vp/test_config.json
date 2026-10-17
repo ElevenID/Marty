@@ -1,6 +1,0 @@
-{
-  "base_url": "http://localhost:8000",
-  "mdoc_service_url": "localhost:8081",
-  "mdl_service_url": "localhost:8085",
-  "timeout": 60
-}
