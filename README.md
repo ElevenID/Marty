@@ -27,6 +27,9 @@ services.
 `marty-common-v*` tags. Its release workflow builds distributions, an SBOM,
 checksums, and provenance attestations.
 
+See [release and container ownership](docs/guides/DOCKER.md) for the package
+tag convention, current service-image owners and registry authentication.
+
 The root project is a compatibility test and packaging harness. A root build is
 not a deployable service.
 

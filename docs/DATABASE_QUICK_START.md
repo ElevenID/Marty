@@ -39,3 +39,8 @@ These are retained requirements, not a completed database migration. The
 retired commands for deleting migration history or resetting Docker volumes
 are not operational recovery procedures. Follow the current owner workflows
 for the selected environment.
+
+The old demo database initializer also contained unique trust, credential,
+revocation and audit scenarios. Preserve and qualify them through the
+[demo data requirements](features/demo-data-qualification.md); the remaining
+Python seeder is not a demonstrated schema or behavior replacement.
