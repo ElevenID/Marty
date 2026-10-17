@@ -13,7 +13,7 @@ The `generate_synthetic_data.py` script now supports a `--master-list-only` mode
 python3 scripts/generate_synthetic_data.py --master-list-only --countries 10
 
 # Generate master lists for specific number of countries with custom output directory
-python3 scripts/generate_synthetic_data.py --master-list-only --countries 5 --output-dir data/trust_test
+python3 scripts/generate_synthetic_data.py --master-list-only --countries 5 --output-dir reports/generated/trust-test
 
 # Use a specific seed for reproducible results
 python3 scripts/generate_synthetic_data.py --master-list-only --countries 3 --seed 123
@@ -53,7 +53,7 @@ Binary files using a simplified ICAO-style format specifically for trust service
 Use the included reader tool to inspect `.ml` files:
 
 ```bash
-python3 examples/read_ml_file.py data/trust_test/master_list_usa.ml
+python3 examples/read_ml_file.py reports/generated/trust-test/master_list_usa.ml
 ```
 
 ### JSON Structure
@@ -109,10 +109,10 @@ To use these master lists for testing your trust service:
 
 ```bash
 # Step 1: Generate test data
-python3 scripts/generate_synthetic_data.py --master-list-only --countries 5 --output-dir test_data
+python3 scripts/generate_synthetic_data.py --master-list-only --countries 5 --output-dir reports/generated/trust-test
 
 # Step 2: Use in your tests
-# Load test_data/master_lists.json in your test framework
+# Load reports/generated/trust-test/master_lists.json in your test framework
 # Test trust service validation against the master list data
 ```
 
@@ -136,3 +136,29 @@ do not establish real ICAO CMS parsing, signature validation or end-to-end trust
 qualification. Missing old tests and their claimed example passes close none
 of these acceptance requirements. Current deployed interoperability qualification
 belongs to [marty-integration-tests](https://github.com/ElevenID/marty-integration-tests).
+
+## Generated output retention and fixture qualification
+
+Seven unreferenced 2025 generator-run directories are retired from version
+control. Summaries and repeated JSON payloads were run output; their simplified
+ASN.1-like and proprietary `ICAOML` bytes were not exercised regression
+fixtures. The generator and reader remain.
+
+Put new output in ignored `reports/generated/` or an owned disposable
+directory, for example:
+
+```sh
+python scripts/generate_synthetic_data.py --master-list-only --countries 3 --seed 123 --output-dir reports/generated/trust-test
+```
+
+A seed does not promise byte-identical timestamps or cryptographic randomness.
+Random signatures, mock certificate references and summaries do not establish
+authentic signed ICAO CMS/master-list support.
+
+Preserve format/file discovery, JSON consistency, ASN.1 length/structure
+handling, certificate extraction and malformed/truncated inputs as acceptance
+requirements. Genuine signed-input, certificate-chain, revocation and trust
+decisions need the current native owner and positive/negative tests. Retain
+reviewed minimal byte fixtures with assertions and provenance when they expose
+a real regression. Narrow ignores for retired run directories do not prohibit
+source fixtures or baselines elsewhere. Deleting old runs closes no requirement.

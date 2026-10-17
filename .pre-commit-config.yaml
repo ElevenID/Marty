@@ -142,7 +142,7 @@ repos:
 
   # Security scanning with bandit
   - repo: https://github.com/PyCQA/bandit
-    rev: 1.7.9
+    rev: 1.9.4
     hooks:
       - id: bandit
         # Scan current source; recursive exclusions belong to Bandit itself.
