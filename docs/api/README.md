@@ -1,8 +1,15 @@
 # Marty Platform API Documentation
 
-This directory contains automatically generated API documentation for all Marty Platform services.
+The checked-in HTML and specifications in this directory describe historical
+Python service interfaces. They are retained for reference and do not establish
+that retired PKD, document-processing or UI application endpoints are deployed.
 
-## Generated Documentation
+Current REST documentation and the machine-readable OpenAPI location are owned
+by [marty-docs](https://github.com/ElevenID/marty-docs/blob/main/src/content/docs/api/overview.md)
+and the [marty-ui service stack](https://github.com/ElevenID/marty-ui).
+Use those owners for the current public surface and release qualification.
+
+## Historical Generated Documentation
 
 ### 📖 View Documentation
 
@@ -24,40 +31,26 @@ The `openapi/` directory contains machine-readable API specifications:
 - `document_processing_openapi.json` - Document Processing specification
 - `ui_app_openapi.json` - UI Application specification
 
-## Live API Documentation
-
-When services are running, you can access live interactive documentation:
-
-- **PKD Service**: <http://localhost:8088/docs>
-- **Document Processing**: <http://localhost:8080/docs>  
-- **UI Application**: <http://localhost:8000/docs>
-
 ## Regenerating Documentation
 
-To regenerate the API documentation:
-
-```bash
-# Using the script
-./scripts/generate_docs.sh
-
-# Using make
-make docs
-
-# Using Python directly
-uv run python scripts/generate_simple_docs.py
-```
+The old `generate_docs.sh` wrapper is retired because it installed a development
+dependency and called a nonexistent generator. The historical `make docs`,
+`make docs-serve` and `generate_simple_docs.py` instructions do not provide a
+working regeneration path here. The remaining legacy API generator also targets
+retired Python app paths; reconcile its public documentation ownership before
+replacing or removing the generated specifications. A release-bound API export,
+complete service coverage, schema validation and reproducible documentation
+remain requirements; this cleanup does not claim they are implemented here.
 
 ## Serving Documentation Locally
 
-To serve the documentation on a local web server:
+To inspect the retained files locally from the repository root:
 
 ```bash
-# Using make (serves on http://localhost:8000)
-make docs-serve
-
-# Using Python directly
-cd docs/api && python -m http.server 8000
+python -m http.server 8000 --directory docs/api
 ```
+
+Serving these static files does not start or qualify a service.
 
 ## Files Structure
 
@@ -78,4 +71,4 @@ docs/api/
 
 ---
 
-*Generated automatically by the Marty Platform API documentation generator*
+*Historical generated artifacts retained for reference.*
