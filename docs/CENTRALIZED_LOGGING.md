@@ -99,3 +99,11 @@ requirements remain open until current MMF/UI owners demonstrate them:
 Use [performance qualification](PERFORMANCE_TESTING.md) for calibrated
 workloads and comparable evidence. The retained Python logging, metrics and
 observability APIs remain unchanged by this consolidation.
+
+The unconsumed certificate-lifecycle JSON example is retired. Keep reviewed
+expiry-warning schedules, periodic checks, renewal/revocation/failure tracking,
+logging and authenticated TLS notification delivery with managed SMTP secrets
+as current-owner requirements. Certificate lifetime, algorithm/key size,
+automatic-renewal lead time and overlap/rollover policy must be explicitly
+approved and tested through the canonical certificate/KMS owners; the old
+example's numbers and addresses are not defaults to restore.

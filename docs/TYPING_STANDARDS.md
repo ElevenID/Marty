@@ -36,7 +36,7 @@ The project uses strict mypy configuration in `pyproject.toml`:
 
 ```toml
 [tool.mypy]
-python_version = "3.10"
+python_version = "3.11"
 disallow_untyped_defs = true
 disallow_incomplete_defs = true
 disallow_any_generics = true
@@ -45,9 +45,19 @@ warn_return_any = true
 warn_unused_ignores = true
 ```
 
-### mypy.ini
+### One configuration
 
-Additional module-specific configuration is in `mypy.ini`. Generated protobuf files and third-party libraries without stubs are excluded.
+`pyproject.toml` is the sole mypy configuration. The duplicate INI file
+selected Python 3.10/Linux by default while the explicit project configuration
+selected Python 3.11 and the host platform. Module overrides now live only in
+the project file. Pass actual source paths; no all-source typing gate is claimed:
+
+```sh
+python -m mypy --config-file pyproject.toml packages/marty-common/marty_common/grpc_types.py
+```
+
+See [check ownership](features/compatibility-check-ownership.md) for the current
+diagnostic and coverage limits.
 
 ## General Principles
 
@@ -495,12 +505,10 @@ result = untyped_function()  # type: ignore[no-untyped-call]
 
 ### 3. Add Module-Specific Overrides
 
-If a module needs more time, add to `mypy.ini`:
-
-```ini
-[mypy-src.legacy_module.*]
-disallow_untyped_defs = False
-```
+Any proposed module exception belongs in a narrowly reviewed
+`[[tool.mypy.overrides]]` table in `pyproject.toml`. Do not add blanket
+suppression to make a new scope appear clean; qualify the module and diagnostics
+first. Existing strict defaults remain.
 
 ## Best Practices Summary
 
@@ -529,14 +537,14 @@ disallow_untyped_defs = False
 For questions or clarifications about type annotations in the Marty codebase, please:
 
 1. Check this document first
-2. Review existing code examples in `src/marty_common/`
+2. Review existing code examples in `packages/marty-common/marty_common/`
 3. Consult the team in code reviews
 
 ## Current enforcement and adoption
 
 The separate historical typing quickstart/completion receipt is retired. Use
 this guide for typing conventions and the checked-in `pyproject.toml`,
-`mypy.ini`, pre-commit configuration and CI workflow for the actual enforcement
+pre-commit configuration and CI workflow for the actual enforcement
 scope. A historical list of protocol interfaces, package markers or successful
 checks does not prove strict coverage of the remaining compatibility code.
 Gradual adoption, accurate protocol boundaries and appropriate type markers

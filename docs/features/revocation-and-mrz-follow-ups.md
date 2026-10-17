@@ -174,3 +174,19 @@ sequential passports, startup/readiness, failure paths and isolated cleanup,
 remain unmet requirements until current owners supply executed tests. Use the
 repository's current pytest/Make/CI entrypoints for existing tests, and the UI
 and integration repositories for supported deployed-service qualification.
+
+## Retired profile receipt and failure-policy qualification
+
+The old RevocationProfile implementation summary is retired. Preserve
+credential-centric revoke/suspend/reinstate behavior, application-template and
+trust-profile `revocation_profile_id` linkage, deliberate default-profile
+selection, authorized admin lifecycle APIs and authenticated internal
+allocation/processing APIs. Keep service-only endpoints off the public gateway
+unless explicitly designed and authorized.
+
+Qualify failures between credential state, status-list persistence and
+publication. The historical local-success fallback did not implement or prove
+durable retry; do not assume success means verifiers observe revocation.
+Current owners must define fail-closed or durable pending/retry behavior,
+idempotency, recovery and audit with executed negative tests. Inline-policy
+migration needs validation, compatibility and reviewed rollback.

@@ -1,1 +1,0 @@
-"""Webhook endpoint integration tests."""
