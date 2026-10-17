@@ -531,3 +531,14 @@ For questions or clarifications about type annotations in the Marty codebase, pl
 1. Check this document first
 2. Review existing code examples in `src/marty_common/`
 3. Consult the team in code reviews
+
+## Current enforcement and adoption
+
+The separate historical typing quickstart/completion receipt is retired. Use
+this guide for typing conventions and the checked-in `pyproject.toml`,
+`mypy.ini`, pre-commit configuration and CI workflow for the actual enforcement
+scope. A historical list of protocol interfaces, package markers or successful
+checks does not prove strict coverage of the remaining compatibility code.
+Gradual adoption, accurate protocol boundaries and appropriate type markers
+remain maintenance requirements; verify existing modules before importing a
+protocol named in an old example.

@@ -117,3 +117,22 @@ python3 scripts/generate_synthetic_data.py --master-list-only --countries 5 --ou
 ```
 
 This approach allows you to test your trust service with realistic master list data without affecting your database or requiring complex setup procedures.
+
+## Retired comparison harness and remaining acceptance
+
+The old comparison runner and enhanced-test guide are retired: both invoked
+Python integration test files that are absent from this checkout. The synthetic
+master-list generator and fixture loader remain available; the uncalled
+print-only fallback debug probe did not provide an assertion or service test.
+
+Real master-list and trust validation remain requirements. A replacement test
+must exercise the current native trust/PKD owner and distinguish synthetic
+fixtures from genuine read-only master-list inputs. Prove file discovery,
+parsing, certificate extraction, signature and trust decisions, malformed-input
+rejection, upload behavior and failure propagation. Do not copy, modify or log
+sensitive real inputs; isolate generated artifacts in disposable test directories.
+Mocked ASN.1 decoding or PKD responses and the simplified fixture format above
+do not establish real ICAO CMS parsing, signature validation or end-to-end trust
+qualification. Missing old tests and their claimed example passes close none
+of these acceptance requirements. Current deployed interoperability qualification
+belongs to [marty-integration-tests](https://github.com/ElevenID/marty-integration-tests).
