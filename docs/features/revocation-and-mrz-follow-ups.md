@@ -1,7 +1,7 @@
 # Revocation and MRZ follow-ups
 
 The old completion/verification reports and MRZ rewrite demonstration are
-retired at Marty Git checkpoint `5e8d3d6`. They did not prove present production
+retired by Marty Git commit `c613398`. They did not prove present production
 readiness. The requirements below preserve their unfinished feature intent;
 none is marked complete by this cleanup. Reconcile each against the current
 canonical implementation and executed tests before closing it.
