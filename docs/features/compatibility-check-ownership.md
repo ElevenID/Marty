@@ -44,3 +44,19 @@ thresholds, or claim coverage from hooks that select zero files.
 The unused alternate security YAML is retired; it was not loaded by this hook.
 See [security controls and open requirements](../SECURITY.md) for current
 workflow ownership and remaining security-automation qualification.
+
+## Coverage and complexity configuration
+
+Coverage configuration lives only in `pyproject.toml`. The duplicate
+`.coveragerc` is retired after preserving source/omit scope, report precision,
+missing-line display and HTML/XML output settings. Default coverage discovery
+now selects the project configuration, as does an explicit
+`--rcfile=pyproject.toml` invocation. Keep generated coverage output ignored.
+
+The orphan `.radon.cfg` used TOML-like syntax in an INI file and was not a
+project configuration name loaded by the retained Radon CLI. No tracked
+`RADONCFG` override selected it. The Radon tool remains available, and the
+existing Xenon B thresholds remain in their current configuration. This
+removal introduces no new complexity gate or performance claim. Qualifying
+current-source metrics and resolving tool/configuration compatibility remain
+separate work; obsolete display filters were not enforced limits.

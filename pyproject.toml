@@ -338,9 +338,15 @@ omit = [
     "*/test_*",
     "*/__pycache__/*",
     "*/migrations/*",
+    "*/venv/*",
+    "*/env/*",
+    "setup.py",
 ]
 
 [tool.coverage.report]
+precision = 2
+show_missing = true
+skip_covered = false
 exclude_lines = [
     "pragma: no cover",
     "def __repr__",
@@ -354,6 +360,14 @@ exclude_lines = [
     "@(abc\\.)?abstractmethod",
 ]
 
+
+
+[tool.coverage.html]
+directory = "htmlcov"
+title = "Marty Passport Verification System - Test Coverage Report"
+
+[tool.coverage.xml]
+output = "coverage.xml"
 
 
 [dependency-groups]

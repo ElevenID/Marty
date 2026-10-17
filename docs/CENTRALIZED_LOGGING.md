@@ -107,3 +107,11 @@ as current-owner requirements. Certificate lifetime, algorithm/key size,
 automatic-renewal lead time and overlap/rollover policy must be explicitly
 approved and tested through the canonical certificate/KMS owners; the old
 example's numbers and addresses are not defaults to restore.
+
+The uncalled monitoring integration example is retired. It imported symbols
+not exported by the current monitoring package, started a synthetic gRPC
+skeleton and treated a mock database check as healthy. Preserve actual public
+monitoring APIs and their consumers; qualify real dependency readiness,
+request/interceptor metrics, alert callbacks, graceful startup/shutdown and
+degraded health with current-owner tests. Synthetic counter increments and
+source examples are not service acceptance.
