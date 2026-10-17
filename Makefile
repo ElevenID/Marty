@@ -10,7 +10,7 @@ install:
 	python -m pip install -e . pytest ruff build
 
 test:
-	python -m pytest tests/unit -q
+	python -m pytest tests/unit packages/marty-common/tests -q
 
 lint:
 	python -m ruff check src tests

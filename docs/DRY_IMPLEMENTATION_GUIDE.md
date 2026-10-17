@@ -58,7 +58,8 @@ they are not completed by this documentation cleanup.
 ## Development commands
 
 For this compatibility repository, the root Makefile exposes `install`,
-`test`, `lint` and `package`. Their dependency and native-backend requirements
+`test`, `lint` and `package`. The test target includes both root unit tests and
+`packages/marty-common/tests`, matching CI. Dependency and native-backend requirements
 still apply. Current stack startup and service image workflows belong to
 [marty-ui development setup](https://github.com/ElevenID/marty-ui/blob/main/DEVELOPMENT_SETUP.md).
 
