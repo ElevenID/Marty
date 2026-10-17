@@ -1,130 +1,61 @@
-# Docker Development Guide
+# Container workflows and release ownership
 
-Quick reference for the Marty development environment.
+This repository retains identity compatibility modules and publishes
+`marty-common`. The retired root service-image release model and parallel demo
+Compose stack are no longer current deployment entry points.
 
-## Quick Start
+## Supported development and deployment owners
 
-```bash
-# Start development environment
-make dev
+For this repository, `make test` runs root and shared-package Python tests;
+`make package` builds the root compatibility package. `make install` and
+`make lint` are also available. Follow the [root README](../../README.md)
+for dependencies and native-backend requirements.
 
-# Run E2E tests (full browser matrix)
-make test
+Service images, stack startup, migrations and runtime operations belong to
+[marty-ui development setup](https://github.com/ElevenID/marty-ui/blob/main/DEVELOPMENT_SETUP.md)
+and its [release workflow](https://github.com/ElevenID/marty-ui/blob/main/.github/workflows/cd.yml).
+Wallet and browser interoperability qualification belongs to
+[marty-authenticator](https://github.com/ElevenID/marty-authenticator) and
+[marty-integration-tests](https://github.com/ElevenID/marty-integration-tests).
+Use the selected release's configuration and commands. The former root
+`dev`, `test-local`, `build-wallet`, `down` and volume-reset recipes are retired.
 
-# Run fast Chromium-only tests
-make test-local
+Keep the intended demo journeys and data coverage in
+[demo data qualification requirements](../features/demo-data-qualification.md).
+The old fixed ports, example accounts and simulator image name do not establish
+current configuration or completed end-to-end acceptance.
 
-# Stop everything
-make down
+## Independent release ownership
+
+The [marty-common publishing workflow](../../.github/workflows/publish-pypi.yml)
+accepts `marty-common-v*` tags and validates the tag version against
+`packages/marty-common/pyproject.toml`. It builds the package, SBOM, checksums
+and provenance, and verifies the immutable GitHub release and asset digests.
+PyPI publication remains subject to its configured repository variable and
+environment controls.
+
+Release `marty-common` through that workflow after its normal review and
+validation. The root harness version and the versions in sibling repositories
+are independent. Native kernel releases belong to
+[Marty Core](https://github.com/ElevenID/marty-core), and production image
+releases belong to the UI stack's release workflow. A root tag does not
+rebuild or publish those services.
+
+## Container registry authentication
+
+Use Docker's registry login or the configured credential helper when the
+owning deployment workflow requires local registry access:
+
+```sh
+docker login ghcr.io --username YOUR_GITHUB_LOGIN
 ```
 
-## Profiles
+Supply the registry credential through Docker's prompt. For noninteractive
+use, Docker supports `--password-stdin`; use the owning workflow's configured
+credentials and registry permissions. The UI release workflow configures its
+own registry authentication. Authentication and permission to publish a
+particular package are separate checks.
 
-| Profile | Description | Services |
-|---------|-------------|----------|
-| `dev` | Local development | API, UI, Keycloak, Postgres, Redis, MailHog, Seed |
-| `test` | Full E2E testing | Above + Playwright (all browsers), wallet-simulator |
-| `test-local` | Fast E2E testing | Above + Playwright (Chromium only), wallet-simulator |
-| `pytest` | Python tests | Postgres, Redis + pytest container |
-
-## URLs
-
-| Service | URL | Credentials |
-|---------|-----|-------------|
-| UI | http://localhost:9080 | - |
-| API | http://localhost:8000 | - |
-| Keycloak Admin | http://localhost:8180 | admin / admin |
-| MailHog | http://localhost:8025 | - |
-| Wallet Simulator | http://localhost:9081 | (test profile only) |
-
-## Demo Users
-
-| Role | Email | Password |
-|------|-------|----------|
-| Admin | admin@marty.demo | Admin123! |
-| Vendor | vendor@marty.demo | Vendor123! |
-| Applicant | john.doe@marty.demo | Applicant123! |
-| Applicant | jane.smith@marty.demo | Applicant123! |
-| Applicant | carlos.garcia@marty.demo | Applicant123! |
-
-## Makefile Targets
-
-```bash
-make help          # Show all commands
-make dev           # Start development environment
-make test          # Run E2E tests (all browsers)
-make test-local    # Run Chromium-only E2E tests
-make pytest        # Run Python unit/integration tests
-make build         # Build all service images
-make build-wallet  # Build wallet-simulator image
-make status        # Show service status
-make logs          # Follow logs
-make down          # Stop all services
-make clean         # Stop and remove volumes
-```
-
-## Wallet Simulator
-
-The wallet-simulator is a Flutter Web app from `marty-authenticator` used for E2E testing.
-
-```bash
-# Build the image (required before running tests)
-make build-wallet
-
-# Or build manually
-docker build -t ghcr.io/anthropic/marty-authenticator:local \
-  -f ../marty-authenticator/docker/Dockerfile.flutter.web.test \
-  ../marty-authenticator
-```
-
-## File Structure
-
-```
-Marty/
-├── docker-compose.yml      # Unified compose with profiles
-├── Makefile                # Entry point for all commands
-└── marty-ui/
-    ├── docker/
-    │   ├── api.Dockerfile         # Python API
-    │   ├── ui.Dockerfile          # React UI (nginx)
-    │   ├── seed.Dockerfile        # Database seeding
-    │   ├── init-databases.sh      # Postgres init script
-    │   └── Dockerfile.fluentd     # Logging (observability)
-    └── tests/
-        ├── Dockerfile.playwright       # Full browser E2E
-        ├── Dockerfile.playwright.local # Chromium-only E2E
-        └── Dockerfile.pytest           # Python test runner
-```
-
-## Troubleshooting
-
-### Services not starting
-```bash
-# Check status
-make status
-
-# View logs
-make logs
-
-# Clean restart
-make clean && make dev
-```
-
-### Wallet image not found
-```bash
-# Ensure marty-authenticator is cloned alongside Marty
-make build-wallet
-```
-
-### Database issues
-```bash
-# Reset databases
-make clean  # This removes volumes
-make dev
-```
-
-### Port conflicts
-Check if ports 8000, 8180, 9080, 9081, 6379, 5432 are in use:
-```bash
-lsof -i :8000
-```
+The retired helper's root build commands are not replacement publication
+procedures. Consult the image owner's current release and pull instructions
+rather than creating a parallel image publication path.

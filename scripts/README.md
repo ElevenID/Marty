@@ -31,3 +31,9 @@ python src/compile_protos.py
 
 See [compatibility tooling ownership](../docs/features/compatibility-tooling-ownership.md)
 for the canonical namespace and import aliases.
+
+The unused release/registry wrappers and legacy database initializer files
+are retired. Current package/image release ownership and registry login are
+described in [container workflows](../docs/guides/DOCKER.md). Retained unique
+demo data and acceptance requirements are in
+[demo data qualification](../docs/features/demo-data-qualification.md).
