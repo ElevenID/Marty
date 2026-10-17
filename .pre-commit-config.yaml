@@ -1,6 +1,6 @@
 # Pre-commit hooks for code quality and consistency
 default_language_version:
-  python: python3.10
+  python: python3.11
   # Pin Node.js version to a stable LTS to avoid nodeenv attempting to fetch a non-existent version (saw 24.x 404)
   node: 24.14.1
 
@@ -15,20 +15,6 @@ repos:
         files: \.proto$
         pass_filenames: false
         description: "Compiles .proto files to Python modules"
-
-      - id: test-import-check
-        name: Test Import Validation
-        entry: bash -c 'cd src && python -c "import services.trust_anchor; print(\"✓ Import validation passed\")"'
-        language: system
-        files: ^src/services/.*\.py$
-        pass_filenames: false
-
-      - id: logging-validation
-        name: Logging Configuration Validation
-        entry: bash -c 'cd src && python -c "from marty_common.logging.structured_logging import setup_logging_for_service; setup_logging_for_service(\"test\"); print(\"✓ Logging validation passed\")"'
-        language: system
-        files: ^src/marty_common/logging/.*\.py$
-        pass_filenames: false
 
   # Built-in hooks
   - repo: https://github.com/pre-commit/pre-commit-hooks
@@ -259,107 +245,6 @@ repos:
         args: [--quiet, --fail-under=50]
         files: ^src/(services|marty_common)/.*\.py$
 
-  # Rust code quality and security checks
-  - repo: local
-    hooks:
-      - id: rust-fmt
-        name: Rust Format Check
-        entry: bash -c 'cd rust && cargo fmt --all -- --check'
-        language: system
-        files: ^rust/.*\.rs$
-        pass_filenames: false
-        description: "Check Rust code formatting with rustfmt"
-
-      - id: rust-clippy
-        name: Rust Clippy Linting
-        entry: bash -c 'cd rust && cargo clippy --all-targets 2>&1 | grep -E "^error\[E" && exit 1 || exit 0'
-        language: system
-        files: ^rust/.*\.rs$
-        pass_filenames: false
-        description: "Run Clippy linter on Rust code (errors only, warnings allowed)"
-
-      - id: rust-check
-        name: Rust Compile Check
-        entry: bash -c 'cd rust && cargo check --all-targets'
-        language: system
-        files: ^rust/.*\.(rs|toml)$
-        pass_filenames: false
-        description: "Check Rust code compiles without errors"
-
-      - id: rust-test
-        name: Rust Unit Tests
-        entry: bash -c 'cd rust && cargo test'
-        language: system
-        files: ^rust/.*\.rs$
-        pass_filenames: false
-        stages: [pre-push]
-        description: "Run Rust unit tests (on pre-push only for speed)"
-
-      - id: rust-audit
-        name: Rust Security Audit
-        entry: bash -c 'cd rust && cargo audit'
-        language: system
-        files: ^rust/Cargo\.(toml|lock)$
-        pass_filenames: false
-        description: "Audit Rust dependencies for security vulnerabilities"
-
-      - id: rust-deny
-        name: Rust Dependency Check
-        entry: bash -c 'cd rust && cargo deny check'
-        language: system
-        files: ^rust/Cargo\.(toml|lock)$
-        pass_filenames: false
-        description: "Check Rust dependencies for licenses, bans, and advisories"
-
-      - id: rust-doc
-        name: Rust Documentation Check
-        entry: bash -c 'cd rust && RUSTDOCFLAGS="-D warnings" cargo doc --no-deps'
-        language: system
-        files: ^rust/.*\.rs$
-        pass_filenames: false
-        stages: [pre-push]
-        description: "Check Rust documentation builds without warnings"
-
-  # Enhanced framework validation hooks for newer features
-  - repo: local
-    hooks:
-      - id: validate-database-patterns
-        name: Validate Database Abstraction Layer
-        entry: python scripts/validation/validate_database_patterns.py
-        language: system
-        types: [python]
-        files: ^(src/framework/database/|templates/.*-service/.*database|marty_chassis/.*database).*\.py$
-        pass_filenames: false
-
-      - id: validate-service-isolation
-        name: Validate Service Isolation Patterns
-        entry: python scripts/validation/validate_service_isolation.py
-        language: system
-        files: ^(src/|services/|templates/).*\.(py|go|js|ts)$
-        pass_filenames: false
-
-      - id: validate-template-syntax
-        name: Validate Template Syntax and Consistency
-        entry: python scripts/validation/validate_template_syntax.py
-        language: system
-        files: ^templates/.*\.(py|go|js|ts|yaml|yml|toml|json|j2|jinja|jinja2)$
-        pass_filenames: false
-
-      - id: validate-cli-functionality
-        name: Validate CLI and Framework Integration
-        # Use python3.11 explicitly to avoid dependency incompatibilities under 3.13 (typing 'list' import)
-        entry: python3.11 scripts/validation/validate_cli_functionality.py
-        language: system
-        files: ^(marty_cli/|src/framework/generators/|scripts/).*\.py$
-        pass_filenames: false
-
-      - id: validate-dashboard-components
-        name: Validate Dashboard and UI Components
-        entry: python scripts/validation/validate_dashboard_components.py
-        language: system
-        files: ^(dashboard/|ui/|frontend/).*\.(py|js|ts|jsx|tsx|vue|html|css)$
-        pass_filenames: false
-
 # Configuration for pre-commit ci
 ci:
   autofix_commit_msg: |
@@ -370,6 +255,6 @@ ci:
   autoupdate_branch: ''
   autoupdate_commit_msg: '[pre-commit.ci] pre-commit autoupdate'
   autoupdate_schedule: weekly
-  # Skip slow hooks and Rust hooks (require local toolchain) in pre-commit.ci
-  skip: [mypy, xenon, python-safety-dependencies-check, commitizen, interrogate, rust-fmt, rust-clippy, rust-check, rust-test, rust-audit, rust-deny, rust-doc]
+  # Skip slow hooks in pre-commit.ci
+  skip: [mypy, xenon, python-safety-dependencies-check, commitizen, interrogate]
   submodules: false

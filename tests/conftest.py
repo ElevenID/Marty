@@ -17,45 +17,6 @@ except ModuleNotFoundError:  # pragma: no cover - fallback for minimal test envi
 from tests.fixtures.data_loader import test_data_loader
 
 
-# Kubernetes test fixtures
-@pytest.fixture(scope="session")
-def k8s_orchestrator():
-    """Session-scoped Kubernetes test orchestrator."""
-    from tests.k8s_test_orchestrator import KubernetesTestOrchestrator
-
-    project_root = Path(__file__).parent.parent
-    orchestrator = KubernetesTestOrchestrator(
-        project_root=project_root,
-        namespace="marty-test",
-    )
-    return orchestrator
-
-
-@pytest.fixture
-def k8s_test_env(k8s_orchestrator, request):
-    """Kubernetes test environment context manager."""
-    from tests.k8s_test_orchestrator import TestMode
-
-    # Determine test mode from markers
-    test_mode = TestMode.UNIT  # default
-    if request.node.get_closest_marker("integration"):
-        test_mode = TestMode.INTEGRATION
-    elif request.node.get_closest_marker("e2e"):
-        test_mode = TestMode.E2E
-
-    with k8s_orchestrator.test_environment(test_mode) as env:
-        yield env
-
-
-@pytest.fixture
-def k8s_service_urls(k8s_test_env):
-    """Get service URLs for Kubernetes-deployed services."""
-    return {
-        service_name: k8s_test_env.get_service_url(service_name)
-        for service_name in k8s_test_env.services.keys()
-    }
-
-
 # Test markers
 def pytest_configure(config):
     """Configure pytest with custom markers."""
