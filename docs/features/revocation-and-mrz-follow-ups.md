@@ -156,3 +156,21 @@ log/resource diagnostics remain test-infrastructure requirements for the current
 UI/integration owners. Keep owned isolated environments and deterministic cleanup;
 these prototypes were not executed proof of those capabilities. Existing test
 markers, non-Kubernetes fixtures and current source/data fixtures remain.
+
+The uncalled local-key generator, development-DSN mapper and obsolete Python
+unittest drivers are retired. Signing-key provisioning and issuance acceptance
+must use the current managed KMS/platform-signing boundary, not a second local
+ES256 key manager. Database credentials and migration ownership remain explicit
+current-owner configuration. Test selection must discover real current tests
+and exercise their supported services; empty discovery and a missing deployment
+are not passing integration evidence.
+
+The empty Docker test skeleton and the orphaned phase-test/E2E shell wrappers
+are retired as well. The skeleton contained no executable tests, and its README
+pointed to absent service and passport-flow test files; the wrappers named absent
+phase/performance tests or a retired Compose/UI stack. Real current service
+coverage and passport issuance-to-verification E2E coverage, including multiple
+sequential passports, startup/readiness, failure paths and isolated cleanup,
+remain unmet requirements until current owners supply executed tests. Use the
+repository's current pytest/Make/CI entrypoints for existing tests, and the UI
+and integration repositories for supported deployed-service qualification.
