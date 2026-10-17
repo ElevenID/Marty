@@ -87,3 +87,19 @@ uv run --no-sync python src/compile_protos.py
 
 See [check ownership](../docs/features/compatibility-check-ownership.md) for
 current security scans and the limits of manual typing/coverage diagnostics.
+
+The old root bridge-build, API-test and trust-onboarding verification wrappers
+are retired. Native build ownership is in
+[the ISO build guide](../docs/iso18013/BUILD_GUIDE.md); intended API and onboarding
+coverage is retained in
+[API and onboarding qualification](../docs/features/api-onboarding-qualification.md).
+Use actual pytest/Make selections and current UI/integration owners rather
+than source-text matches or an empty API test tree.
+
+The dev-container definition tied to the absent legacy Compose development
+service is retired too. The checkout environment above remains available.
+A future container must qualify Python/uv and native build prerequisites,
+current editor/lint/type-check tooling, pre-commit installation (including
+commit-message hooks), optional browser tooling, controlled output directories,
+non-root permissions, deliberate Docker access and only current service ports.
+No replacement container is delivered or claimed by removing the broken files.

@@ -12,7 +12,6 @@ def test_retired_python_asn1_models_cannot_return() -> None:
     ).exists()
     governed_files = (
         ROOT / "pyproject.toml",
-        ROOT / "mypy.ini",
         ROOT / "src/marty_plugin/pkd_service/requirements.txt",
     )
     assert all(

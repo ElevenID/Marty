@@ -1,1 +1,0 @@
-"""Credential configuration endpoint integration tests."""

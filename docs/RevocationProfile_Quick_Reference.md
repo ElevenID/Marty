@@ -1,5 +1,9 @@
 # RevocationProfile Quick Reference
 
+> Historical examples for the retired Python service layout. These endpoints,
+> batching and recovery claims are not current runtime acceptance. Reconcile
+> them with [open requirements](features/revocation-and-mrz-follow-ups.md).
+
 ## For Developers: Using RevocationProfiles
 
 ### Quick Start
@@ -374,7 +378,7 @@ async def test_revocation_delegation():
 A: Yes! Link different profiles to different Application Templates.
 
 **Q: What happens if RevocationProfile service is down?**  
-A: Graceful degradation: local credential status updates still succeed, status list update retried later.
+A: The old Python example updated local state on delegation failure, but did not prove durable retry. Current owners must qualify explicit failure/retry semantics; see the open feature requirements below.
 
 **Q: Can I change a profile after credentials are issued?**  
 A: Yes, but be careful: changes affect all future revocations for credentials using that profile.
@@ -389,6 +393,5 @@ A: Yes! Set `status_list_strategy: "registry"` and provide `status_list_base_url
 
 **Need help?** Check the full documentation in:
 - `RevocationProfile_Proposal.md` - Architecture and design
-- `RevocationProfile_Implementation_Summary.md` - Implementation details
 - `RevocationProfile_Integration_Architecture.md` - Integration flows
 - [Open feature requirements](features/revocation-and-mrz-follow-ups.md) - retained unfinished work and acceptance boundaries

@@ -1,1 +1,0 @@
-"""Organization endpoint integration tests."""
