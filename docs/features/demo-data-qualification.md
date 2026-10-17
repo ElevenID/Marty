@@ -54,3 +54,14 @@ failure handling and deterministic cleanup. Use the
 [native interoperability follow-ups](native-interop-and-reliability-follow-ups.md).
 These requirements remain open until current-source acceptance demonstrates
 them; deleting historical bootstraps implements none of them.
+
+## Synthetic generator integration follow-up
+
+The redundant synthetic-demo wrapper is retired; the real
+[synthetic generator](../../scripts/generate_synthetic_data.py) remains.
+Preserve offline file generation and the intended isolated trust-store import
+of CSCA/DS certificates, master lists and CRLs, with countries and bounded
+passport/mDL/mdoc/DTC counts. Qualify referential/cryptographic consistency,
+negative cases, repeatability, failure reporting and cleanup against current
+owners. The wrapper's missing integration tester was not executable acceptance;
+optional legacy trust imports do not establish a supported current database path.
