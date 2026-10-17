@@ -18,9 +18,9 @@ Welcome to the comprehensive documentation for the Marty Platform - an education
 
 ### Implementation Guides
 
-- **[DRY_IMPLEMENTATION_GUIDE.md](DRY_IMPLEMENTATION_GUIDE.md)** - Complete DRY patterns reference
+- **[DRY_IMPLEMENTATION_GUIDE.md](DRY_IMPLEMENTATION_GUIDE.md)** - Shared infrastructure ownership, retained compatibility APIs and scaffolding requirements
 - **[CRYPTOGRAPHIC_BOUNDARIES_GUIDE.md](CRYPTOGRAPHIC_BOUNDARIES_GUIDE.md)** - Crypto security implementation
 - **[GRPC_SERVICE_FACTORY_GUIDE.md](GRPC_SERVICE_FACTORY_GUIDE.md)** - gRPC service patterns
-- **[SERVICE_TEMPLATE_GUIDE.md](SERVICE_TEMPLATE_GUIDE.md)** - Service generation templates
+- **[DATABASE_QUICK_START.md](DATABASE_QUICK_START.md)** - Current database owners and migration/isolation requirements
 
 All documentation follows Markdown standards and can be viewed in any Markdown-compatible viewer or IDE.

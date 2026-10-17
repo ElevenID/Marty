@@ -14,3 +14,20 @@ Compose/Kubernetes resources. Their removal leaves
 [wallet interoperability requirements](../docs/demos/microsoft_authenticator.md)
 open. The remaining source-level, native-wheel and maintenance scripts are not
 a claim that a retired Python service deployment is supported.
+
+The orphan Python service generator and retired development/database/image
+launchers have also been removed. Their retained requirements and public
+compatibility APIs are documented in
+[shared service infrastructure ownership](../docs/DRY_IMPLEMENTATION_GUIDE.md)
+and [database migration requirements](../docs/DATABASE_QUICK_START.md).
+
+Use the root Makefile for this repository's `install`, `test`, `lint` and
+`package` tasks. Regenerate protocol bindings from a checkout with:
+
+```sh
+python -m pip install grpcio-tools==1.76.0
+python src/compile_protos.py
+```
+
+See [compatibility tooling ownership](../docs/features/compatibility-tooling-ownership.md)
+for the canonical namespace and import aliases.
