@@ -287,6 +287,7 @@ disable_error_code = ["misc", "attr-defined", "no-untyped-def", "assignment", "a
 [[tool.mypy.overrides]]
 module = "tests.*"
 disallow_untyped_defs = false
+disallow_untyped_calls = false
 disallow_incomplete_defs = false
 disallow_untyped_decorators = false
 disallow_any_generics = false
