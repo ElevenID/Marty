@@ -59,3 +59,31 @@ object-storage/KMS/event-bus integration, ingress, resource bounds/autoscaling,
 scheduling and monitoring/mesh requirements where supported. The removed
 values writer did not provide chart templates or qualify those integrations;
 its fixed ports, images and credentials are not defaults to restore.
+
+## Checkout environment
+
+The former uncalled environment bootstrap is retired. With Python 3.11 or
+newer and uv installed, create an isolated environment and install the
+compatibility checkout:
+
+```sh
+uv venv
+uv pip install -e .
+```
+
+Use `uv run --no-sync` to execute in that environment, or activate
+`.venv/bin/activate` on POSIX / `.venv\Scripts\Activate.ps1` in PowerShell.
+For repository test/build tools, run the root `make install` inside the
+activated environment. Service data directories are provisioned by their owning
+services; creating empty historical directories does not initialize a stack.
+
+Protocol generation is optional for ordinary package use. When changing
+schemas, install the pinned compiler into the same environment:
+
+```sh
+uv pip install grpcio-tools==1.76.0
+uv run --no-sync python src/compile_protos.py
+```
+
+See [check ownership](../docs/features/compatibility-check-ownership.md) for
+current security scans and the limits of manual typing/coverage diagnostics.

@@ -591,7 +591,8 @@ class DatabaseManager:
                 # Add the sync_id to the params
                 params.append(sync_id)
 
-                query = f"UPDATE sync_jobs SET {', '.join(query_parts)} WHERE id = ?"
+                # query_parts contains fixed column assignments; all values are bound.
+                query = f"UPDATE sync_jobs SET {', '.join(query_parts)} WHERE id = ?"  # nosec B608
 
                 await db.execute(query, params)
                 await db.commit()

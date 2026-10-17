@@ -270,13 +270,14 @@ class DatabaseKeyStore(KeyStore):
 
             where_clause = " WHERE " + " AND ".join(conditions) if conditions else ""
 
+            # Only fixed column predicates are interpolated; values use params below.
             select_sql = f"""
             SELECT key_id, key_type, algorithm, key_size, service_name,
                    created_at, expires_at, status, version, parent_key_id,
                    rotation_policy_id, tags
             FROM key_store{where_clause}
             ORDER BY created_at DESC
-            """
+            """  # nosec B608
 
             results = self.db.fetchall(select_sql, params)
 

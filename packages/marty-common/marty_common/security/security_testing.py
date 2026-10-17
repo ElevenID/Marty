@@ -509,7 +509,8 @@ class CryptographyTestUtils:
         return private_pem, public_pem
 
     @staticmethod
-    def test_jwt_security(secret: str = "test_secret") -> dict[str, Any]:
+    # Deliberately weak synthetic input for the JWT vulnerability test helper.
+    def test_jwt_security(secret: str = "test_secret") -> dict[str, Any]:  # nosec B107
         """Test JWT implementation security.
 
         Args:
