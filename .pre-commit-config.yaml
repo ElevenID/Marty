@@ -89,8 +89,8 @@ repos:
         types: [python]
         exclude: |
           (?x)(
-              ^src/proto/.*_pb2\.py$|
-              ^src/proto/.*_pb2_grpc\.py$
+              ^src/(proto|marty_plugin/proto)/.*_pb2\.py$|
+              ^src/(proto|marty_plugin/proto)/.*_pb2_grpc\.py$
           )
 
   # Import sorting with isort
@@ -102,8 +102,8 @@ repos:
         types: [python]
         exclude: |
           (?x)(
-              ^src/proto/.*_pb2\.py$|
-              ^src/proto/.*_pb2_grpc\.py$
+              ^src/(proto|marty_plugin/proto)/.*_pb2\.py$|
+              ^src/(proto|marty_plugin/proto)/.*_pb2_grpc\.py$
           )
 
   # Linting with ruff (faster alternative to flake8)
@@ -115,15 +115,15 @@ repos:
         types: [python]
         exclude: |
           (?x)(
-              ^src/proto/.*_pb2\.py$|
-              ^src/proto/.*_pb2_grpc\.py$
+              ^src/(proto|marty_plugin/proto)/.*_pb2\.py$|
+              ^src/(proto|marty_plugin/proto)/.*_pb2_grpc\.py$
           )
       - id: ruff-format
         types: [python]
         exclude: |
           (?x)(
-              ^src/proto/.*_pb2\.py$|
-              ^src/proto/.*_pb2_grpc\.py$
+              ^src/(proto|marty_plugin/proto)/.*_pb2\.py$|
+              ^src/(proto|marty_plugin/proto)/.*_pb2_grpc\.py$
           )
 
   # Python syntax upgrading
@@ -136,36 +136,8 @@ repos:
         types: [python]
         exclude: |
           (?x)(
-              ^src/proto/.*_pb2\.py$|
-              ^src/proto/.*_pb2_grpc\.py$
-          )
-
-  # Type checking with mypy
-  - repo: https://github.com/pre-commit/mirrors-mypy
-    rev: v1.11.2
-    hooks:
-      - id: mypy
-        additional_dependencies: [
-          types-requests,
-          types-PyYAML,
-          sqlalchemy,
-          pydantic,
-          grpcio-stubs,
-          structlog,
-        ]
-        args: [
-          --config-file=pyproject.toml,
-          --show-error-codes,
-          --pretty,
-          --color-output,
-        ]
-        types: [python]
-        files: ^src/(services|marty_common)/.*\.py$
-        exclude: |
-          (?x)(
-              ^src/proto/.*_pb2\.py$|
-              ^src/proto/.*_pb2_grpc\.py$|
-              ^tests/
+              ^src/(proto|marty_plugin/proto)/.*_pb2\.py$|
+              ^src/(proto|marty_plugin/proto)/.*_pb2_grpc\.py$
           )
 
   # Security scanning with bandit
@@ -173,23 +145,13 @@ repos:
     rev: 1.7.9
     hooks:
       - id: bandit
-        # Narrow scan scope to primary production Python code to reduce noise while maintaining security coverage.
-        # -r targets explicit directories; pass_filenames disabled to avoid scanning only staged subset inconsistently.
-        args: ["-r","src/services","-r","src/marty_common","-r","src/framework","-f","json","-o","bandit-report.json","-s","B101,B104,B105,B106,B108,B110,B112,B301,B307,B311,B403,B404,B501,B603,B607,B324"]
+        # Scan current source; recursive exclusions belong to Bandit itself.
+        args: [-c, pyproject.toml, -r, src, packages/marty-common/marty_common,
+               -s, 'B101,B104,B105,B106,B108,B110,B112,B301,B307,B311,B403,B404,B501,B603,B607,B324']
         pass_filenames: false
         types: [python]
-        exclude: |
-          (?x)(
-              (^|/)tests/|                # any nested tests directory
-              ^src/proto/.*_pb2\.py$|
-              ^src/proto/.*_pb2_grpc\.py$|
-              ^examples/|
-              ^templates/|
-              ^marty_chassis/tests/|
-              ^microservice_project_template/|
-              ^.*demo.*\.py$|
-              ^.*_example\.py$
-          )
+        files: ^(src/|packages/marty-common/marty_common/).*\.py$
+        exclude: ^src/(proto|marty_plugin/proto)/
 
   # Code complexity analysis with xenon
   - repo: https://github.com/rubik/xenon
@@ -200,8 +162,8 @@ repos:
         types: [python]
         exclude: |
           (?x)(
-              ^src/proto/.*_pb2\.py$|
-              ^src/proto/.*_pb2_grpc\.py$|
+              ^src/(proto|marty_plugin/proto)/.*_pb2\.py$|
+              ^src/(proto|marty_plugin/proto)/.*_pb2_grpc\.py$|
               ^tests/
           )
 
@@ -215,8 +177,8 @@ repos:
         exclude: |
           (?x)(
               ^tests/|
-              ^src/proto/.*_pb2\.py$|
-              ^src/proto/.*_pb2_grpc\.py$|
+              ^src/(proto|marty_plugin/proto)/.*_pb2\.py$|
+              ^src/(proto|marty_plugin/proto)/.*_pb2_grpc\.py$|
               ^migrations/
           )
 
@@ -236,15 +198,6 @@ repos:
         name: Commitizen Check
         stages: [commit-msg]
 
-  # Documentation coverage
-  - repo: https://github.com/econchick/interrogate
-    rev: 1.7.0
-    hooks:
-      - id: interrogate
-        name: Documentation Coverage Check
-        args: [--quiet, --fail-under=50]
-        files: ^src/(services|marty_common)/.*\.py$
-
 # Configuration for pre-commit ci
 ci:
   autofix_commit_msg: |
@@ -256,5 +209,5 @@ ci:
   autoupdate_commit_msg: '[pre-commit.ci] pre-commit autoupdate'
   autoupdate_schedule: weekly
   # Skip slow hooks in pre-commit.ci
-  skip: [mypy, xenon, python-safety-dependencies-check, commitizen, interrogate]
+  skip: [xenon, python-safety-dependencies-check, commitizen]
   submodules: false

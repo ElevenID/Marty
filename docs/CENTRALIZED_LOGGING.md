@@ -56,3 +56,46 @@ centralized logging is qualified:
 - Reproducible backend provisioning, readiness, sample-event ingestion/search,
   schema checks, failure diagnostics and deterministic disposable cleanup.
   No deployment manifest, dashboard or alert is supplied by this document.
+
+## Metrics, tracing and operational qualification
+
+The retired advanced-monitoring and observability implementation/deployment
+guides referenced absent monitoring, Helm and Kubernetes resources. Their
+completion labels do not establish current capabilities. The following
+requirements remain open until current MMF/UI owners demonstrate them:
+
+- Cross-service distributed tracing, HTTP/gRPC client/server spans, domain spans,
+  service/namespace/version/environment attribution, and correlated trace/span
+  IDs in logs. Qualify configurable OTLP export, disabled/debug modes, sampling,
+  batch limits and dropped/export-failure behavior against the chosen backend.
+- Real metrics discovery/scraping, endpoint/network authorization, collector and
+  target readiness, bounded label cardinality, sensible histogram/query units,
+  storage sizing, retention, backup and tested recovery. Keep approved
+  configuration under its deployment owner rather than restoring fixed examples.
+- Trust/certificate issuance, renewal, expiry, validation, signing, revocation,
+  PKI/KMS connectivity and audit metrics; HTTP/gRPC calls, streams, failures,
+  active requests and dependency health; database pools, query times,
+  transactions/rollbacks and replication lag where applicable; node/pod/resource
+  health and restart/network failures.
+- Operational, security and business views with role-based access. Authentication,
+  authorization/MFA/rate-limit events and audit completeness need real evidence.
+  Document volumes, SLA measures, revenue/cost and geographic/client analyses,
+  customer satisfaction, forecasting, threat intelligence and anomaly detection
+  remain scoped proposals until their data sources, privacy policy and owners
+  are established. Mobile/voice/AR views and automated remediation are proposals.
+- Alert expression and sustained-window tests, grouping/inhibition, no-data
+  behavior, delivery confirmation, routing to authorized channels, escalation,
+  acknowledgement/recovery and runbook links. Review thresholds and response
+  commitments with owners; old contact addresses, credentials, retention sizes
+  and escalation times are not current operational policy.
+- Authenticated TLS-protected dashboards/collectors, least-privilege service
+  accounts, managed notification credentials and administrative audit.
+  Exercise real request-to-span/log/metric correlation, alert delivery and
+  failure diagnostics in a disposable environment with deterministic cleanup.
+- Review dashboard/query accuracy, alert noise, capacity trends, access and
+  runbooks regularly. Monitor the collectors, stores and notification pipeline
+  themselves; a healthy service endpoint does not prove usable observability.
+
+Use [performance qualification](PERFORMANCE_TESTING.md) for calibrated
+workloads and comparable evidence. The retained Python logging, metrics and
+observability APIs remain unchanged by this consolidation.

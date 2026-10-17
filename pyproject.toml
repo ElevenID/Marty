@@ -186,7 +186,7 @@ known_first_party = ["src", "marty_grpc"]
 sections = ["FUTURE", "STDLIB", "THIRDPARTY", "FIRSTPARTY", "LOCALFOLDER"]
 
 [tool.mypy]
-python_version = "3.10"
+python_version = "3.11"
 # Strict mode settings for strong typing
 warn_return_any = true
 warn_unused_configs = true
@@ -225,29 +225,7 @@ cache_dir = ".mypy_cache"
 # Module discovery - use explicit module discovery
 mypy_path = "src"
 explicit_package_bases = true
-# Service-specific paths for better coverage
-files = ["src/services/", "src/marty_common/"]
-
-
-module = "src.proto.*"
-ignore_errors = true
-
-# Service-specific module configuration
-# Allow relaxed typing for gRPC protobuf integration
-[[tool.mypy.overrides]]
-module = [
-    "services.trust_anchor",
-    "services.document_signer.document_signer",
-    "services.certificate_lifecycle_manager",
-    "services.csca",
-    "services.pkd_service",
-    "services.mdl_engine",
-    "services.dtc_engine",
-    "services.passport_engine",
-    "services.mdoc_engine"
-]
-# Disable specific error codes that conflict with gRPC protobuf usage
-disable_error_code = ["misc", "attr-defined"]
+# Explicit-file diagnostics: no default paths for the retired service tree.
 
 # Core typed services - these should have zero errors
 [[tool.mypy.overrides]]
@@ -263,7 +241,7 @@ warn_unused_ignores = true
 module = "proto.*"
 ignore_errors = true
 [[tool.mypy.overrides]]
-module = "src.proto.*"
+module = ["src.proto.*", "marty_plugin.proto.*"]
 ignore_errors = true
 
 # Imports with src prefix patterns - ignore import-related errors
@@ -299,22 +277,10 @@ module = [
     "marty_common.grpc_types",
     "marty_common.error_handling",
     "marty_common.config",
-    "marty_common.logging_config",
-    "services.*"
+    "marty_common.logging_config"
 ]
 disallow_untyped_defs = false
 disable_error_code = ["misc", "attr-defined", "no-untyped-def", "assignment", "arg-type", "no-any-return", "name-defined", "import-not-found", "import-untyped", "call-overload", "union-attr", "unreachable", "unused-ignore", "type-arg", "call-arg", "return-value", "index", "operator", "var-annotated", "unused-coroutine", "await-not-async", "no-untyped-call", "has-type", "return", "override", "no-redef", "truthy-function", "dict-item", "abstract"]
-
-# Service modules still being improved
-[[tool.mypy.overrides]]
-module = [
-    "services.rfid_reader_service",
-    "services.inspection_system",
-    "services.certificate_rotation_service",
-    "services.credential_ledger"
-]
-disallow_untyped_defs = false
-disable_error_code = ["misc", "attr-defined", "no-untyped-def", "name-defined", "import", "arg-type", "assignment"]
 
 # Tests - relaxed type checking
 [[tool.mypy.overrides]]
@@ -343,15 +309,14 @@ module = [
 ignore_missing_imports = true
 
 [tool.bandit]
-exclude_dirs = ["tests", "src/tests"]
+exclude_dirs = [
+    "*/tests/*", "*src/proto/*", "*src/marty_plugin/proto/*",
+]
 skips = [
     "B101",  # Skip assert_used test
     "B404",  # Skip subprocess import warnings (handled by ruff)
     "B603",  # Skip subprocess without shell=True when properly used
 ]
-
-[tool.bandit.assert_used]
-skips = ["*_test.py", "*test*.py"]
 
 [tool.pydocstyle]
 convention = "google"

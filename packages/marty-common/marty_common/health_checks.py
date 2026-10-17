@@ -9,8 +9,7 @@ from __future__ import annotations
 
 import logging
 import socket
-import time
-from typing import Any
+from urllib.parse import urlsplit
 
 try:
     import asyncpg
@@ -134,6 +133,8 @@ def check_http_service(url: str, timeout: float = 5.0, expected_status: int = 20
         True if service responds with expected status, False otherwise
     """
     try:
+        if urlsplit(url).scheme.lower() not in {"http", "https"}:
+            return False
         import httpx
 
         with httpx.Client(timeout=timeout) as client:
@@ -145,8 +146,17 @@ def check_http_service(url: str, timeout: float = 5.0, expected_status: int = 20
         try:
             import urllib.request
 
+            class HttpOnlyRedirectHandler(urllib.request.HTTPRedirectHandler):
+                """Keep fallback redirects inside the HTTP transport boundary."""
+
+                def redirect_request(self, req, fp, code, msg, headers, newurl):
+                    if urlsplit(newurl).scheme.lower() not in {"http", "https"}:
+                        raise urllib.error.URLError("Non-HTTP health-check redirect")
+                    return super().redirect_request(req, fp, code, msg, headers, newurl)
+
             request = urllib.request.Request(url)
-            with urllib.request.urlopen(request, timeout=timeout) as response:
+            opener = urllib.request.build_opener(HttpOnlyRedirectHandler())
+            with opener.open(request, timeout=timeout) as response:
                 return response.getcode() == expected_status
 
         except Exception as e:
