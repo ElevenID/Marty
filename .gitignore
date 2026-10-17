@@ -200,3 +200,6 @@ tests/e2e/videos/
 /data/ml_test_new/
 /data/small_test/
 /data/test_master_lists/
+
+# Generated XML coverage report; configuration remains in pyproject.toml.
+/coverage.xml
