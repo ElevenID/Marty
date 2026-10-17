@@ -103,3 +103,56 @@ Use [OBv3 readiness](../../src/digital_identity/docs/OBV3_READINESS.md) for that
 feature's retained checklist and current source-bound owners for implementation.
 Source fixtures, contracts, baselines and operational documentation remain
 eligible for version control; generated reports use `reports/generated/`.
+
+## Unclosed deployment and integration acceptance
+
+Retired validation and integration-test reports at checkpoint `3b28fef` were
+session summaries, not current acceptance results. The former tested basic Kind
+operations and protobuf imports; it did not deploy and exercise the full service
+stack because its Docker build hit resource limits. Full-stack startup, service
+health, real cross-service requests and failure paths still need executed
+acceptance against the supported deployment owners. Lightweight cluster checks
+do not close that requirement.
+
+The digital-identity report named an integration test file that is absent from
+the current tree and admitted that unresolved `organizations` and
+`trust_frameworks` foreign keys blocked execution. Preserve the intended CRUD,
+linkage, persistence, event publication and negative-path coverage for trust
+profiles, credential/application templates, presentation policies, deployment
+profiles and flows. Scenarios include airport boarding, age predicates instead
+of full birth dates, employee access, holder binding/freshness and multiple
+online/offline/hybrid deployments with locale-specific UX. Reconcile schema
+ownership and fixtures against the current service owners, then execute and add
+their tests to CI. Do not weaken production foreign keys merely to unblock a
+fixture. No test coverage or feature completion is claimed by deleting a report.
+
+The retired database proof scripts connected to fixed localhost development
+accounts and some created ad hoc test tables. Their config API and service-name
+list are not current deployment contracts. Retain service-owned database
+configuration, migrations and transaction boundaries, and qualify isolation and
+cross-service access denial with disposable databases and the current owners'
+positive/negative tests. Deleting the scripts supplies no new isolation proof.
+
+Retired pre-commit checks targeted the removed Python framework, generators,
+templates, CLI, UI and root Rust workspace. Current general code/security hooks
+and protobuf compilation remain, together with CI and the source ownership and
+native packaging tests. Platform Rust checks belong to their owning repositories;
+the compatibility repository must not recreate the retired framework merely to
+satisfy directory/substring heuristics.
+
+The orphaned Kind/nginx, Sphereon/import, make-target, security-presence,
+development-tool and template-debug checkers are retired too. They referenced
+missing owners or performed source/import smoke checks rather than exercising
+supported service behavior. Preserve actual security scanning, development setup
+and retained configuration. OID4VCI/OID4VP wallet qualification, authenticated
+service boundaries, real deployment behavior, current configuration validation
+and positive/negative security tests remain obligations of their current owners;
+removing these old scripts does not satisfy them.
+
+Unused Kubernetes fixtures that imported a missing orchestrator are retired as
+part of that closure. Disposable namespace lifecycle, service health/discovery,
+authenticated gRPC, port-forward cleanup, deployment/Helm readiness, and useful
+log/resource diagnostics remain test-infrastructure requirements for the current
+UI/integration owners. Keep owned isolated environments and deterministic cleanup;
+these prototypes were not executed proof of those capabilities. Existing test
+markers, non-Kubernetes fixtures and current source/data fixtures remain.
