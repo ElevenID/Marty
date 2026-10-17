@@ -456,48 +456,25 @@ config/
 
 Set environment: `export MARTY_ENV=development`
 
-### OpenXPKI Integration Setup
+### OpenXPKI integration ownership
 
-⚠️ **Important**: OpenXPKI services require explicit credential configuration. No defaults are provided for security.
+The compatibility OpenXPKI/certificate/trust code remains. This checkout does
+not contain the former OpenXPKI Compose or environment-example files, and the
+obsolete setup wrapper is retired. It is not a supported local PKI deployment.
 
-**Quick Setup for Development**:
+A current deployment owner must supply backend provisioning, realm and CA/TLS
+configuration, authenticated credentials via its secret-management boundary,
+TLS certificate verification, readiness and failure handling, and persistent
+state/backup/recovery. Do not restore shared development passwords or disable
+TLS verification as a replacement.
 
-```bash
-# 1. Setup environment configuration
-cp docker/openxpki.env.example docker/openxpki.env
-# Edit docker/openxpki.env and set OPENXPKI_USERNAME/PASSWORD
-
-# 2. Start OpenXPKI container with credentials
-docker-compose -f docker/docker-compose.openxpki.yml up -d
-
-# 3. Initialize OpenXPKI configuration and create development secrets
-./scripts/development/setup_openxpki.sh
-
-# 4. Verify OpenXPKI is running
-curl -k https://localhost:8443/openxpki/
-```
-
-**Credential Configuration Options**:
-
-1. **Environment Variables** (development):
-
-   ```bash
-   export OPENXPKI_USERNAME="pkiadmin"
-   export OPENXPKI_PASSWORD="your_secure_password"
-   ```
-
-2. **Secret Files** (production):
-
-   ```bash
-   echo "admin_user" > /run/secrets/openxpki_username
-   echo "secure_password" > /run/secrets/openxpki_password
-   export OPENXPKI_USERNAME_FILE="/run/secrets/openxpki_username"
-   export OPENXPKI_PASSWORD_FILE="/run/secrets/openxpki_password"
-   ```
-
-**Validation**: Services will fail to start with `ValueError` if credentials are not provided.
-
-See `docs/SECRETS_MANAGEMENT.md` for production deployment patterns.
+End-to-end acceptance must exercise authorized enrollment/issuance, certificate
+chain and revocation behavior, trust synchronization, credential failure paths,
+and deterministic cleanup in an isolated environment. These are open integration
+requirements; retaining the client APIs does not demonstrate an operational PKI.
+Use [shared infrastructure ownership](DRY_IMPLEMENTATION_GUIDE.md) when
+reconciling current owners; use the selected deployment owner's current
+secret-management configuration and runbook.
 
 ## Integration Examples
 

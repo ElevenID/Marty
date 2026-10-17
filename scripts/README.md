@@ -37,3 +37,25 @@ are retired. Current package/image release ownership and registry login are
 described in [container workflows](../docs/guides/DOCKER.md). Retained unique
 demo data and acceptance requirements are in
 [demo data qualification](../docs/features/demo-data-qualification.md).
+
+The unconsumed Helm-values, logging/OpenXPKI setup, synthetic-demo and OBv3
+wrappers are retired. Actual logging/certificate APIs, the synthetic generator
+and the compliance-profile seeder remain. Retained requirements are described in
+[logging ownership](../docs/CENTRALIZED_LOGGING.md),
+[OpenXPKI integration](../docs/DEVELOPER_GUIDE.md#openxpki-integration-ownership),
+[demo qualification](../docs/features/demo-data-qualification.md) and
+[OBv3 readiness](../src/digital_identity/docs/OBV3_READINESS.md).
+
+Performance execution belongs to
+[marty-performance](https://github.com/ElevenID/marty-performance); the former
+Python runner and reporting wrappers are retired. See
+[performance requirements](../docs/PERFORMANCE_TESTING.md) for their unclosed
+workload and observability intent.
+
+Helm/deployment configuration must come from the current UI stack owner.
+Preserve per-service identity and secret references, least-privilege pod/service
+accounts, verified TLS/mTLS, database isolation/pools and migrations, optional
+object-storage/KMS/event-bus integration, ingress, resource bounds/autoscaling,
+scheduling and monitoring/mesh requirements where supported. The removed
+values writer did not provide chart templates or qualify those integrations;
+its fixed ports, images and credentials are not defaults to restore.
