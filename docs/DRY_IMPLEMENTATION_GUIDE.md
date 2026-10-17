@@ -1,167 +1,75 @@
-# DRY Implementation Guide - Complete Reference
+# Shared service infrastructure and scaffolding ownership
 
-## Overview
+The former Python service generator required a missing `templates/` tree, and
+its Docker build launchers required missing Dockerfiles. The generator, build
+launchers and duplicate service-template/refactoring guides are retired.
+Historical completion claims and code-reduction percentages do not qualify
+the current service stack.
 
-This guide documents the comprehensive Don't Repeat Yourself (DRY) implementation across the Marty platform, covering all phases from initial refactoring through ultra-DRY patterns.
+Current Rust service infrastructure belongs to
+[Marty Microservices Framework](https://github.com/ElevenID/marty-microservices-framework);
+runtime composition, service images and deployment belong to
+[marty-ui](https://github.com/ElevenID/marty-ui). Follow their current source
+and workflows when adding or changing a service.
 
-## Implementation Summary
+## Published Python compatibility infrastructure
 
-### Phase 1: Core DRY Patterns (Completed)
+The `marty-common` package retains its existing public interfaces. Removing
+the orphan generator does not remove or migrate these APIs:
 
-- **Docker Configuration**: 60% reduction (50+ → <20 lines per service)
-- **Service Configuration**: 70% reduction (85+ → ~30 lines per service)
-- **Server Setup Code**: 84% reduction (50+ → ~8 lines per service)
-- **Test Infrastructure**: 78% reduction (94+ → ~20 lines per service)
+- [Base configuration classes](../packages/marty-common/marty_common/base_config.py)
+  and [configuration manager](../packages/marty-common/marty_common/config_manager.py).
+- [gRPC service factory](../packages/marty-common/marty_common/grpc_service_factory.py)
+  and [server framework](../packages/marty-common/marty_common/grpc_server.py).
+- [Shared testing utilities](../packages/marty-common/marty_common/testing/README.md).
 
-### Phase 2: Enhanced DRY Patterns (Completed)
+Use the actual package signatures rather than the retired generated examples.
+Consumers, registration behavior and configuration policy require qualification
+before replacing these interfaces. See
+[compatibility tooling ownership](features/compatibility-tooling-ownership.md).
 
-- **Service Registration Auto-Discovery**: 90% code reduction
-- **Configuration Factory Pattern**: Centralized configuration management
-- **Ultra-DRY Service Templates**: 80% reduction in new service code
+Deterministic document verification and protocol cryptography remain Rust
+owned. Python maps requests and typed results and fails closed when required
+native capabilities are unavailable; see
+[Rust verification and protocol migration](RUST_VERIFICATION_MIGRATION.md).
 
-### Phase 3: Priority-Based Implementation (Completed)
+## Service scaffolding requirements
 
-- **High Priority**: Service Factory migrations for critical services
-- **Medium Priority**: Database setup consolidation and YAML inheritance
-- **Low Priority**: Docker standardization and test pattern consolidation
+A replacement scaffold is future work unless the current owner demonstrates
+it. Retiring the old generator does not deliver a Rust scaffolder or prove
+parity with its advertised gRPC, HTTP, hybrid and minimal service variants.
+A reviewed scaffold should provide:
 
-## Core Components
+- Service identity and validated environment configuration, with deliberate
+  dependency selection and compatibility with its owning workspace.
+- Protocol definitions or HTTP routes, typed business boundaries and explicit
+  errors, health/readiness, graceful shutdown and approved transport security.
+- Shared logging, metrics and tracing with service discovery/registration
+  tested against the real runtime.
+- Meaningful positive/negative service tests, reusable fixtures, a reproducible
+  container build and CI checks for the generated service.
 
-### 1. gRPC Service Factory
+The old plans for automated migration, dependency analysis, enhanced templates
+and experimental pattern detection remain unqualified proposals. Likewise,
+shared monitoring, gateway integration and service-mesh traffic/security
+requirements belong with their current owners and need actual qualification;
+they are not completed by this documentation cleanup.
 
-**File**: `src/marty_common/grpc_service_factory.py`
+## Development commands
 
-Ultra-DRY service registration with auto-discovery:
+For this compatibility repository, the root Makefile exposes `install`,
+`test`, `lint` and `package`. Their dependency and native-backend requirements
+still apply. Current stack startup and service image workflows belong to
+[marty-ui development setup](https://github.com/ElevenID/marty-ui/blob/main/DEVELOPMENT_SETUP.md).
 
-```python
-# Single-line service startup
-serve_auto_service("service-name", "module.path", config_manager)
+Protocol regeneration remains a working checkout command:
+
+```sh
+python -m pip install grpcio-tools==1.76.0
+python src/compile_protos.py
 ```
 
-**Features**:
-
-- Auto-discovery of servicer classes using naming conventions
-- Automatic registration function detection
-- Built-in health checks, logging, and reflection
-- Signal handling and graceful shutdown
-
-### 2. Configuration Factory
-
-**File**: `src/marty_common/service_config_factory.py`
-
-Centralized configuration management:
-
-```python
-# Automatic configuration with service-specific defaults
-config_manager = get_config_manager("service-name")
-```
-
-**Features**:
-
-- Service-specific defaults
-- Automatic environment variable mapping
-- Type conversion and validation
-- LRU caching for performance
-
-### 3. Shared Base Classes
-
-**File**: `src/marty_common/base_config.py`
-
-Configuration inheritance reducing duplication:
-
-```python
-class MyServiceConfig(GRPCServiceConfig):
-    # Only service-specific fields needed
-    processing_timeout: int = Field(default=60)
-```
-
-### 4. Docker Base Images
-
-**Files**: `docker/base.Dockerfile`, `docker/service.Dockerfile`
-
-Standardized container builds:
-
-```dockerfile
-FROM marty-base:latest
-# Minimal service-specific configuration
-```
-
-### 5. Test Utilities
-
-**File**: `src/marty_common/testing/test_utilities.py`
-
-Standardized testing patterns:
-
-```python
-# Centralized mock creation
-grpc_mocks = StandardServiceMocks.create_grpc_service_mock("service-name")
-```
-
-### 6. Service Template Generator
-
-**File**: `scripts/generate_service.py`
-
-Automated service generation:
-
-```bash
-python scripts/generate_service.py grpc my-new-service
-```
-
-## Migration Guide
-
-### Existing Services
-
-1. **Configuration Migration**: Replace configuration with base class inheritance
-2. **Server Setup Migration**: Use gRPC Service Factory
-3. **Test Migration**: Update to standardized test patterns
-4. **Docker Migration**: Update to base image pattern
-
-### New Services
-
-Use the service generator for instant DRY compliance:
-
-- 72% reduction in total code needed
-- Automatic incorporation of all DRY patterns
-- Production-ready services in minutes
-
-## Templates Available
-
-- **gRPC Service**: Pure gRPC microservice
-- **FastAPI Service**: HTTP API service
-- **Hybrid Service**: Combined gRPC/FastAPI
-- **Minimal Service**: Basic service template
-
-## Benefits Achieved
-
-### Quantitative
-
-- **850+ lines eliminated** across 10+ services
-- **60-90% code reduction** in various patterns
-- **100% standardization** of common patterns
-
-### Qualitative
-
-- Single source of truth for configurations
-- Consistent patterns across all services
-- Faster service development
-- Easier maintenance and updates
-- Better testing coverage
-
-## Best Practices
-
-1. **Use Service Factory**: For all gRPC services
-2. **Inherit Configuration**: Use base configuration classes
-3. **Standardize Testing**: Use shared test utilities
-4. **Docker Base Images**: Use standardized container builds
-5. **Generate New Services**: Use templates for new development
-
-## Future Enhancements
-
-- Machine learning for pattern detection
-- Automated migration tools
-- Enhanced service templates
-- Cross-service dependency analysis
-
----
-
-This implementation establishes the Marty platform as a model of DRY software engineering, with consistent patterns that accelerate development and improve maintainability.
+The canonical generated namespace and retained import aliases are described
+in [compatibility tooling ownership](features/compatibility-tooling-ownership.md).
+Use [database ownership and migration requirements](DATABASE_QUICK_START.md)
+for database changes.
