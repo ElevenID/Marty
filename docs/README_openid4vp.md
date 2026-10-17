@@ -2,9 +2,10 @@
 
 The old setup script and its advertised integration test are retired or absent.
 Its dependency installation, localhost port probes and fixture overwrites did
-not provide a working presentation suite. The existing
-`tests/fixtures/openid4vp` JSON files remain as historical inputs pending an
-explicit current consumer; they are not deployed configuration or proof.
+not provide a working presentation suite. The unconsumed historical JSON
+presentation definition and configuration have also been retired. Preserve
+their requested-claim intent (license number and driving privileges), holder
+consent and selective disclosure in the native qualification suite.
 
 Qualify the current Rust and device owners through
 [marty-integration-tests](https://github.com/ElevenID/marty-integration-tests)

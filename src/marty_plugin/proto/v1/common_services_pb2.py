@@ -29,7 +29,7 @@ DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x15\x63ommon_serv
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
-_builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'common_services_pb2', _globals)
+_builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'marty_plugin.proto.v1.common_services_pb2', _globals)
 if not _descriptor._USE_C_DESCRIPTORS:
   DESCRIPTOR._loaded_options = None
   _globals['_APIERROR_DETAILSENTRY']._loaded_options = None

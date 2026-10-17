@@ -8,7 +8,7 @@ This document outlines the backward compatibility policy for Protocol Buffer wir
 
 ### Version 1 (v1) - Stabilized Wire Contract
 
-All protobuf definitions are now under the `proto/v1/` directory and generate code in the `src.proto.v1` package. This represents the first stable version of our wire protocol.
+Canonical protobuf definitions are under `proto/v1/` and generate into `marty_plugin.proto.v1`. The shipped `proto.v1` and checkout `src.proto.v1` namespaces remain compatibility aliases to the same modules. See [tooling ownership](features/compatibility-tooling-ownership.md) for regeneration. This is the first stable version of the wire protocol.
 
 ### Wire Format Stability Guarantees
 
@@ -126,7 +126,7 @@ The migration from the original unversioned protos to v1 involves:
 
 1. **Import Updates**: Change `from src.proto import` to `from src.proto.v1 import`
 2. **Package Names**: Proto packages now include `v1` (e.g., `marty.signer.v1`)
-3. **Generated Code**: New location `src/proto/v1/` for generated stubs
+3. **Generated Code**: Implementation at `src/marty_plugin/proto/v1/`; `src/proto/v1/` retains import aliases
 4. **Build Scripts**: Updated protoc compilation paths
 
 ### Future Versions

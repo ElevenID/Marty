@@ -136,5 +136,5 @@ except grpc.RpcError as e:
 
 - 📋 **Business Overview**: See [BUSINESS_OVERVIEW.md](BUSINESS_OVERVIEW.md) for executive summary
 - 🛠️ **Developer Guide**: See [DEVELOPER_GUIDE.md](DEVELOPER_GUIDE.md) for technical deep dive
-- 📄 **API Reference**: Complete OpenAPI spec at [api/openapi.yaml](api/openapi.yaml)
+- 📄 **API Reference**: See [API documentation ownership](api/README.md) for current services and the historical specification.
 - 🧪 **Examples**: More integration patterns in `tests/integration/`

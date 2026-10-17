@@ -28,7 +28,7 @@ DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x15\x64ocument_si
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
-_builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'document_signer_pb2', _globals)
+_builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'marty_plugin.proto.v1.document_signer_pb2', _globals)
 if not _descriptor._USE_C_DESCRIPTORS:
   DESCRIPTOR._loaded_options = None
   _globals['_APIERROR_DETAILSENTRY']._loaded_options = None

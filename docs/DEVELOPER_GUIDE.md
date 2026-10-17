@@ -87,7 +87,7 @@ GET    /v1/trust/anchors           # Get trusted certificate list
 POST   /v1/trust/anchors           # Add trusted certificate
 ```
 
-**OpenAPI Specification**: Complete API documentation available at `docs/api/openapi.yaml`
+**API documentation**: See `docs/api/README.md` for current owners; `docs/api/openapi.yaml` is historical.
 
 ## Architecture Deep Dive
 
@@ -854,7 +854,7 @@ CMD ["python", "-m", "<historical-service-entrypoint>"]
 ## Support Resources
 
 - **Protocol Buffers**: All `.proto` files in `proto/` directory
-- **OpenAPI Specification**: Complete REST API docs at `docs/api/openapi.yaml`
+- **API documentation**: Current owners and the retained historical specification are described in `docs/api/README.md`.
 - **Test Examples**: Integration patterns in `tests/integration/`
 - **Configuration Examples**: Environment configs in `config/`
 - **GitHub Issues**: Bug reports and feature requests
