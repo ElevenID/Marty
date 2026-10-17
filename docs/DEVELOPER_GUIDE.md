@@ -472,8 +472,9 @@ End-to-end acceptance must exercise authorized enrollment/issuance, certificate
 chain and revocation behavior, trust synchronization, credential failure paths,
 and deterministic cleanup in an isolated environment. These are open integration
 requirements; retaining the client APIs does not demonstrate an operational PKI.
-Use [shared infrastructure ownership](DRY_IMPLEMENTATION_GUIDE.md) and
-[secrets management](SECRETS_MANAGEMENT.md) when reconciling current owners.
+Use [shared infrastructure ownership](DRY_IMPLEMENTATION_GUIDE.md) when
+reconciling current owners; use the selected deployment owner's current
+secret-management configuration and runbook.
 
 ## Integration Examples
 
