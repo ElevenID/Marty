@@ -7,58 +7,22 @@ The Document Signer (DSC) certificate is required for:
 * Verifying signatures on SODs, DTC payloads, and other artifacts produced by
   the document_signer service.
 
-This helper ensures that a consistent certificate exists for the configured
-signing key. When none is present, it issues a self-signed certificate bound to
-that key and persists it via the shared ``CertificateRepository``.
+Existing certificate records are parsed through Rust. Missing-record
+provisioning rejects before key creation, private retrieval or persistence;
+managed certificate issuance belongs to the Rust signing owner.
 """
 
 from __future__ import annotations
-
-from datetime import UTC, datetime, timedelta
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from marty_common.crypto_bridge import Certificate
 from marty_common.infrastructure import CertificateRepository, KeyVaultClient
-from marty_common.native_backends import NativeOperationError, load_native_backend
+from marty_common.native_backends import NativeOperationError
 
 DOCUMENT_SIGNER_CERT_ID = "document-signer-default-dsc"
 DOCUMENT_SIGNER_SUBJECT = "CN=Document Signer,O=Marty Labs"
 DOCUMENT_SIGNER_KEY_ID = "document-signer-default"
-
-
-def _parse_subject_dn(subject_dn: str) -> tuple[str | None, str | None, str | None]:
-    """Parse RFC 4514 subject DN to extract CN, O, and C components."""
-    cn = None
-    org = None
-    country = None
-    for part in subject_dn.split(","):
-        part = part.strip()
-        if part.startswith("CN="):
-            cn = part[3:]
-        elif part.startswith("O="):
-            org = part[2:]
-        elif part.startswith("C="):
-            country = part[2:]
-    return cn, org, country
-
-
-def _map_key_type(signing_algorithm: str) -> str:
-    """Map signing algorithm name to Rust key type string."""
-    algo_lower = signing_algorithm.lower()
-    if algo_lower in ("rsa2048", "rsa-2048"):
-        return "rsa2048"
-    elif algo_lower in ("rsa3072", "rsa-3072"):
-        return "rsa3072"
-    elif algo_lower in ("rsa4096", "rsa-4096"):
-        return "rsa4096"
-    elif algo_lower in ("ecdsa-p256", "ec-p256", "p256"):
-        return "ecdsa-p256"
-    elif algo_lower in ("ecdsa-p384", "ec-p384", "p384"):
-        return "ecdsa-p384"
-    elif algo_lower in ("ed25519",):
-        return "ed25519"
-    raise NativeOperationError(f"Unsupported native DSC signing algorithm: {signing_algorithm}")
 
 
 async def ensure_document_signer_certificate(
@@ -70,7 +34,7 @@ async def ensure_document_signer_certificate(
     validity_years: int = 5,
     signing_algorithm: str = "rsa2048",
 ) -> Certificate:
-    """Ensure that a DSC exists for the given signing key and return it.
+    """Return an existing DSC or reject unqualified private-key provisioning.
 
     Args:
         session: Database session for certificate storage.
@@ -89,39 +53,9 @@ async def ensure_document_signer_certificate(
     if record:
         return Certificate.from_pem(record.pem)
 
-    # Make sure key material exists
-    await key_vault.ensure_key(key_id, signing_algorithm)
-    private_key_pem = await key_vault.load_private_key(key_id)
-
-    now = datetime.now(UTC)
-
-    # Use Rust implementation for certificate building
-    pem_text = _build_dsc_with_rust(
-        private_key_pem=private_key_pem,
-        subject_dn=subject_dn,
-        validity_years=validity_years,
-        signing_algorithm=signing_algorithm,
+    raise NativeOperationError(
+        "DSC provisioning requires the Rust managed-KMS workflow; private-key retrieval is retired"
     )
-    certificate = Certificate.from_pem(pem_text)
-
-    details = {
-        "issued_at": now.isoformat(),
-        "not_after": (now + timedelta(days=365 * validity_years)).isoformat(),
-        "key_id": key_id,
-        "signing_algorithm": signing_algorithm,
-        "implementation": "rust",
-    }
-
-    await repository.upsert(
-        cert_id=certificate_id,
-        cert_type="DSC",
-        pem=pem_text,
-        issuer=subject_dn,
-        subject=subject_dn,
-        details=details,
-    )
-
-    return certificate
 
 
 def _build_dsc_with_rust(
@@ -130,30 +64,8 @@ def _build_dsc_with_rust(
     validity_years: int,
     signing_algorithm: str,
 ) -> str:
-    """Build a DSC using the Rust cert_builder."""
-    cn, org, country = _parse_subject_dn(subject_dn)
-    key_type = _map_key_type(signing_algorithm)
-
-    # Decode bytes to string if needed
-    private_key_pem_str = private_key_pem.decode("utf-8") if isinstance(private_key_pem, bytes) else private_key_pem
-
-    native = load_native_backend(
-        "marty_verification",
-        ("build_self_signed_certificate_with_key", "certificate_der_to_pem"),
-    )
-    cert_der = native.build_self_signed_certificate_with_key(
-        private_key_pem=private_key_pem_str,
-        common_name=cn or "Document Signer",
-        validity_days=365 * validity_years,
-        key_type=key_type,
-        is_ca=False,
-        country=country,
-        organization=org,
-    )
-
-    # Convert DER to PEM
-    pem_text = native.certificate_der_to_pem(cert_der)
-    return pem_text
+    """Reject retired application-held private-key certificate issuance."""
+    raise NativeOperationError("DSC provisioning requires the Rust managed-KMS workflow")
 
 
 async def get_document_signer_certificate(
@@ -175,7 +87,7 @@ async def load_or_create_document_signer_certificate(
     signing_algorithm: str = "rsa2048",
     key_id: str = DOCUMENT_SIGNER_KEY_ID,
 ) -> Certificate:
-    """Convenience helper that loads the DSC or provisions a new one.
+    """Load an existing DSC; missing records require Rust managed provisioning.
 
     Args:
         session: Database session for certificate storage.

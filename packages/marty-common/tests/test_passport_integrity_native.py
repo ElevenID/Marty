@@ -41,7 +41,7 @@ sys.modules.setdefault("marty_common.crypto_bridge", crypto_bridge)
 
 from marty_common.crypto.hash_comparison import DataGroupHashResult, HashComparisonEngine  # noqa: E402
 from marty_common.crypto.sod_parser import HashAlgorithm  # noqa: E402
-from marty_common.native_backends import NativeBackendUnavailable  # noqa: E402
+from marty_common.native_backends import NativeBackendUnavailable, NativeOperationError  # noqa: E402
 from marty_common.rfid.apdu_commands import (  # noqa: E402
     APDUCommand,
     APDUProcessor,
@@ -59,7 +59,6 @@ from marty_common.security.eac_protocol import (  # noqa: E402
     EACCryptoAlgorithm,
     EACError,
     EACSecureMessaging,
-    EACTerminalAuthentication,
     MockEACCertificate,
 )
 from marty_common.security.iso9796_verifier import (  # noqa: E402
@@ -88,8 +87,7 @@ def test_shared_passport_integrity_behavior(case: dict) -> None:
             for item in request["computed_hashes"]
         ],
         expected_hashes={
-            int(data_group): bytes.fromhex(value)
-            for data_group, value in request["expected_hashes"].items()
+            int(data_group): bytes.fromhex(value) for data_group, value in request["expected_hashes"].items()
         },
         algorithm=HashAlgorithm(request["algorithm"]),
     )
@@ -119,9 +117,9 @@ def test_duplicate_computed_hashes_fail_closed() -> None:
 
 
 def test_shared_icao_bac_behavior() -> None:
-    vector = json.loads(
-        (Path(__file__).parents[3] / "tests" / "fixtures" / "passport_chip_behavior.json").read_text()
-    )["bac_annex_d"]
+    vector = json.loads((Path(__file__).parents[3] / "tests" / "fixtures" / "passport_chip_behavior.json").read_text())[
+        "bac_annex_d"
+    ]
     secure_messaging = SecureMessaging()
     keys = secure_messaging.derive_bac_keys(
         vector["passport_number"],
@@ -148,17 +146,15 @@ def test_shared_icao_bac_behavior() -> None:
     assert session.k_s_mac.hex().upper() == vector["session_mac_key"]
     assert session.ssc.to_bytes(8, "big").hex().upper() == vector["initial_ssc"]
     assert (
-        secure_messaging.encrypt_command(bytes.fromhex(vector["plain_select_ef_com"]))
-        .hex()
-        .upper()
+        secure_messaging.encrypt_command(bytes.fromhex(vector["plain_select_ef_com"])).hex().upper()
         == vector["protected_select_ef_com"]
     )
 
 
 def test_bac_response_mac_failure_is_rejected() -> None:
-    vector = json.loads(
-        (Path(__file__).parents[3] / "tests" / "fixtures" / "passport_chip_behavior.json").read_text()
-    )["bac_annex_d"]
+    vector = json.loads((Path(__file__).parents[3] / "tests" / "fixtures" / "passport_chip_behavior.json").read_text())[
+        "bac_annex_d"
+    ]
     secure_messaging = SecureMessaging()
     keys = secure_messaging.derive_bac_keys(
         vector["passport_number"], vector["date_of_birth"], vector["date_of_expiry"]
@@ -178,13 +174,11 @@ def test_bac_response_mac_failure_is_rejected() -> None:
 
 
 def test_shared_pace_compatibility_behavior() -> None:
-    vector = json.loads(
-        (Path(__file__).parents[3] / "tests" / "fixtures" / "passport_chip_behavior.json").read_text()
-    )["pace_compatibility"]
-    messaging = SecureMessaging()
-    assert messaging._derive_pace_password_key(vector["password"]).hex().upper() == vector[
-        "password_key"
+    vector = json.loads((Path(__file__).parents[3] / "tests" / "fixtures" / "passport_chip_behavior.json").read_text())[
+        "pace_compatibility"
     ]
+    messaging = SecureMessaging()
+    assert messaging._derive_pace_password_key(vector["password"]).hex().upper() == vector["password_key"]
     public_key = messaging._native_pace.start_pace_with_private_key(
         vector["password"],
         bytes.fromhex(vector["encrypted_nonce"]),
@@ -198,9 +192,9 @@ def test_shared_pace_compatibility_behavior() -> None:
 
 
 def test_shared_native_apdu_behavior() -> None:
-    vector = json.loads(
-        (Path(__file__).parents[3] / "tests" / "fixtures" / "passport_chip_behavior.json").read_text()
-    )["apdu"]
+    vector = json.loads((Path(__file__).parents[3] / "tests" / "fixtures" / "passport_chip_behavior.json").read_text())[
+        "apdu"
+    ]
     for expected in vector["commands"]:
         command = APDUCommand(
             expected["cla"],
@@ -217,9 +211,7 @@ def test_shared_native_apdu_behavior() -> None:
     assert encoded.hex().upper().startswith(extended["prefix"])
     assert [
         command.to_bytes().hex().upper()
-        for command in APDUProcessor().build_read_ef(
-            vector["read_length"], vector["read_offset"]
-        )
+        for command in APDUProcessor().build_read_ef(vector["read_length"], vector["read_offset"])
     ] == vector["read_commands"]
     for expected in vector["responses"]:
         response = APDUResponse.from_bytes(bytes.fromhex(expected["encoded"]))
@@ -233,16 +225,12 @@ def test_shared_native_apdu_behavior() -> None:
 
 
 def test_shared_active_authentication_apdu_behavior() -> None:
-    vector = json.loads(
-        (Path(__file__).parents[3] / "tests" / "fixtures" / "passport_chip_behavior.json").read_text()
-    )["active_authentication"]
-    protocol = ActiveAuthenticationProtocol()
-    challenge = ActiveAuthenticationChallenge(
-        bytes.fromhex(vector["challenge_hex"]), "SHA-256", 128
-    )
-    assert protocol.create_aa_apdu_command(challenge).hex().upper() == vector[
-        "expected_command_apdu"
+    vector = json.loads((Path(__file__).parents[3] / "tests" / "fixtures" / "passport_chip_behavior.json").read_text())[
+        "active_authentication"
     ]
+    protocol = ActiveAuthenticationProtocol()
+    challenge = ActiveAuthenticationChallenge(bytes.fromhex(vector["challenge_hex"]), "SHA-256", 128)
+    assert protocol.create_aa_apdu_command(challenge).hex().upper() == vector["expected_command_apdu"]
     response = protocol.parse_aa_response(bytes.fromhex(vector["successful_response"]), challenge)
     assert response.signature.hex().upper() == vector["expected_signature"]
     for raw_response in vector["error_responses"]:
@@ -254,13 +242,18 @@ def test_shared_active_authentication_apdu_behavior() -> None:
 
 
 def test_native_active_authentication_round_trip_and_exact_challenge() -> None:
-    from cryptography.hazmat.primitives.asymmetric import rsa
+    from cryptography.hazmat.primitives import serialization
 
-    private_key = rsa.generate_private_key(public_exponent=65537, key_size=1024)
-    public_key = private_key.public_key()
-    challenge = ActiveAuthenticationChallenge(b"0123456789abcdef", "SHA-256", 128)
+    vector = json.loads(
+        (Path(__file__).parents[3] / "tests/fixtures/chip_authentication_public_signatures.json").read_text(
+            encoding="utf-8"
+        )
+    )["active_authentication"]
+    public_key = serialization.load_pem_public_key(vector["public_key_pem"].encode())
+    challenge = ActiveAuthenticationChallenge(bytes.fromhex(vector["challenge_hex"]), "SHA-256", 128)
     protocol = ActiveAuthenticationProtocol()
-    raw_response = protocol.create_mock_aa_response(challenge, private_key)
+    signature = bytes.fromhex(vector["signature_hex"])
+    raw_response = signature + b"\x90\x00"
     response = protocol.parse_aa_response(raw_response, challenge)
     assert protocol.verify_active_authentication(response, challenge, public_key)
     assert response.recovered_message == challenge.challenge
@@ -269,10 +262,7 @@ def test_native_active_authentication_round_trip_and_exact_challenge() -> None:
     assert not protocol.verify_active_authentication(response, wrong_challenge, public_key)
 
     verifier = ISO9796Verifier()
-    signature = verifier.create_test_signature(challenge.challenge, private_key)
-    result = verifier.verify_signature(
-        signature, challenge.challenge, public_key, ISO9796Scheme.SCHEME_1
-    )
+    result = verifier.verify_signature(signature, challenge.challenge, public_key, ISO9796Scheme.SCHEME_1)
     assert result.is_valid
     assert result.recovered_message == challenge.challenge
     assert PassportActiveAuthenticationVerifier().verify_active_authentication_response(
@@ -290,9 +280,9 @@ def test_active_authentication_missing_native_capability_fails_closed(monkeypatc
 
 
 def test_shared_eac_secure_messaging_behavior() -> None:
-    vector = json.loads(
-        (Path(__file__).parents[3] / "tests" / "fixtures" / "eac_behavior.json").read_text()
-    )["secure_messaging"]
+    vector = json.loads((Path(__file__).parents[3] / "tests" / "fixtures" / "eac_behavior.json").read_text())[
+        "secure_messaging"
+    ]
     messaging = EACSecureMessaging(
         bytes.fromhex(vector["shared_secret"]),
         EACCryptoAlgorithm(vector["algorithm"]),
@@ -300,9 +290,7 @@ def test_shared_eac_secure_messaging_behavior() -> None:
     assert messaging.secure_channel.mac_key.hex().upper() == vector["mac_key"]
     assert messaging.secure_channel.encryption_key.hex().upper() == vector["encryption_key"]
     protected = bytes(
-        messaging._native.encrypt_apdu_with_iv(
-            bytes.fromhex(vector["plaintext"]), bytes.fromhex(vector["iv"])
-        )
+        messaging._native.encrypt_apdu_with_iv(bytes.fromhex(vector["plaintext"]), bytes.fromhex(vector["iv"]))
     )
     assert protected.hex().upper() == vector["protected"]
     assert messaging.decrypt_apdu(protected).hex().upper() == vector["plaintext"]
@@ -319,38 +307,33 @@ def test_native_eac_key_agreement_and_unsupported_algorithms() -> None:
     right = EACChipAuthentication(placeholder)
     left_public, _ = left.generate_ephemeral_keypair()
     right_public, _ = right.generate_ephemeral_keypair()
-    assert left.perform_chip_authentication(right_public) == right.perform_chip_authentication(
-        left_public
-    )
+    assert left.perform_chip_authentication(right_public) == right.perform_chip_authentication(left_public)
 
-    fixture = json.loads(
-        (Path(__file__).parents[3] / "tests" / "fixtures" / "eac_behavior.json").read_text()
-    )
+    fixture = json.loads((Path(__file__).parents[3] / "tests" / "fixtures" / "eac_behavior.json").read_text())
     for algorithm in fixture["unsupported_algorithms"]:
         with pytest.raises(ChipAuthenticationError):
-            EACChipAuthentication(
-                placeholder, EACCryptoAlgorithm(algorithm)
-            ).generate_ephemeral_keypair()
+            EACChipAuthentication(placeholder, EACCryptoAlgorithm(algorithm)).generate_ephemeral_keypair()
 
 
 def test_native_eac_terminal_signature_and_missing_backend_failure(monkeypatch) -> None:
     import marty_verification
     from cryptography.hazmat.primitives import serialization
 
-    certificate, private_key = MockEACCertificate.create_mock_terminal_certificate()
-    terminal = EACTerminalAuthentication(certificate, private_key)
-    terminal.set_certificate_chain([certificate])
-    challenge = b"chip-terminal-authentication-challenge"
-    signature = terminal.perform_terminal_authentication(challenge)
-    assert marty_verification.eac_verify_certificate_signature(
-        certificate.algorithm.value,
-        certificate.public_key.public_bytes(
-            encoding=serialization.Encoding.DER,
-            format=serialization.PublicFormat.SubjectPublicKeyInfo,
-        ),
-        challenge,
-        signature,
+    vector = json.loads(
+        (Path(__file__).parents[3] / "tests/fixtures/chip_authentication_public_signatures.json").read_text(
+            encoding="utf-8"
+        )
+    )["eac_terminal"]
+    public_key = serialization.load_pem_public_key(vector["public_key_pem"].encode())
+    challenge = bytes.fromhex(vector["challenge_hex"])
+    signature = bytes.fromhex(vector["signature_hex"])
+    public_der = public_key.public_bytes(serialization.Encoding.DER, serialization.PublicFormat.SubjectPublicKeyInfo)
+    assert marty_verification.eac_verify_certificate_signature(vector["algorithm"], public_der, challenge, signature)
+    assert not marty_verification.eac_verify_certificate_signature(
+        vector["algorithm"], public_der, challenge + b"changed", signature
     )
+    with pytest.raises(NativeOperationError, match="managed-KMS"):
+        MockEACCertificate.create_mock_terminal_certificate()
 
     monkeypatch.delattr(marty_verification, "NativeEacSecureMessaging")
     with pytest.raises(NativeBackendUnavailable, match="NativeEacSecureMessaging"):
