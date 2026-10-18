@@ -6,26 +6,12 @@ from __future__ import annotations
 
 import base64
 import logging
-import time
-from datetime import datetime
 from io import BytesIO
 from typing import Any
-from uuid import uuid4
 
-from app.core.config import settings
 from app.models.doc_models_clean import (
-    CheckResult,
-    Container,
-    ContainerList,
-    ContainerType,
     MRZField,
     MRZResult,
-    ProcessingStatus,
-    ProcessRequest,
-    ProcessResponse,
-    RfidLocation,
-    Status,
-    TransactionInfo,
 )
 from PIL import Image
 from pytesseract import pytesseract  # type: ignore
@@ -74,8 +60,6 @@ class MRZParser:
             raise MRZException(f"Expected TD1 MRZ, received {data.format}")
         return data
 
-# logger already defined above for module
-
 
 class ImageProcessor:
     """Handles image processing and MRZ extraction from images"""
@@ -102,7 +86,7 @@ class ImageProcessor:
     @staticmethod
     def extract_text_from_image(image: Image.Image) -> list[str]:
         """
-        Extract text from image using OCR (Tesseract if available, else mock)
+        Extract actual OCR text; unavailable or empty OCR yields no evidence.
         """
         try:
             # Restrict character set to MRZ allowed chars to improve accuracy
@@ -112,156 +96,24 @@ class ImageProcessor:
                 "-c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789< "
                 "-c load_system_dawg=false -c load_freq_dawg=false"
             )
-            text = pytesseract.image_to_string(image, config=config)
+            text = pytesseract.image_to_string(image, config=config, lang=lang)
             lines = [line.strip() for line in text.splitlines() if line.strip()]
             if lines:
                 logger.info("Extracted text using Tesseract")
                 return lines
         except Exception:
-            logger.exception("Tesseract OCR failed; falling back to mock lines")
+            logger.exception("Tesseract OCR failed; no MRZ evidence extracted")
 
-        logger.info("Extracting text from image (mock implementation)")
-        return [
-            "P<USADOE<<JOHN<MICHAEL<<<<<<<<<<<<<<<<",
-            "1234567890USA8504031M3504027<<<<<<<<<<<<6",
-        ]
+        return []
 
     @staticmethod
     def extract_text_from_region(region: Image.Image) -> list[str]:
-        """Wrapper to extract text from a specific region (mock)."""
+        """Extract actual OCR text from a detected region."""
         return ImageProcessor.extract_text_from_image(region)
 
 
 class MRZProcessingService:
     """Service for processing MRZ data"""
-
-    def __init__(self) -> None:
-        self.image_processor = ImageProcessor()
-
-    def process_request(self, request: ProcessRequest) -> ProcessResponse:
-        """Process a document processing request"""
-        start_time = time.time()
-
-        try:
-            # Validate scenario
-            if request.processParam.scenario not in settings.SUPPORTED_SCENARIOS:
-                msg = f"Unsupported scenario: {request.processParam.scenario}"
-                raise ValueError(msg)
-
-            # Generate transaction info
-            transaction_info = self._create_transaction_info()
-
-            # Process images
-            containers = []
-            # Iterate over images (List alias still works for backward compatibility)
-            for idx, image_request in enumerate(request.images):
-                container = self._process_single_image(image_request, idx)
-                if container:
-                    # If a test mock returns a non-Container object, coerce to minimal Container
-                    if not isinstance(container, Container):
-                        try:
-                            container = Container(type=ContainerType.MRZ_CONTAINER)
-                        except Exception:  # pragma: no cover - fallback safety
-                            continue
-                    containers.append(container)
-
-            # Calculate elapsed time
-            elapsed_time = int((time.time() - start_time) * 1000)  # Convert to milliseconds
-
-            # Create container list
-            container_list = ContainerList(Count=len(containers), List=containers)
-
-            # Create response
-            response = ProcessResponse(
-                transactionInfo=transaction_info,
-                elapsedTime=elapsed_time,
-                containerList=container_list,
-                ChipPage=RfidLocation.NO_CHIP,
-                CoreLibResultCode=0,
-                ProcessingFinished=ProcessingStatus.FINISHED,
-                morePagesAvailable=0,
-                passBackObject=None,
-                metadata={"processed_images": len(request.images)},
-            )
-
-        except Exception:
-            logger.exception("Error processing request")
-            raise
-        else:
-            return response
-
-    def _create_transaction_info(self) -> TransactionInfo:
-        """Create transaction information"""
-        # Populate using alias names to avoid issues with populate_by_name behavior in validation
-        return TransactionInfo(
-            TransactionID=str(uuid4()),
-            DateTime=datetime.utcnow().isoformat() + "Z",
-            coreVersion=settings.CORE_VERSION,
-            ComputerName="doc-processing-server",
-            UserName="doc-api",
-        )
-
-    def _process_single_image(self, image_request: Any, index: int) -> Container | None:
-        """Process a single image and return container with results"""
-        try:
-            # Get image data
-            if image_request.ImageData:
-                image = self.image_processor.decode_base64_image(image_request.ImageData)
-                text_lines = self.image_processor.extract_text_from_image(image)
-            elif image_request.ImageUri:
-                # In real implementation, would fetch from URI
-                msg = "ImageUri processing not yet implemented"
-                raise NotImplementedError(msg)
-            else:
-                msg = "No image data provided"
-                raise ValueError(msg)
-
-            # Process MRZ if text was extracted
-            mrz_result = None
-            if text_lines:
-                mrz_result = self._process_mrz_lines(text_lines)
-
-            # Create status
-            status = Status(
-                overallStatus=CheckResult.POSITIVE if mrz_result else CheckResult.NEGATIVE,
-                optical=CheckResult.POSITIVE if mrz_result else CheckResult.NEGATIVE,
-                portrait=CheckResult.NOT_PERFORMED,
-                rfid=CheckResult.NOT_PERFORMED,
-                stopList=CheckResult.NOT_PERFORMED,
-            )
-
-            # Create container
-            container = Container(
-                type=ContainerType.MRZ_CONTAINER,
-                list_idx=index,
-                page_idx=image_request.pageIdx or 0,
-                light=getattr(image_request.light, "value", 1) if image_request.light else 1,
-                result_type=1,  # MRZ result type
-                Status=status,  # alias field
-                mrzResult=mrz_result,
-            )
-
-        except Exception:
-            logger.exception(f"Error processing image {index}")
-            # Return error container
-            status = Status(
-                overallStatus=CheckResult.NEGATIVE,
-                optical=CheckResult.NEGATIVE,
-                portrait=CheckResult.NOT_PERFORMED,
-                rfid=CheckResult.NOT_PERFORMED,
-                stopList=CheckResult.NOT_PERFORMED,
-            )
-        else:
-            return container
-
-            return Container(
-                type=ContainerType.MRZ_CONTAINER,
-                list_idx=index,
-                page_idx=image_request.pageIdx or 0,
-                result_type=1,
-                Status=status,
-                mrzResult=None,
-            )
 
     def _process_mrz_lines(self, text_lines: list[str]) -> MRZResult | None:
         """Process extracted text lines to create MRZ result"""
@@ -360,10 +212,6 @@ class MRZProcessingService:
                 MRZField(
                     name="DocumentCode",
                     value=mrz_data.document_type,
-                    confidence=0.99,
-                    line=0,
-                    start=0,
-                    length=1,
                     checksumValid=None,
                 )
             )
@@ -374,10 +222,6 @@ class MRZProcessingService:
                 MRZField(
                     name="IssuingState",
                     value=mrz_data.issuing_country,
-                    confidence=0.98,
-                    line=0,
-                    start=2,
-                    length=3,
                     checksumValid=None,
                 )
             )
@@ -388,11 +232,9 @@ class MRZProcessingService:
                 MRZField(
                     name="DocumentNumber",
                     value=mrz_data.document_number,
-                    confidence=0.99,
-                    line=1,
-                    start=0,
-                    length=9,
-                    checksumValid=True if getattr(mrz_data, "check_digits_valid", False) is True else None,
+                    checksumValid=True
+                    if getattr(mrz_data, "check_digits_valid", False) is True
+                    else None,
                 )
             )
 
@@ -402,11 +244,9 @@ class MRZProcessingService:
                 MRZField(
                     name="DateOfBirth",
                     value=self._safe_date(mrz_data.date_of_birth),
-                    confidence=0.98,
-                    line=1,
-                    start=13,
-                    length=6,
-                    checksumValid=True if getattr(mrz_data, "check_digits_valid", False) is True else None,
+                    checksumValid=True
+                    if getattr(mrz_data, "check_digits_valid", False) is True
+                    else None,
                 )
             )
 

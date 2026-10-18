@@ -1,403 +1,81 @@
-# Document Processing API
+# Document Processing compatibility API
 
-A FastAPI-based document processing service focusing on MRZ (Machine Readable Zone) document processing. This implementation provides a comprehensive API for document verification and data extraction with support for various document formats.
+`POST /api/process` uses `DocumentProcessingCoordinator` for image decoding,
+optional OpenCV deskew and region estimation, Tesseract OCR, and Rust MRZ parsing
+and checksum validation. TD1, TD2 and TD3 parsing are delegated to the native
+backend; they are not passport-authenticity, document-expiry or holder checks.
+The separate [pretravel wallet flow](../../../docs/features/pretravel-wallet-flow.md)
+retains evidence checks and delegates issuance and KMS signing to Rust.
 
-## 🚀 Features
+## Runtime and requests
 
-- **MRZ Processing**: Full support for TD-1, TD-2, and TD-3 MRZ formats
-- **Generic Document API**: Flexible document processing interface
-- **Multiple Input Formats**: Support for base64 encoded images and image URLs
-- **Health Monitoring**: Comprehensive health check endpoints
-- **Authentication**: Optional API key authentication
-- **Docker Support**: Ready-to-deploy containerized solution
-- **Comprehensive Testing**: Unit tests and end-to-end test suite
+Install the root package and common package with the exact native wheels built
+by CI, then this directory's `requirements.txt`. OCR also needs the Tesseract
+executable and the configured language data. The Python `pytesseract` package
+alone does not provide them. `ImageProcessor.tess_lang` selects a language pack;
+otherwise OCR requests `eng`.
 
-## 📋 API Endpoints
+From the repository root, start the app with:
 
-### Health Endpoints
-
-- `GET /api/ping` - Simple liveness check
-- `GET /api/health` - Detailed health information
-- `GET /api/healthz` - Kubernetes-style health check
-- `GET /api/readyz` - License validation check
-
-### Processing Endpoints
-
-- `POST /api/process` - Main document processing endpoint
-
-### Documentation
-
-- `GET /docs` - Interactive API documentation (Swagger UI)
-- `GET /redoc` - Alternative API documentation (ReDoc)
-
-## 🛠️ Installation & Setup
-
-### Local Development
-
-1. **Clone the repository**:
-
-```bash
-git clone <repository-url>
-cd Marty/src/regula_clone
+```sh
+python -m uvicorn app.main:app --app-dir src/marty_plugin/document_processing --host localhost --port 8080
 ```
 
-2. **Install dependencies**:
+Set `USE_REAL_SERVICES=true` for the native inspection client; the compatibility
+mock clients fail closed. Configure `USE_API_KEY=true` and `API_KEY` for processing
+route authentication. Pretravel requires its own configured authentication even
+in development; see its flow documentation for Rust issuer/template binding.
 
-```bash
-pip install -r requirements.txt
-```
+The supported processing scenario is `Mrz`. Send base64 image data (`ImageData`);
+`ImageUri` fetching remains unimplemented. `images` and the older `List` input
+alias are accepted. For example:
 
-3. **Configure environment** (optional):
-
-```bash
-cp .env.example .env
-# Edit .env file with your configuration
-```
-
-4. **Run the server**:
-
-```bash
-python -m uvicorn app.main:app --host localhost --port 8080 --reload
-```
-
-5. **Access the API**:
-   - API: <http://localhost:8080>
-   - Documentation: <http://localhost:8080/docs>
-   - Health Check: <http://localhost:8080/api/health>
-
-### Docker Deployment
-
-1. **Build and run with Docker Compose**:
-
-```bash
-docker-compose up --build
-```
-
-2. **Access the containerized API**:
-   - API: <http://localhost:8080>
-   - Health Check: <http://localhost:8080/api/ping>
-
-3. **Run tests in container**:
-
-```bash
-docker-compose --profile test up doc-processing-test
-```
-
-## 🔧 Configuration
-
-### Environment Variables
-
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `ENVIRONMENT` | Deployment environment | `development` |
-| `DEBUG` | Enable debug mode | `true` |
-| `HOST` | Server host address | `localhost` |
-| `PORT` | Server port | `8080` |
-| `USE_API_KEY` | Enable API key authentication | `false` |
-| `API_KEY` | API key for authentication | `` |
-| `LICENSE_ID` | Mock license identifier | `4d43a2af-e321-496c-9a4e-5a8f3d26df0e` |
-| `CORE_VERSION` | Core library version | `1.2.3` |
-
-## 📝 Usage Examples
-
-### Basic MRZ Processing
-
-```python
-import requests
-import base64
-
-# Prepare the request
-with open("passport_image.jpg", "rb") as f:
-    image_data = base64.b64encode(f.read()).decode('utf-8')
-
-payload = {
-    "processParam": {
-        "scenario": "Mrz",
-        "resultTypeOutput": ["MrzText", "MrzFields"]
-    },
-    "List": [
-        {
-            "ImageData": image_data
-        }
-    ],
-    "tag": "my-session"
-}
-
-headers = {
-    "Content-Type": "application/json",
-    "X-API-Key": "your-api-key"  # Optional if API key auth is enabled
-}
-
-# Send request
-response = requests.post(
-    "http://localhost:8080/api/process",
-    json=payload,
-    headers=headers
-)
-
-# Process response
-if response.status_code == 200:
-    result = response.json()
-    transaction_info = result["transactionInfo"]
-    containers = result["containerList"]["List"]
-
-    for container in containers:
-        if container["type"] == "MrzContainer" and container["mrzResult"]:
-            mrz = container["mrzResult"]
-            print(f"Document Type: {mrz['docType']}")
-            print(f"Document Number: {mrz['documentNumber']}")
-            print(f"Name: {mrz['givenNames']} {mrz['surname']}")
-            print(f"Nationality: {mrz['nationality']}")
-```
-
-### JavaScript/Node.js Example
-
-```javascript
-const axios = require('axios');
-const fs = require('fs');
-
-async function processMRZ(imagePath) {
-    // Read and encode image
-    const imageBuffer = fs.readFileSync(imagePath);
-    const base64Image = imageBuffer.toString('base64');
-
-    const payload = {
-        processParam: {
-            scenario: "Mrz",
-            strictImageQuality: true,
-            imageQa: {
-                minFocus: 40,
-                maxGlare: 30
-            }
-        },
-        List: [{
-            ImageData: base64Image
-        }],
-        tag: "js-client-session"
-    };
-
-    try {
-        const response = await axios.post(
-            'http://localhost:8080/api/process',
-            payload,
-            {
-                headers: {
-                    'Content-Type': 'application/json',
-                    'X-API-Key': 'your-api-key'
-                }
-            }
-        );
-
-        const result = response.data;
-        console.log('Processing completed in:', result.elapsedTime, 'ms');
-        console.log('Transaction ID:', result.transactionInfo.requestId);
-
-        return result;
-    } catch (error) {
-        console.error('Processing failed:', error.response?.data || error.message);
-        throw error;
-    }
+```json
+{
+  "processParam": {"scenario": "Mrz"},
+  "images": [{"ImageData": "<base64 image bytes>", "pageIdx": 0}]
 }
 ```
 
-### Health Check Example
+The response uses the compatibility aliases `TransactionInfo` and
+`ContainerList`; inspect `ContainerList.List[].Status` and `mrzResult`.
+A missing OCR executable, OCR failure, no text, or invalid MRZ cannot produce a
+fabricated identity or positive MRZ result. An empty region can retry OCR on the
+full image. Native dates remain YYMMDD; no century is guessed. Field confidence
+and line/start/length metadata are `null` until supplied by a measured source;
+the former fixed scores and TD3-only positions were not OCR measurements.
 
-```bash
-# Simple ping
-curl http://localhost:8080/api/ping
+The uncalled parallel `MRZProcessingService.process_request` pipeline and
+`get_mrz_service` dependency are retired. Python callers should use the
+coordinator for request processing; its OCR adapter and native MRZ projection
+remain shared with pretravel. Process/MRZ models and the HTTP response envelope
+are retained.
 
-# Detailed health info
-curl http://localhost:8080/api/health
+## Qualification and unfinished features
 
-# Kubernetes-style health check
-curl http://localhost:8080/api/healthz
+Layout crops and texture/watermark checks are heuristics. Calibrated OCR
+confidence/coordinates, region detection, strict image-quality enforcement,
+portrait/liveness, full authenticity validation, URI fetching and broad
+format/device acceptance remain feature work. The current MRZ field list is
+partial. Do not interpret health/license placeholders as license validation or
+an MRZ checksum result as verification of a physical document. Separate CMC
+routes remain delegated to their service client and need their own qualification.
+The legacy local Dockerfile/Makefile and smoke scripts are not deployment
+qualification and need their own packaging/consumer audit; the old local Compose
+and E2E commands referenced files that are absent from this checkout.
+
+## Checks
+
+From the repository root with matching native backends installed:
+
+```sh
+python -m pytest tests/unit/document_mrz_pipeline_test.py tests/unit/pretravel_wallet_offer_test.py tests/unit/test_document_native_boundary.py -q
 ```
 
-## 🧪 Testing
+The pipeline checks run real image decoding/layout, native TD1/TD2/TD3 parsing,
+and FastAPI request/response handling, with a controlled OCR boundary. They cover
+positive results, altered checksums, empty/failed OCR, full-image retry and
+language selection. They do not establish OCR accuracy on device captures or
+qualification of an installed Tesseract/model/provider environment.
 
-### Unit Tests
-
-```bash
-# Run all unit tests
-python -m pytest tests/unit/ -v
-
-# Run with coverage
-python -m pytest tests/unit/ --cov=app --cov-report=html
-```
-
-### End-to-End Tests
-
-```bash
-# Start the server first
-python -m uvicorn app.main:app --host localhost --port 8080 &
-
-# Run E2E tests
-python -m pytest tests/e2e/ -v
-
-# Or run the standalone E2E test
-python tests/e2e/test_e2e_workflow.py
-```
-
-### Test Coverage
-
-The test suite covers:
-
-- ✅ All API endpoints (health and processing)
-- ✅ MRZ processing logic
-- ✅ Image handling and validation
-- ✅ Error scenarios and edge cases
-- ✅ Authentication mechanisms
-- ✅ Concurrent request handling
-- ✅ Large image processing
-- ✅ Multiple image batch processing
-
-## 🏗️ Architecture
-
-```
-src/document_processing/
-├── app/
-│   ├── api/
-│   │   ├── deps.py          # Dependency injection
-│   │   └── endpoints.py     # API route handlers
-│   ├── core/
-│   │   └── config.py        # Configuration management
-│   ├── models/
-│   │   └── document_models.py # Pydantic data models
-│   ├── services/
-│   │   └── mrz_service.py   # MRZ processing logic
-│   └── main.py              # FastAPI application
-├── tests/
-│   ├── unit/                # Unit tests
-│   └── e2e/                 # End-to-end tests
-├── Dockerfile               # Container definition
-├── docker-compose.yml      # Multi-container setup
-└── requirements.txt         # Python dependencies
-```
-
-## 🔄 Integration with Marty
-
-This Document Processing API is designed to integrate with the larger Marty document verification ecosystem:
-
-- **MRZ Utilities**: Uses `src/marty_common/utils/mrz_utils.py` for MRZ parsing
-- **Data Models**: Compatible with `src/marty_common/models/passport.py`
-- **Shared Libraries**: Leverages common crypto and validation utilities
-
-## 🐛 Troubleshooting
-
-### Common Issues
-
-1. **Import Errors**: Ensure you're running from the correct directory and all dependencies are installed
-2. **Port Conflicts**: Change the port in configuration if 8080 is already in use
-3. **Image Processing Failures**: Check image format and base64 encoding
-4. **API Key Issues**: Verify API key configuration and headers
-
-### Debug Mode
-
-Enable debug mode for detailed logging:
-
-```bash
-export DEBUG=true
-export ENVIRONMENT=development
-python -m uvicorn app.main:app --reload --log-level debug
-```
-
-### Health Monitoring
-
-Monitor the service health:
-
-```bash
-# Check if service is responding
-curl -f http://localhost:8080/api/ping || echo "Service is down"
-
-# Get detailed health metrics
-curl http://localhost:8080/api/health | jq '.'
-```
-
-## 🚀 Deployment
-
-### Production Deployment
-
-1. **Environment Configuration**:
-
-```bash
-export ENVIRONMENT=production
-export DEBUG=false
-export USE_API_KEY=true
-export API_KEY=your-secure-api-key
-```
-
-2. **Docker Production**:
-
-```bash
-docker-compose -f docker-compose.prod.yml up -d
-```
-
-3. **Load Balancing**: Use nginx or similar for load balancing multiple instances
-
-4. **Monitoring**: Implement health check monitoring and logging
-
-### Kubernetes Deployment
-
-```yaml
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: doc-processing
-spec:
-  replicas: 3
-  selector:
-    matchLabels:
-      app: doc-processing
-  template:
-    metadata:
-      labels:
-        app: doc-processing
-    spec:
-      containers:
-      - name: doc-processing
-        image: doc-processing:latest
-        ports:
-        - containerPort: 8080
-        env:
-        - name: ENVIRONMENT
-          value: "production"
-        - name: USE_API_KEY
-          value: "true"
-        livenessProbe:
-          httpGet:
-            path: /api/ping
-            port: 8080
-          initialDelaySeconds: 30
-          periodSeconds: 30
-        readinessProbe:
-          httpGet:
-            path: /api/readyz
-            port: 8080
-          initialDelaySeconds: 5
-          periodSeconds: 10
-```
-
-## 📄 License
-
-This project is part of the Marty ecosystem and follows the same licensing terms. See the main project license for details.
-
-## 🤝 Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Add tests for new functionality
-5. Ensure all tests pass
-6. Submit a pull request
-
-## 📞 Support
-
-For issues and questions:
-
-- Check the troubleshooting section
-- Review the test cases for usage examples
-- Open an issue in the main Marty repository
-
----
-
-**Note**: This is a generic document processing implementation designed for testing and development. For production use with real documents, ensure proper validation and security measures are in place.
+See the repository license and root setup documentation for shared dependencies.
