@@ -1,148 +1,78 @@
-<!-- markdownlint-disable-file -->
-<!-- cspell:disable -->
+# Development ownership and UI qualification
 
-# Native Development Setup
+This compatibility repository does not host the retired Python `ui_app` or
+nested Python/React development stack. Use the current
+[marty-ui setup guide](https://github.com/ElevenID/marty-ui/blob/main/DEVELOPMENT_SETUP.md)
+and that repository's workflows for the React UI, Rust services, gateway,
+identity provider, databases and service configuration. Native security kernels
+belong to [marty-core](https://github.com/ElevenID/marty-core); wallet/device
+acceptance belongs with the UI, authenticator and integration owners.
 
-> **Historical record:** This guide describes a retired nested Python/React
-> workspace that is not a supported repository layout. Current development uses
-> the Rust services and documented workflows in `marty-ui`; it does not require
-> a Python MMF `PYTHONPATH`. Do not use the commands or dependency mounts below.
+The orphan `tests/ui` fixture/bootstrap bundle is retired. It imported the
+missing Python UI, enabled mock fallbacks, and advertised test modules/runner
+that are absent. Its bootstrap installed unpinned packages/browsers and rewrote
+checkout test/editor settings. No real browser suite is removed. The unused
+Python Playwright dependency and mypy entry retire with their only consumers;
+the UI owner's browser tooling remains separate. Use this repository's root
+Makefile for retained package/native compatibility checks.
 
-This guide describes the **hybrid TDD development environment** for fast feedback during development.
+## Browser acceptance requirements
 
-## Overview
+The old scaffolds described intended coverage, not demonstrated implementation.
+Reconcile these requirements with current UI/Rust owners and real acceptance
+before claiming the matrix is complete:
 
-The project uses a hybrid setup:
-- **Native**: Python API and React UI run natively with hot reload
-- **Docker**: Infrastructure services (Keycloak, Redis, PostgreSQL) run in containers
+- Admin, CSCA, document signer, mDoc, DTC, PKD, trust-anchor and mDL navigation,
+  forms, validation, results and lifecycle operations. Exercise success and
+  rejection/error states with authenticated role and tenant boundaries.
+- Synthetic passport and mDL claims, issuer/subject/trust metadata and validity;
+  DTC emergency-travel, visitor and temporary-resident scenarios with relevant
+  purpose, sponsor, contact and bounded-validity inputs. Do not copy fixed
+  identities or expired sample dates as production defaults.
+- Cross-service transitions, asynchronous responses, slow/unavailable services,
+  repeat/retry behavior and safe cleanup. Mock component tests are useful but
+  must not turn service failure into successful verification or issuance.
+- Desktop/tablet/mobile layouts, keyboard/screen-reader accessibility, browser
+  coverage and measured performance/load limits. Keep fast subsets distinct
+  from the full workflow/device matrix.
+- Real holder consent, wallet presentation and verification, revocation and
+  managed-KMS signing/lifecycle rejection. Neither a displayed success message
+  nor a simulated device qualifies interoperability.
+- Bounded diagnostic screenshots/traces/reports with secret and identity
+  redaction, retention and deterministic teardown. Keep generated browser and
+  acceptance artifacts outside version control.
 
-This provides sub-second API restarts while maintaining realistic infrastructure.
+Local development still needs realistic, isolated identity/session/database
+infrastructure, scoped credentials, verified ingress/TLS and responsive service
+feedback. The removed MMF path mounts, proxy file paths, fixed demo passwords
+and old Docker/Make commands are not configuration to restore.
 
-## Architecture
+## Onboarding resume acceptance remains open
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                        Host Machine                              │
-├─────────────────────────────────────────────────────────────────┤
-│  Native Services:                                                │
-│  ├── React UI (port 3000) - CRA dev server with setupProxy.js   │
-│  └── Python API (port 8000) - uvicorn with --reload             │
-├─────────────────────────────────────────────────────────────────┤
-│  Docker Services (via docker-compose):                           │
-│  ├── Keycloak (port 8180) - Auth/OIDC provider                  │
-│  ├── Redis (port 6379) - Session storage                        │
-│  └── PostgreSQL (port 5432) - Database                          │
-└─────────────────────────────────────────────────────────────────┘
-```
+The uncalled Python/curl resume reproducers and their old guide targeted retired
+registration/login and onboarding-complete routes. Removing them does not prove
+that the historical false-403 bug is fixed. A mocked existing-organization
+component test alone does not qualify the current deployed flow.
 
-## Quick Start
+Use the current UI and Rust organization/authentication contracts in a disposable
+isolated tenant to exercise this journey:
 
-```bash
-# 1. Start Docker infrastructure
-make dev-infra
+1. A vendor creates an organization at the first onboarding step and progresses
+   without completing the whole flow. Verify actual identity-provider membership
+   and persisted onboarding progress rather than trusting UI selection alone.
+2. Log out, invalidate the old session, and log in as the same user. Restore the
+   organization selection and progress from authorized server state.
+3. Resume settings and later steps without a false authorization failure or
+   duplicate organization. Repeated saves/retries must preserve the correct
+   membership and completion state.
+4. A different user or nonmember selecting that organization must remain denied.
+   Stale or mismatched session claims must not bypass current membership/tenant
+   checks. Qualify identity-provider/session propagation and reconciliation,
+   including partial failures and the distinction between progress and completion.
+5. Observe safe, correlated outcomes without printing passwords, cookie/token
+   prefixes or invitation codes; clean up created accounts, sessions and tenant
+   records through the owning services.
 
-# 2. Start native API (new terminal)
-make dev-api
-
-# 3. Start React UI (new terminal)
-make dev-ui
-
-# 4. Run E2E tests (new terminal)
-make test-e2e-onboarding
-```
-
-## Makefile Targets
-
-| Target | Description |
-|--------|-------------|
-| `make dev-infra` | Start Docker services (Keycloak, Redis, PostgreSQL) |
-| `make dev-api` | Start Python API natively with hot reload |
-| `make dev-ui` | Start React UI dev server |
-| `make dev-setup` | One-time setup (install deps, create venv) |
-| `make test-e2e-onboarding` | Run onboarding E2E tests |
-
-## Key Directories
-
-| Directory | Purpose |
-|-----------|---------|
-| `marty-ui/src/` | Python API source |
-| `marty-ui/ui/` | React UI source |
-| `marty-ui/tests/e2e/` | Playwright E2E tests |
-| `marty-microservices-framework/` | MMF shared package |
-
-## Environment Variables
-
-The `make dev-api` target sets all required environment variables automatically. Key ones include:
-
-| Variable | Value | Purpose |
-|----------|-------|---------|
-| `KEYCLOAK_URL` | `http://localhost:8180` | Keycloak admin API (not Docker hostname!) |
-| `OIDC_ISSUER_URL` | `http://localhost:8180/realms/11id` | OIDC token validation |
-| `REDIS_URL` | `redis://localhost:6379/0` | Session storage |
-| `PYTHONPATH` | Includes `marty-microservices-framework/` | Required for MMF imports |
-
-## React Proxy Configuration
-
-The React app (`marty-ui/ui/`) uses `setupProxy.js` to proxy requests to the native API:
-
-- `/auth/*` → `http://localhost:8000`
-- `/api/*` → `http://localhost:8000`
-- `/health` → `http://localhost:8000`
-
-## Running E2E Tests
-
-```bash
-cd marty-ui/tests
-
-# Run workflow tests
-BASE_URL=http://localhost:3000 API_URL=http://localhost:8000 npx playwright test --project=workflows
-
-# Run onboarding tests
-BASE_URL=http://localhost:3000 API_URL=http://localhost:8000 npx playwright test --project=onboarding
-```
-
-## Test Users
-
-| User | Password | Role |
-|------|----------|------|
-| `admin@marty.demo` | `admin` | Platform admin |
-| `vendor@marty.demo` | `vendor` | Vendor admin |
-
-## Troubleshooting
-
-### "ModuleNotFoundError: No module named 'mmf'"
-
-**Cause**: PYTHONPATH doesn't include `marty-microservices-framework/`
-
-**Fix**: Use `make dev-api` which sets PYTHONPATH automatically, or manually:
-```bash
-export PYTHONPATH=$(pwd)/marty-microservices-framework:$PYTHONPATH
-```
-
-### "[Errno 8] nodename nor servname provided"
-
-**Cause**: `KEYCLOAK_URL` using Docker hostname (`keycloak:8080`) instead of localhost
-
-**Fix**: Set `KEYCLOAK_URL=http://localhost:8180`
-
-### Login redirects to landing page instead of Keycloak
-
-**Cause**: `setupProxy.js` not configured or React dev server not restarted
-
-**Fix**: Ensure `marty-ui/ui/src/setupProxy.js` exists and restart React dev server
-
-### 500 errors on /auth/callback
-
-**Cause**: API missing environment variables or PYTHONPATH
-
-**Fix**: Use `make dev-api` to start API with all required env vars
-
-## Full Docker Mode
-
-For production-like testing, use full Docker mode instead:
-
-```bash
-docker-compose up --build
-```
-
-This runs everything in containers but has slower feedback loops for API changes.
+Current service/unit/component checks, deployed browser acceptance and real
+identity-provider timing cover different boundaries. Keep the remaining gaps
+explicit until the owning acceptance suite demonstrates this whole journey.
