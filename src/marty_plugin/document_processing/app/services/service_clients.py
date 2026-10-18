@@ -171,9 +171,10 @@ class GrpcInspectionSystemClient(InspectionSystemClient):
                 "error_code": "MRZ_INVALID",
                 "error": str(exc),
             }
+        valid = getattr(parsed, "check_digits_valid", False) is True
         return {
-            "valid": True,
-            "checksums_valid": True,
+            "valid": valid,
+            "checksums_valid": valid,
             "parsed": parsed.to_dict(),
         }
 
