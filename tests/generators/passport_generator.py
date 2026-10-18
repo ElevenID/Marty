@@ -1,9 +1,9 @@
 """
 Passport test data generator for Marty project.
 
-Based on the concepts from the pypassport library, this module generates
-realistic passport data for testing purposes, including properly structured
-data groups and the necessary cryptographic signatures.
+Based on concepts from the pypassport library, this module generates synthetic
+passport fixtures with simplified data groups and placeholder SOD bytes.
+It does not produce cryptographic signatures or establish passport conformance.
 
 Uses Rust bindings from marty_rs for MRZ check digit calculation.
 
@@ -44,8 +44,8 @@ class PassportGenerator:
     """
     Generates test passport data for use in testing.
 
-    This class creates realistic passport data including properly structured
-    data groups and the necessary cryptographic signatures.
+    Creates synthetic data groups and placeholder SOD data for compatibility
+    consumers. See README.md for limitations and remaining qualification.
     """
 
     def __init__(self, output_dir: str | None = None):
@@ -74,7 +74,10 @@ class PassportGenerator:
         optional_data: str = "",
     ) -> str:
         """
-        Generate a valid MRZ (Machine Readable Zone) string.
+        Format synthetic MRZ text with native check digits.
+
+        Input lengths, date validity and complete MRZ conformance are not
+        validated. Use the native parser to validate any resulting fixture.
 
         Args:
             document_type: Type of document (P for passport)
@@ -89,7 +92,7 @@ class PassportGenerator:
             optional_data: Optional data
 
         Returns:
-            A valid MRZ string
+            Synthetic MRZ text, without a validity guarantee
         """
         # Ensure document type is valid
         if document_type not in ["P", "I", "A", "C"]:
@@ -262,7 +265,7 @@ class PassportGenerator:
         self, dg1: dict[str, Any], dg2: dict[str, Any], cert_path: str, key_path: str
     ) -> dict[str, Any]:
         """
-        Create Security Object (SOD) containing document signatures.
+        Create hashes and placeholder SOD data without signing.
 
         Args:
             dg1: DG1 data group
@@ -306,7 +309,10 @@ class PassportGenerator:
         output_file: str | None = None,
     ) -> dict[str, Any]:
         """
-        Generate a complete passport data structure.
+        Generate a synthetic passport-shaped fixture.
+
+        DG2 is optional and simplified; SOD is optional placeholder data.
+        This method does not issue or authenticate a passport.
 
         Args:
             issuing_country: 3-letter country code
@@ -323,7 +329,7 @@ class PassportGenerator:
             output_file: File to save the passport data to
 
         Returns:
-            A dictionary containing the complete passport data structure
+            A dictionary containing synthetic MRZ/DG1 and optional DG2/SOD data
         """
         # Generate MRZ data
         mrz_data = self.generate_mrz(
