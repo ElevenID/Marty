@@ -13,6 +13,7 @@ import os
 import socket
 import time
 from contextlib import contextmanager
+from contextvars import ContextVar
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -21,8 +22,18 @@ import structlog
 from opentelemetry import trace
 from pythonjsonlogger import jsonlogger
 
-# Global request context storage
-_request_context: dict[str, Any] = {}
+# Copy-on-write state isolates asyncio tasks and threads; child tasks inherit it.
+_request_context: ContextVar[dict[str, Any] | None] = ContextVar("marty_log_request", default=None)
+
+
+def _request_fields() -> dict[str, Any]:
+    context = _request_context.get()
+    if not context:
+        return {}
+    return {
+        name: context.get(name)
+        for name in ("request_id", "user_id", "session_id", "correlation_id")
+    }
 
 
 class MartyStructuredLogger:
@@ -87,17 +98,7 @@ class MartyStructuredLogger:
 
         # Custom processor for request tracing
         def add_request_context(logger, method_name, event_dict):
-            # Add request context from global storage
-            global _request_context
-            if _request_context:
-                event_dict.update(
-                    {
-                        "request_id": _request_context.get("request_id"),
-                        "user_id": _request_context.get("user_id"),
-                        "session_id": _request_context.get("session_id"),
-                        "correlation_id": _request_context.get("correlation_id"),
-                    }
-                )
+            event_dict.update(_request_fields())
             return event_dict
 
         # Configure structlog
@@ -153,17 +154,7 @@ class MartyStructuredLogger:
                 log_record["line"] = record.lineno
                 log_record["function"] = record.funcName
 
-                # Add request context if available
-                global _request_context
-                if _request_context:
-                    log_record.update(
-                        {
-                            "request_id": _request_context.get("request_id"),
-                            "user_id": _request_context.get("user_id"),
-                            "session_id": _request_context.get("session_id"),
-                            "correlation_id": _request_context.get("correlation_id"),
-                        }
-                    )
+                log_record.update(_request_fields())
 
                 # Add OpenTelemetry trace context if available
                 current_span = trace.get_current_span()
@@ -223,22 +214,20 @@ class MartyStructuredLogger:
 
     def set_request_context(self, **context):
         """Set request context for logging."""
-        global _request_context
-        _request_context.update(context)
+        _request_context.set({**(_request_context.get() or {}), **context})
 
     def clear_request_context(self):
         """Clear request context."""
-        global _request_context
-        _request_context.clear()
+        _request_context.set(None)
 
     @contextmanager
     def request_context(self, **context):
         """Context manager for request-scoped logging context."""
-        self.set_request_context(**context)
+        token = _request_context.set({**(_request_context.get() or {}), **context})
         try:
             yield
         finally:
-            self.clear_request_context()
+            _request_context.reset(token)
 
 
 class PerformanceLogger:
