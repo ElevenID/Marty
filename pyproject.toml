@@ -24,16 +24,14 @@ dependencies = [
     "certvalidator>=0.11.1",
     # Protocol support
     "protobuf>=6.31.1",
-    "cose>=0.9.dev8",
     # JWT support retained by compatibility code and test fixtures
     "jwcrypto>=1.5.0",
     "pyjwt[crypto]>=2.9.0",
     # ISO 18013-5 mDL and document support
     "pillow>=10.1.0",
-    "scipy>=1.11.4",
+    "numpy>=1.24.0", # Retained biometric image quality uses NumPy directly
     "qrcode>=7.4.2",
     # Transport and connectivity
-    "bleak>=0.21.1", # BLE support for mDL transactions
     "pyscard>=2.0.7", # Smart card/NFC support
     "aiohttp>=3.9.0", # HTTP client for ISO 18013-7 online flows
     "requests>=2.32.5",
