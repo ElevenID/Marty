@@ -158,6 +158,24 @@ P-256 default when the new optional request field is omitted, so existing Rust
 callers are not silently changed. Issuer signing choice is independent of the
 child document-signer certificate key type.
 
+
+The stale `mock_csca_test.py` and `standalone_csca_lifecycle_test.py` scripts
+are retired. The former exercised only its own fake certificate/status store;
+the latter imported a removed Python service and failed broad test collection.
+Neither established current lifecycle or managed-KMS acceptance. Preserve actual
+coverage with the [Rust lifecycle behavior tests](https://github.com/ElevenID/marty-ui/blob/main/rust/services/signing-keys/tests/csca_lifecycle_behavior.rs)
+and the retained native crypto checks now collected in `tests/unit`.
+Those crypto checks use ephemeral test keys; they do not authorize production
+local-key issuance or qualify a managed provider.
+
+The CSCA acceptance matrix still needs current-owner create/renew/supersede,
+idempotent revoke/status/filter/expiry, malformed and cross-tenant rejection,
+atomic durable state and outbox events, fresh managed-KMS custody/lifecycle
+checks and real public-certificate correctness. In-memory/library tests do not
+qualify deployed Redis persistence, authenticated HTTP/tenant boundaries or
+provider operation. Redis-backed tests that require `MARTY_TEST_REDIS_URL`
+remain conditional; deleting old scripts closes none of those deployment gaps.
+
 ## Configuration boundary
 
 Files such as `config/development.yaml`, `config/testing.yaml`, and
