@@ -25,6 +25,8 @@ from typing import Any, TypeVar
 
 import cedarpy
 
+from marty_common.cedar_engine import _load_policy_files
+
 LOGGER = logging.getLogger(__name__)
 
 F = TypeVar("F", bound=Callable[..., Any])
@@ -93,16 +95,8 @@ class PolicyEngine:
         policy_paths: list[str | Path],
     ) -> PolicyEngine:
         """Load schema and policies from filesystem paths."""
-        schema = Path(schema_path).read_text()
-        policy_parts: list[str] = []
-        for p in policy_paths:
-            path = Path(p)
-            if path.is_dir():
-                for f in sorted(path.glob("*.cedar")):
-                    policy_parts.append(f.read_text())
-            elif path.exists():
-                policy_parts.append(path.read_text())
-        return cls(schema=schema, policies="\n\n".join(policy_parts))
+        schema, policies = _load_policy_files(schema_path, policy_paths)
+        return cls(schema=schema, policies=policies)
 
     @classmethod
     def with_defaults(cls) -> PolicyEngine:
