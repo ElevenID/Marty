@@ -20,7 +20,7 @@ This implementation provides database isolation per service following the micros
 
 #### Configuration Changes
 
-- `marty_common/config.py` - Updated `database()` method to accept service name parameter
+- Retained Python compatibility uses `packages/marty-common/marty_common/config/base_config.py` for service-specific database configuration. Python imports the adjacent `config/` package; the shadowed `config.py` duplicate is retired.
 - `src/apps/runtime.py` - Updated `build_dependencies_async()` to accept service name
 - Configuration files now support per-service database DSNs in format:
 
