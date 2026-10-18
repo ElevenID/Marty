@@ -69,13 +69,6 @@ def test_environment_setup():
 def pytest_runtest_setup(item):
     """Skip tests based on availability of dependencies."""
 
-    # Skip PassportEye tests if not available
-    if item.get_closest_marker("external"):
-        try:
-            import passporteye
-        except ImportError:
-            pytest.skip("PassportEye not available")
-
     # Skip docker tests if docker not available
     if item.get_closest_marker("docker"):
         import subprocess
