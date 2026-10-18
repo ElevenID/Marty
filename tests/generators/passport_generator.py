@@ -1,9 +1,9 @@
 """
 Passport test data generator for Marty project.
 
-Based on the concepts from the pypassport library, this module generates
-realistic passport data for testing purposes, including properly structured
-data groups and the necessary cryptographic signatures.
+Based on concepts from the pypassport library, this module generates synthetic
+passport fixtures with simplified data groups and placeholder SOD bytes.
+It does not produce cryptographic signatures or establish passport conformance.
 
 Uses Rust bindings from marty_rs for MRZ check digit calculation.
 
@@ -44,8 +44,8 @@ class PassportGenerator:
     """
     Generates test passport data for use in testing.
 
-    This class creates realistic passport data including properly structured
-    data groups and the necessary cryptographic signatures.
+    Creates synthetic data groups and placeholder SOD data for compatibility
+    consumers. See README.md for limitations and remaining qualification.
     """
 
     def __init__(self, output_dir: str | None = None):
@@ -262,7 +262,7 @@ class PassportGenerator:
         self, dg1: dict[str, Any], dg2: dict[str, Any], cert_path: str, key_path: str
     ) -> dict[str, Any]:
         """
-        Create Security Object (SOD) containing document signatures.
+        Create hashes and placeholder SOD data without signing.
 
         Args:
             dg1: DG1 data group
