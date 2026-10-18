@@ -8,6 +8,7 @@ from pathlib import Path
 import pickle
 import subprocess
 import sys
+import time
 from concurrent.futures import ThreadPoolExecutor
 from types import ModuleType, SimpleNamespace
 
@@ -159,11 +160,13 @@ def test_policy_retries_sync_and_async_without_losing_stop_limits(modules, facad
         asyncio.run(async_operation())
     assert len(calls) == 3
     calls.clear()
-    config.max_total_delay = 1e-9
+    config.max_total_delay = 0.001
 
     @factory(config)
     def expired():
         calls.append(1)
+        # Advance beyond Windows monotonic clock resolution before checking the deadline.
+        time.sleep(0.02)
         raise ConnectionError("deadline")
 
     with pytest.raises(ConnectionError, match="deadline"):

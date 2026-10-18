@@ -6,8 +6,9 @@ All consuming code should import from this module instead of `document_models`.
 
 from __future__ import annotations
 
+from datetime import datetime
 from enum import Enum
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -206,6 +207,8 @@ class ProcessResponse(BaseModel):
 class PreTravelVerificationRequest(BaseModel):
     """Input for pre-travel verification."""
 
+    model_config = ConfigDict(extra="forbid")
+
     mrz_lines: list[str] | None = None
     barcode_data: str | None = None  # VDS-NC or QR payload
     nfc_payload: bytes | None = None  # Placeholder for chip data
@@ -224,13 +227,29 @@ class TokenizedCredential(BaseModel):
     presentation_definition: dict[str, Any] | None = None
 
 
+class PreTravelWalletOffer(BaseModel):
+    """Pending Rust-owned offer; bearer capabilities must not be logged or cached."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+    id: str = Field(min_length=1)
+    organization_id: str = Field(min_length=1)
+    credential_template_id: str = Field(min_length=1)
+    status: Literal["pending"]
+    credential_offer_uri: str = Field(min_length=1, repr=False)
+    credential_offer_uris: dict[str, str] = Field(repr=False)
+    credential_offer_labels: dict[str, str]
+    pre_auth_code: str = Field(min_length=1, repr=False)
+    expires_at: datetime
+
+
 class PreTravelVerificationResult(BaseModel):
     """Response for pre-travel verification."""
 
     is_valid: bool
     reason: str | None = None
     mrz: MRZResult | None = None
-    credential: TokenizedCredential | None = None
+    credential: None = Field(default=None, description="Credentials are minted by Rust after wallet proof")
+    wallet_offer: PreTravelWalletOffer | None = Field(default=None, repr=False)
     checks: list[str] | None = None
     vds_valid: bool | None = None
     trust_warnings: list[str] | None = None
@@ -250,6 +269,7 @@ TransactionInfo.model_rebuild()
 ProcessResponse.model_rebuild()
 PreTravelVerificationRequest.model_rebuild()
 TokenizedCredential.model_rebuild()
+PreTravelWalletOffer.model_rebuild()
 PreTravelVerificationResult.model_rebuild()
 
 __all__ = [
@@ -271,6 +291,7 @@ __all__ = [
     "ProcessResponse",
     "PreTravelVerificationRequest",
     "PreTravelVerificationResult",
+    "PreTravelWalletOffer",
     "TokenizedCredential",
     "ProcessingStatus",
     "RfidLocation",

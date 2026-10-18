@@ -4,6 +4,8 @@ API dependencies for Document Processing service
 
 from __future__ import annotations
 
+from secrets import compare_digest
+
 from app.core.config import settings
 from app.services.coordinator_service import DocumentProcessingCoordinator
 from app.services.mrz_service import MRZProcessingService
@@ -34,6 +36,15 @@ async def verify_api_key(api_key: str | None = Security(api_key_header)) -> bool
     if settings.API_KEY and api_key != settings.API_KEY:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid API Key")
 
+    return True
+
+
+async def verify_pretravel_api_key(api_key: str | None = Security(api_key_header)) -> bool:
+    """Offer capabilities require a configured key, including in development."""
+    if not settings.USE_API_KEY or not settings.API_KEY:
+        raise HTTPException(status_code=503, detail="Pretravel API authentication is not configured")
+    if not api_key or not compare_digest(api_key.encode(), settings.API_KEY.encode()):
+        raise HTTPException(status_code=401, detail="Invalid pretravel API key")
     return True
 
 

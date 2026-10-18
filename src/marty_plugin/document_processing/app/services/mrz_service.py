@@ -29,7 +29,10 @@ from app.models.doc_models_clean import (
 )
 from PIL import Image
 from pytesseract import pytesseract  # type: ignore
+
 from marty_plugin.native_backends import NativeOperationError, require_backend
+
+logger = logging.getLogger(__name__)
 
 
 class MRZException(NativeOperationError):
@@ -43,7 +46,10 @@ class MRZParser:
     def parse_mrz(mrz: str) -> Any:
         native = require_backend("marty_verification")
         try:
-            return native.parse_mrz(mrz.strip().splitlines())
+            parsed = native.parse_mrz(mrz.strip().splitlines())
+            if getattr(parsed, "check_digits_valid", False) is not True:
+                raise MRZException("Rust MRZ checksum validation failed")
+            return parsed
         except Exception as exc:
             raise MRZException(f"Rust MRZ parsing failed: {exc}") from exc
 
@@ -303,22 +309,23 @@ class MRZProcessingService:
 
     def _build_mrz_result(self, mrz_data: Any, text_lines: list[str]) -> MRZResult:
         """Build MRZResult from parsed MRZ data."""
+        valid = getattr(mrz_data, "check_digits_valid", False) is True
         return MRZResult(
             docType=self._safe_str(getattr(mrz_data, "document_type", None)),
             issuingState=self._safe_str(getattr(mrz_data, "issuing_country", None)),
             nationality=self._safe_str(getattr(mrz_data, "nationality", None)),
             documentNumber=self._safe_str(getattr(mrz_data, "document_number", None)),
-            documentNumberChecksumValid=True,  # Would validate in real implementation
+            documentNumberChecksumValid=True if valid else None,
             optionalData=self._safe_str(getattr(mrz_data, "optional_data", None)) or "",
             givenNames=self._safe_str(getattr(mrz_data, "given_names", None)),
             surname=self._safe_str(getattr(mrz_data, "surname", None)),
             dateOfBirth=self._safe_date(getattr(mrz_data, "date_of_birth", None)),
-            dateOfBirthChecksumValid=True,
-            sex=self._safe_str(getattr(mrz_data, "gender", None)),
+            dateOfBirthChecksumValid=True if valid else None,
+            sex=self._safe_str(getattr(mrz_data, "sex", None)),
             dateOfExpiry=self._safe_date(getattr(mrz_data, "date_of_expiry", None)),
-            dateOfExpiryChecksumValid=True,
+            dateOfExpiryChecksumValid=True if valid else None,
             mrzLines=text_lines,
-            overallValid=True,  # Would validate all checksums in real implementation
+            overallValid=valid,
             fields=self._create_mrz_fields(mrz_data),
         )
 
@@ -335,7 +342,9 @@ class MRZProcessingService:
         return str(val) if isinstance(val, str) else None
 
     def _safe_date(self, val: Any) -> str | None:
-        """Safely convert date value to ISO string format."""
+        """Retain native MRZ dates without inventing a century for YYMMDD."""
+        if isinstance(val, str):
+            return val
         try:
             return val.strftime("%Y-%m-%d") if hasattr(val, "strftime") else None
         except (AttributeError, ValueError, TypeError):  # pragma: no cover - defensive
@@ -383,7 +392,7 @@ class MRZProcessingService:
                     line=1,
                     start=0,
                     length=9,
-                    checksumValid=True,
+                    checksumValid=True if getattr(mrz_data, "check_digits_valid", False) is True else None,
                 )
             )
 
@@ -392,12 +401,12 @@ class MRZProcessingService:
             fields.append(
                 MRZField(
                     name="DateOfBirth",
-                    value=mrz_data.date_of_birth.strftime("%Y-%m-%d"),
+                    value=self._safe_date(mrz_data.date_of_birth),
                     confidence=0.98,
                     line=1,
                     start=13,
                     length=6,
-                    checksumValid=True,
+                    checksumValid=True if getattr(mrz_data, "check_digits_valid", False) is True else None,
                 )
             )
 

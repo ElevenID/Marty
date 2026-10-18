@@ -28,6 +28,7 @@ dependencies = [
     "pyjwt[crypto]>=2.9.0",
     # ISO 18013-5 mDL and document support
     "pillow>=10.1.0",
+    "pytesseract>=0.3.13", # Retained document-processing service imports the OCR adapter
     "numpy>=1.24.0", # Retained biometric image quality uses NumPy directly
     "qrcode>=7.4.2",
     # Transport and connectivity

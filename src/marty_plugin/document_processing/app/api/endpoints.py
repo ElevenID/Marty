@@ -8,7 +8,11 @@ import logging
 import time
 from datetime import datetime, timezone
 
-from app.api.deps import get_coordinator_service, verify_api_key
+from app.api.deps import (
+    get_coordinator_service,
+    verify_api_key,
+    verify_pretravel_api_key,
+)
 from app.core.config import settings
 from app.models.doc_models_clean import (
     HealthResponse,
@@ -18,8 +22,9 @@ from app.models.doc_models_clean import (
     ProcessResponse,
 )
 from app.services.coordinator_service import DocumentProcessingCoordinator
+from app.services.pretravel_issuance import PreTravelIssuanceError
 from app.services.pretravel_service import PreTravelVerificationService
-from fastapi import APIRouter, Depends, Header, HTTPException, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Response, status
 from fastapi.responses import PlainTextResponse
 
 logger = logging.getLogger(__name__)
@@ -143,12 +148,19 @@ async def ping_legacy() -> str:
 )
 async def pre_travel_verify(
     request: PreTravelVerificationRequest,
-    _: bool = Depends(verify_api_key),
+    response: Response,
+    _: bool = Depends(verify_pretravel_api_key),
 ) -> PreTravelVerificationResult:
     """
     Pre-travel verification flow:
-    - Accept MRZ/barcode/NFC placeholders
-    - Perform minimal verification
-    - Issue tokenized credential (sd-jwt or mdoc placeholder)
+    - Check MRZ consistency and any supplied barcode/NFC evidence
+    - Return a pending Rust wallet offer; the wallet completes proof and issuance
     """
-    return await pretravel_service.verify_and_issue(request)
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["Pragma"] = "no-cache"
+    try:
+        return await pretravel_service.verify_and_issue(request)
+    except PreTravelIssuanceError as error:
+        raise HTTPException(status_code=503, detail=str(error)) from None
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from None

@@ -45,7 +45,7 @@ class GrpcServicerContext(Protocol):
 
 
 # Transaction handler type
-TransactionHandler = Callable[[AsyncSession], HandlerResult]
+TransactionHandler = Callable[["AsyncSession"], HandlerResult]
 
 
 @runtime_checkable
