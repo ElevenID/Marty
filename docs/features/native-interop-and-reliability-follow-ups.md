@@ -91,3 +91,41 @@ and template APIs remain compatibility work and are not removed by this trim.
   exact release and current CI owners. Upload appropriate sanitized diagnostics
   and make failures visible. Reconcile alerting, scheduling, artifact retention
   and gate aggregation before claiming complete quality-gate coverage.
+
+## Retired shared test scaffolds
+
+The unconsumed root/unit fixture factories, integration conftest and isolation
+helper are retired. Actual pytest hooks and the root autouse test environment
+remain. Test-specific native/API fixtures, real test modules and shared vectors
+remain; this does not remove active behavior tests. The old isolation helper's
+transaction context did not roll back anything, and its hardcoded database reset
+and recursive cache deletion were not qualified isolation controls.
+
+The passport data loader/generator remain available for a separate local debug
+consumer; removing their eager import from conftest does not retire that API.
+Their placeholder signatures/images and fixed sample data do not establish
+passport/SOD conformance. Preserve their own consumer/data audit separately.
+
+Reconcile the removed scaffolds' intent with the current Rust and integration
+owners before claiming acceptance:
+
+- Controlled synthetic primary/secondary mDL holders, namespace/document type,
+  driving privileges, portrait and identifying attributes; expired/malformed
+  inputs and selective versus age-only disclosure, with explicit consent and
+  bounded validity. Use current issuer/verifier formats and template contracts,
+  not fixed legacy HTTP/gRPC endpoints, ports, DIDs or expired sample dates.
+- Real issuer/holder/verifier exchanges, certificate lifecycle and trust/SOD
+  validation, negative cryptographic cases and replay/context rejection. Mock
+  gRPC messages and successful stub status strings do not qualify these flows;
+  long-term signing stays managed by KMS.
+- Genuine image/PDF decoding, document extraction and render/error behavior.
+  A 1px image or empty PDF body does not prove a document-processing feature.
+- Notification delivery, email content/verification links and failure/retry
+  behavior using an isolated approved test mailbox. Preserve configuration,
+  access boundaries and safe redacted diagnostics; an in-memory outbox is only
+  a test double, not proof of delivery or authentication.
+- Service-owned disposable database/schema setup, observed transaction rollback,
+  temporary-resource ownership, bounded failure recovery and deterministic
+  cleanup. Do not execute generic shell database drops or delete a checkout's
+  caches as a substitute for per-test resource isolation. Existing user data and
+  untracked local workflows are outside this cleanup.
