@@ -2,7 +2,7 @@
 
 Native extension builds and releases belong to
 [Marty Core](https://github.com/ElevenID/marty-core). The compatibility repository
-retains its [ISO bridge](../../src/marty_plugin/iso18013_bridge.py), example and
+retains its [ISO bridge](../../src/marty_plugin/iso18013_bridge.py) and
 native packaging checks. The uncalled macOS-specific bridge launcher is retired;
 its absolute checkout paths, masked failures and old test counts were not a
 supported build procedure.
@@ -19,8 +19,8 @@ platform prerequisites, features, local development, Rust tests and publishing.
 The former `tests/test_iso18013_bridge.py` is absent. Use the current root
 `make test` selection and actual Core tests; the
 [packaging checks](../../tests/unit/test_native_packaging_contract.py) verify
-delivery configuration, not device interoperability. The retained example
-contains placeholders and is not end-to-end acceptance.
+delivery configuration, not device interoperability. The placeholder integration
+example is retired; it did not perform or qualify an actual holder/reader exchange.
 
 ## Retained build and interoperability requirements
 

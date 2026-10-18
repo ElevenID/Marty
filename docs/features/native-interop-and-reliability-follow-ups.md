@@ -9,6 +9,16 @@ positive/negative evidence. This cleanup removes no current native capability.
 
 ## Device and wallet interoperability
 
+The unreferenced `examples/iso18013_integration_example.py` is also retired.
+It constructed engagement/session objects but returned hardcoded reader data
+and echoed requested element names as holder success without an encrypted
+exchange or consent decision. Its BLE proximity and HTTPS age-only walkthroughs
+did not prove transport operation, validated credentials or selective disclosure;
+its Python-fallback and performance claims were not qualification evidence.
+Keep those journeys as requirements below. The actual `iso18013_bridge.py`,
+native adapters, device handlers and tests remain; this deletion does not remove
+their implementations or deliver the missing holder/reader application behavior.
+
 Use the native cryptographic owner in [Marty Core](https://github.com/ElevenID/marty-core),
 the current [UI service stack](https://github.com/ElevenID/marty-ui), the
 [Authenticator](https://github.com/ElevenID/marty-authenticator) and
