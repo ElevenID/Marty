@@ -9,7 +9,7 @@ This script consolidates all synthetic data generation functionality:
 - mDL/mDoc credentials
 - DTC documents
 - Revocation lists (CRLs)
-- Master lists with database integration
+- Offline master-list fixture files
 
 Replaces and consolidates:
 - scripts/testing/generate_test_data.py
@@ -29,10 +29,9 @@ import random
 import secrets
 import string
 import sys
-import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 # Cryptography imports for ASN.1 DER encoding
 from cryptography import x509
@@ -43,17 +42,6 @@ from cryptography.x509.oid import NameOID
 # Add project root to path
 project_root = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(project_root))
-
-# Try to import trust service components for database integration
-try:
-    from src.trust_svc.config import TrustServiceConfig
-    from src.trust_svc.database import DatabaseManager
-
-    TRUST_SERVICE_AVAILABLE = True
-except ImportError:
-    TRUST_SERVICE_AVAILABLE = False
-    logger = logging.getLogger(__name__)
-    logger.warning("Trust service not available - database integration disabled")
 
 # Try to import PKD service components for ASN.1 encoding
 try:
@@ -66,19 +54,17 @@ except ImportError:
     logger = logging.getLogger(__name__)
     logger.warning("PKD service not available - will use simplified .ml format")
 
-# Try to import existing test generators for compatibility
-try:
-    from tests.generators.passport_generator import PassportGenerator
-
-    PASSPORT_GENERATOR_AVAILABLE = True
-except ImportError:
-    PASSPORT_GENERATOR_AVAILABLE = False
-
 # Configure logging
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
+
+DATABASE_INSERT_UNSUPPORTED = (
+    "Synthetic database insertion is unsupported. Generate offline fixtures without "
+    "--database-insert; a Rust-owned trust import must validate certificates, "
+    "signatures and tenant/trust boundaries before writing data."
+)
 
 # Common constants
 COUNTRIES = [
@@ -152,13 +138,13 @@ GIVEN_NAMES = [
 
 
 class SyntheticDataGenerator:
-    """Main class for generating comprehensive synthetic test data with database integration."""
+    """Generate offline synthetic fixtures, not trusted database records."""
 
     def __init__(self, output_dir: Path, database_insert: bool = False):
+        if database_insert:
+            raise ValueError(DATABASE_INSERT_UNSUPPORTED)
         self.output_dir = output_dir
         self.output_dir.mkdir(parents=True, exist_ok=True)
-        self.database_insert = database_insert
-        self.trust_db_manager = None
         self.logger = logging.getLogger(__name__)
 
         # Track generated data for consistency
@@ -166,23 +152,7 @@ class SyntheticDataGenerator:
         self.generated_countries = set()
         self.generated_document_numbers = set()
 
-    async def initialize(self) -> None:
-        """Initialize database connections if needed."""
-        if self.database_insert and TRUST_SERVICE_AVAILABLE:
-            try:
-                trust_config = TrustServiceConfig()
-                self.trust_db_manager = DatabaseManager(trust_config)
-                await self.trust_db_manager.initialize()
-                logger.info("Trust service database connection initialized")
-            except Exception as e:
-                logger.warning(f"Failed to initialize trust database: {e}")
-                self.database_insert = False
 
-    async def close(self) -> None:
-        """Clean up database connections."""
-        if self.trust_db_manager:
-            await self.trust_db_manager.close()
-            logger.info("Trust service database connection closed")
 
     def random_string(self, length: int = 10) -> str:
         """Generate random alphanumeric string."""
@@ -999,186 +969,10 @@ class SyntheticDataGenerator:
             json.dump(summary, f, indent=2)
         logger.info(f"Saved summary to {summary_file}")
 
-    async def insert_trust_service_data(self, data: dict[str, Any]) -> None:
-        """Insert generated data into trust service database."""
-        if not self.trust_db_manager or not self.database_insert:
-            logger.info("Database insertion skipped - not configured")
-            return
 
-        try:
-            logger.info("Starting database insertion...")
 
-            # Insert master lists
-            master_lists = data.get("certificates", {}).get("masterLists", [])
-            for master_list in master_lists:
-                await self._insert_master_list(master_list)
-            logger.info(f"Inserted {len(master_lists)} master lists")
 
-            # Insert CSCA certificates as trust anchors
-            csca_certs = data.get("certificates", {}).get("csca", [])
-            for cert in csca_certs:
-                await self._insert_trust_anchor(cert)
-            logger.info(f"Inserted {len(csca_certs)} trust anchors")
 
-            # Insert DS certificates
-            ds_certs = data.get("certificates", {}).get("ds", [])
-            for cert in ds_certs:
-                await self._insert_dsc_certificate(cert)
-            logger.info(f"Inserted {len(ds_certs)} DS certificates")
-
-            # Insert CRL data
-            crls = data.get("certificates", {}).get("crls", [])
-            for crl in crls:
-                await self._insert_crl_data(crl)
-            logger.info(f"Inserted {len(crls)} CRLs")
-
-            logger.info("Database insertion completed successfully")
-
-        except Exception as e:
-            logger.error(f"Database insertion failed: {e}")
-            raise
-
-    async def _insert_master_list(self, master_list: dict[str, Any]) -> None:
-        """Insert master list into trust database."""
-        async with self.trust_db_manager.get_session() as session:
-            from sqlalchemy import text
-
-            query = text(
-                """
-                INSERT INTO trust_svc.master_lists
-                (country_code, sequence_number, version, issue_date, next_update,
-                 certificate_count, data_hash, raw_data, signature_valid,
-                 signer_certificate_hash, source_type, source_url, status)
-                VALUES
-                (:country_code, :sequence_number, :version, :issue_date, :next_update,
-                 :certificate_count, :data_hash, :raw_data, :signature_valid,
-                 :signer_certificate_hash, :source_type, :source_url, :status)
-                ON CONFLICT (country_code, sequence_number) DO UPDATE SET
-                issue_date = EXCLUDED.issue_date,
-                certificate_count = EXCLUDED.certificate_count
-            """
-            )
-
-            raw_data = json.dumps(master_list).encode("utf-8")
-
-            await session.execute(
-                query,
-                {
-                    "country_code": master_list["country"],
-                    "sequence_number": master_list["sequenceNumber"],
-                    "version": master_list["version"],
-                    "issue_date": master_list["issueDate"],
-                    "next_update": master_list["nextUpdate"],
-                    "certificate_count": len(master_list.get("certificates", [])),
-                    "data_hash": master_list["dataHash"],
-                    "raw_data": raw_data,
-                    "signature_valid": True,
-                    "signer_certificate_hash": master_list["dataHash"][:64],
-                    "source_type": "synthetic",
-                    "source_url": f"synthetic://{master_list['country']}/master_list",
-                    "status": "active",
-                },
-            )
-            await session.commit()
-
-    async def _insert_trust_anchor(self, cert: dict[str, Any]) -> None:
-        """Insert CSCA certificate as trust anchor."""
-        async with self.trust_db_manager.get_session() as session:
-            from sqlalchemy import text
-
-            query = text(
-                """
-                INSERT INTO trust_svc.trust_anchors
-                (country, issuer, certificate_pem, thumbprint, valid_from, valid_to, is_active)
-                VALUES
-                (:country, :issuer, :certificate_pem, :thumbprint, :valid_from, :valid_to, :is_active)
-                ON CONFLICT (thumbprint) DO UPDATE SET
-                is_active = EXCLUDED.is_active
-            """
-            )
-
-            await session.execute(
-                query,
-                {
-                    "country": cert["country"],
-                    "issuer": cert["issuer"],
-                    "certificate_pem": cert["certificatePem"],
-                    "thumbprint": cert["thumbprint"],
-                    "valid_from": cert["validFrom"],
-                    "valid_to": cert["validTo"],
-                    "is_active": cert["status"] == "ACTIVE",
-                },
-            )
-            await session.commit()
-
-    async def _insert_dsc_certificate(self, cert: dict[str, Any]) -> None:
-        """Insert DS certificate."""
-        async with self.trust_db_manager.get_session() as session:
-            from sqlalchemy import text
-
-            query = text(
-                """
-                INSERT INTO trust_svc.dsc_certificates
-                (country, issuer, thumbprint, certificate_pem, valid_from, valid_to, status, is_revoked)
-                VALUES
-                (:country, :issuer, :thumbprint, :certificate_pem, :valid_from, :valid_to, :status, :is_revoked)
-                ON CONFLICT (thumbprint) DO UPDATE SET
-                status = EXCLUDED.status,
-                is_revoked = EXCLUDED.is_revoked
-            """
-            )
-
-            await session.execute(
-                query,
-                {
-                    "country": cert["country"],
-                    "issuer": cert["issuer"],
-                    "thumbprint": cert["thumbprint"],
-                    "certificate_pem": cert["certificatePem"],
-                    "valid_from": cert["validFrom"],
-                    "valid_to": cert["validTo"],
-                    "status": cert["status"].lower(),
-                    "is_revoked": cert["status"] == "REVOKED",
-                },
-            )
-            await session.commit()
-
-    async def _insert_crl_data(self, crl: dict[str, Any]) -> None:
-        """Insert CRL data."""
-        async with self.trust_db_manager.get_session() as session:
-            from sqlalchemy import text
-
-            query = text(
-                """
-                INSERT INTO trust_svc.crl_cache
-                (issuer, crl_number, issue_date, next_update, signature_algorithm,
-                 authority_key_identifier, raw_data, source_url, cache_until)
-                VALUES
-                (:issuer, :crl_number, :issue_date, :next_update, :signature_algorithm,
-                 :authority_key_identifier, :raw_data, :source_url, :cache_until)
-                ON CONFLICT (issuer, crl_number) DO UPDATE SET
-                issue_date = EXCLUDED.issue_date,
-                next_update = EXCLUDED.next_update
-            """
-            )
-
-            raw_data = json.dumps(crl).encode("utf-8")
-
-            await session.execute(
-                query,
-                {
-                    "issuer": crl["issuer"],
-                    "crl_number": crl["crlNumber"],
-                    "issue_date": crl["thisUpdate"],
-                    "next_update": crl["nextUpdate"],
-                    "signature_algorithm": crl["signatureAlgorithm"],
-                    "authority_key_identifier": crl.get("authorityKeyIdentifier", ""),
-                    "raw_data": raw_data,
-                    "source_url": f"synthetic://{crl['issuer']}/crl",
-                    "cache_until": crl["nextUpdate"],
-                },
-            )
-            await session.commit()
 
 
 async def main():
@@ -1191,14 +985,11 @@ Examples:
   # Generate standard test dataset
   python generate_synthetic_data.py --output-dir data/synthetic
 
-  # Generate large dataset with database insertion
-  python generate_synthetic_data.py --passports 1000 --countries 50 --database-insert
+  # Generate a large offline fixture dataset
+  python generate_synthetic_data.py --passports 1000 --countries 50
 
   # Generate minimal dataset for CI/CD
   python generate_synthetic_data.py --passports 20 --countries 5
-
-  # Generate only trust service data
-  python generate_synthetic_data.py --passports 0 --database-insert
 
   # Generate only master lists for trust service testing (no database insertion)
   python generate_synthetic_data.py --master-list-only --countries 10
@@ -1224,7 +1015,7 @@ Examples:
     parser.add_argument(
         "--database-insert",
         action="store_true",
-        help="Insert generated data into trust service database",
+        help="Unsupported legacy mode; requires a qualified Rust-owned trust import",
     )
     parser.add_argument(
         "--master-list-only",
@@ -1244,16 +1035,16 @@ Examples:
         logger.error("❌ --master-list-only and --database-insert are mutually exclusive")
         sys.exit(1)
 
-    # Create generator
-    generator = SyntheticDataGenerator(args.output_dir, database_insert=args.database_insert)
+    if args.database_insert:
+        parser.error(DATABASE_INSERT_UNSUPPORTED)
+
+    # Create generator only after rejecting unsupported modes.
+    generator = SyntheticDataGenerator(args.output_dir)
 
     # Select countries
     selected_countries = random.sample(COUNTRIES, min(args.countries, len(COUNTRIES)))
 
     try:
-        # Initialize generator (including database if needed)
-        await generator.initialize()
-
         if args.master_list_only:
             # Generate only master lists for trust service testing
             logger.info("🔑 Master list only mode - generating for trust service testing")
@@ -1270,10 +1061,6 @@ Examples:
 
         # Save data to files
         await generator.save_data(data, args.format)
-
-        # Insert into database if requested (but not for master-list-only mode)
-        if args.database_insert and not args.master_list_only:
-            await generator.insert_trust_service_data(data)
 
         logger.info("✅ Synthetic data generation completed successfully!")
 
@@ -1300,16 +1087,11 @@ Examples:
             print(f"mDoc Credentials: {len(data['credentials']['mdoc'])}")
             print(f"DTC Documents: {len(data['credentials']['dtc'])}")
 
-            if args.database_insert:
-                print("Database: Data inserted into trust service database")
         print("=" * 60)
 
     except Exception:
         logger.exception("❌ Error generating synthetic data")
         sys.exit(1)
-    finally:
-        # Always clean up resources
-        await generator.close()
 
 
 if __name__ == "__main__":

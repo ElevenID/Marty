@@ -65,3 +65,13 @@ passport/mDL/mdoc/DTC counts. Qualify referential/cryptographic consistency,
 negative cases, repeatability, failure reporting and cleanup against current
 owners. The wrapper's missing integration tester was not executable acceptance;
 optional legacy trust imports do not establish a supported current database path.
+
+The generator's duplicate database adapter is retired. It used the wrong import
+namespace/configuration constructor and SQL columns incompatible with the retained
+trust schema, and could print insertion success after skipping every write.
+`--database-insert` now rejects before generating files or keys. Actual retained
+trust-service APIs, database code and development jobs are unchanged. A future
+Rust-owned import must distinguish synthetic seeding from trusted ingestion,
+validate certificates/signatures and tenant/trust boundaries, and qualify
+idempotence, rollback, failure reporting and observed writes before claiming
+success. Offline fixture generation implements none of that acceptance.
