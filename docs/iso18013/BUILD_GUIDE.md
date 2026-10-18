@@ -35,3 +35,10 @@ as requirements of the current native owner. Preserve existing Python adapters;
 do not recreate a second protocol kernel or delete incomplete transports based
 on the retired launcher's failures. Use
 [native interoperability requirements](../features/native-interop-and-reliability-follow-ups.md).
+
+The root compatibility harness no longer declares the unused Python `cose` and
+`bleak` engines. Current COSE/protocol operations and BLE adapters require the
+native ISO owner; `pyscard` remains for the separate smart-card compatibility
+paths that still import it. Trimming unused dependencies does not qualify
+BLE/NFC devices, transports or protocol interoperability, and leaves the
+requirements above open.
