@@ -356,11 +356,16 @@ class EvidenceSigner:
         return self.evidence_chain
 
     def export_evidence_chain(self, format: EvidenceFormat = EvidenceFormat.JSON) -> str:
-        """Export the evidence chain in the specified format."""
+        """Export entries and head; pin the head independently before archive verification.
+
+        The export is not self-authenticating: a truncated export can also alter
+        its included head. Verifiers must use a trusted external head checkpoint.
+        """
         if format == EvidenceFormat.JSON:
             chain_data = {
                 "chain_metadata": {
                     "total_entries": len(self.evidence_chain.entries),
+                    "head_hash": self.evidence_chain.head_hash,
                     "export_timestamp": datetime.now(UTC).isoformat(),
                     "signer_service": self.service_id,
                 },
@@ -409,8 +414,12 @@ class EvidenceVerifier:
         except Exception:
             return False
 
-    async def verify_evidence_chain(self, evidence_chain: EvidenceChain) -> bool:
-        """Verify an entire evidence chain."""
+    async def verify_evidence_chain(
+        self, evidence_chain: EvidenceChain, *, expected_head_hash: str | None
+    ) -> bool:
+        """Verify a chain against a head authenticated outside the chain export."""
+        if evidence_chain.head_hash != expected_head_hash:
+            return False
         # Verify chain integrity
         if not evidence_chain.verify_chain_integrity():
             return False

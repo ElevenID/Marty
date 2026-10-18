@@ -94,6 +94,11 @@ class KeyOperationAuditLog:
 class KMSProviderInterface(ABC):
     """Abstract interface for KMS/HSM providers."""
 
+    @property
+    @abstractmethod
+    def provider_type(self) -> KMSProvider:
+        """Declare the managed custody provider used for policy and audit."""
+
     @abstractmethod
     async def generate_key(self, key_identity: KeyIdentity, algorithm: str, **kwargs) -> KeyMaterial:
         """Generate a new key."""
