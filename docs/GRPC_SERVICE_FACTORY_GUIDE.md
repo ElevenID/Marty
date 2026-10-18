@@ -1,322 +1,75 @@
-# gRPC Service Factory - DRY Implementation Guide
-
-## Overview
-
-The gRPC Service Factory provides a comprehensive DRY (Don't Repeat Yourself) pattern for creating, configuring, and running gRPC services in the Marty platform. It eliminates duplicate code patterns across all services while providing enhanced functionality.
-
-## Code Reduction Achieved
-
-### Before (Traditional Pattern)
-
-```python
-def serve():
-    # ~50 lines of duplicated setup code per service
-    service_name = "my-service"
-    setup_logging(service_name=service_name)
-    logger = get_logger(__name__)
-
-    port = os.environ.get("GRPC_PORT", 50051)
-    server = grpc.server(futures.ThreadPoolExecutor(max_workers=10))
-
-    # Add main service
-    servicer = MyServicer()
-    add_MyServicer_to_server(servicer, server)
-
-    # Add health check
-    health_servicer = HealthServicer()
-    health_pb2_grpc.add_HealthServicer_to_server(health_servicer, server)
-
-    # Add logging streamer
-    try:
-        logging_streamer = LoggingStreamerServicer()
-        common_services_pb2_grpc.add_LoggingStreamerServicer_to_server(
-            logging_streamer, server
-        )
-    except Exception as e:
-        logger.error(f"Failed to add logging streamer: {e}")
-
-    # Signal handling
-    def signal_handler(signum, frame):
-        logger.info("Shutting down...")
-        server.stop(30)
-
-    signal.signal(signal.SIGINT, signal_handler)
-    signal.signal(signal.SIGTERM, signal_handler)
-
-    # Configure and start server
-    server.add_insecure_port(f"[::]:{port}")
-    server.start()
-    logger.info(f"Server started on port {port}")
-    server.wait_for_termination()
-```
-
-### After (Using gRPC Service Factory)
-
-```python
-def main():
-    # Just 8 lines for complete service setup!
-    factory = create_grpc_service_factory(
-        service_name="my-service",
-        grpc_port=50051,
-        grpc_max_workers=10,
-    )
-
-    factory.register_service(
-        name="my_service",
-        servicer_factory=lambda **_: MyServicer(),
-        registration_func=add_MyServicer_to_server,
-    )
-
-    factory.serve()
-```
-
-**Code reduction: 84% fewer lines (50 → 8 lines)**
-
-## Key Features
-
-### 1. Automatic Standard Services
-
-- Health check service (`grpc.health.v1.Health`)
-- Logging streamer service (`common_services.LoggingStreamer`)
-- gRPC reflection (optional)
-
-### 2. Configuration Integration
-
-- Uses `BaseServiceConfig` and `GRPCServiceConfig` patterns
-- Environment-based configuration
-- TLS support ready
-- Comprehensive gRPC options
-
-### 3. Lifecycle Management
-
-- Signal handling (SIGINT, SIGTERM)
-- Graceful shutdown
-- Proper error handling
-- Service health monitoring
-
-### 4. Service Registration Patterns
-
-- Priority-based service registration
-- Dependency injection support
-- Global service registry
-- Decorator-based registration
-
-## Usage Patterns
-
-### Pattern 1: Simple Service
-
-```python
-from marty_common.grpc_service_factory import run_single_service
-
-def main():
-    run_single_service(
-        service_name="trust-anchor",
-        servicer_factory=lambda **_: TrustAnchorService(),
-        registration_func=add_TrustAnchorServicer_to_server,
-    )
-```
-
-### Pattern 2: Configured Service
-
-```python
-from marty_common.grpc_service_factory import create_grpc_service_factory
-
-def main():
-    factory = create_grpc_service_factory(
-        service_name="trust-anchor",
-        grpc_port=50051,
-        reflection_enabled=True,
-        debug=True,
-    )
-
-    factory.register_service(
-        name="trust_anchor",
-        servicer_factory=lambda **_: TrustAnchorService(),
-        registration_func=add_TrustAnchorServicer_to_server,
-        health_service_name="trust.TrustAnchor",
-    )
-
-    factory.serve()
-```
-
-### Pattern 3: Multi-Service Setup
-
-```python
-def main():
-    factory = create_grpc_service_factory("multi-service")
-
-    # Register multiple services with different priorities
-    factory.register_service(
-        name="trust_anchor",
-        servicer_factory=lambda **_: TrustAnchorService(),
-        registration_func=add_TrustAnchorServicer_to_server,
-        priority=10,
-    ).register_service(
-        name="pkd_service",
-        servicer_factory=lambda **_: PKDService(),
-        registration_func=add_PKDServiceServicer_to_server,
-        priority=20,
-    )
-
-    factory.serve()
-```
-
-### Pattern 4: Dependency Injection
-
-```python
-def main():
-    factory = create_grpc_service_factory("pkd-service")
-
-    factory.register_service(
-        name="pkd_service",
-        servicer_factory=lambda db=None, **_: PKDService(database=db),
-        registration_func=add_PKDServiceServicer_to_server,
-        dependencies={"db": get_database()},
-    )
-
-    factory.serve()
-```
-
-### Pattern 5: TLS-Enabled Service
-
-```python
-def main():
-    factory = create_grpc_service_factory(
-        service_name="secure-service",
-        tls_enabled=True,
-        tls_cert_file="/path/to/cert.pem",
-        tls_key_file="/path/to/key.pem",
-    )
-
-    factory.register_service(
-        name="my_service",
-        servicer_factory=lambda **_: MyServicer(),
-        registration_func=add_MyServicer_to_server,
-    )
-
-    factory.serve()
-```
-
-### Pattern 6: Decorator Registration
-
-```python
-from marty_common.grpc_service_factory import grpc_service
-
-@grpc_service(
-    name="trust_anchor",
-    registration_func=add_TrustAnchorServicer_to_server,
-    health_service_name="trust.TrustAnchor",
-)
-class TrustAnchorServiceDecorated(TrustAnchorService):
-    """Automatically registered service."""
-    pass
-
-def main():
-    # Service is already registered via decorator
-    factory = create_grpc_service_factory("trust-anchor")
-    factory.serve()
-```
-
-## Integration with Base Configuration
-
-The factory integrates seamlessly with the DRY configuration patterns:
-
-```python
-# Uses GRPCServiceConfig or HybridServiceConfig
-factory = create_grpc_service_factory(
-    service_name="my-service",
-    config_type="grpc",  # or "hybrid" for FastAPI + gRPC
-    grpc_port=50051,
-    grpc_max_workers=10,
-    grpc_keepalive_time=30,
-    reflection_enabled=True,
-    tls_enabled=False,
-)
-```
-
-## Migration Guide
-
-### Step 1: Identify Current Service Setup
-
-Look for patterns like:
-
-- `grpc.server()` creation
-- `add_*Servicer_to_server()` calls
-- Health check setup
-- Logging streamer setup
-- Signal handling
-- Port configuration
-
-### Step 2: Replace with Factory Pattern
-
-1. Import the factory: `from marty_common.grpc_service_factory import create_grpc_service_factory`
-2. Create factory with service configuration
-3. Register your main service
-4. Call `factory.serve()`
-
-### Step 3: Remove Old Boilerplate
-
-- Delete manual server setup code
-- Remove signal handling
-- Remove health check setup
-- Remove logging streamer setup
-
-### Step 4: Leverage Additional Features
-
-- Enable gRPC reflection
-- Add TLS configuration
-- Use dependency injection
-- Set service priorities
-
-## Configuration Reference
-
-### Standard Configuration Options
-
-```python
-factory = create_grpc_service_factory(
-    service_name="my-service",           # Required: service name
-    config_type="grpc",                  # "grpc" or "hybrid"
-    grpc_port=50051,                     # gRPC port
-    grpc_max_workers=10,                 # Thread pool size
-    reflection_enabled=True,             # Enable gRPC reflection
-    debug=False,                         # Debug mode
-    log_level="INFO",                    # Logging level
-    tls_enabled=False,                   # Enable TLS
-    tls_cert_file=None,                  # TLS certificate file
-    tls_key_file=None,                   # TLS private key file
-)
-```
-
-### Advanced gRPC Options
-
-The factory automatically applies all gRPC configuration from `BaseServiceConfig`:
-
-- Message size limits
-- Keepalive settings
-- HTTP/2 ping configurations
-- Connection timeouts
-
-## Benefits Summary
-
-1. **Massive Code Reduction**: 84% fewer lines of code per service
-2. **Consistency**: All services use the same patterns and configurations
-3. **Maintainability**: Changes to common patterns affect all services
-4. **Enhanced Features**: Built-in health checks, reflection, TLS support
-5. **Error Handling**: Standardized error handling and logging
-6. **Flexibility**: Support for single services, multi-services, and complex setups
-7. **Migration Path**: Easy migration from existing services
-
-## Files Created
-
-- `src/marty_common/grpc_service_factory.py` - Main factory implementation
-- `src/marty_common/grpc_service_factory_examples.py` - Usage examples
-- `src/trust_anchor/app/main_dry.py` - Real-world migration example
-
-## Next Steps
-
-1. **Migrate Existing Services**: Update one service at a time to use the factory
-2. **Standardize Configurations**: Use the base configuration patterns consistently
-3. **Enable Additional Features**: Add reflection, health checks, and TLS where needed
-4. **Documentation**: Update service documentation to reflect new patterns
-
-The gRPC Service Factory represents a significant step forward in the DRY implementation for the Marty platform, providing a robust, maintainable, and feature-rich foundation for all gRPC services.
+# gRPC service factory compatibility guide
+
+## Retained interfaces
+
+The Python [factory implementation](../packages/marty-common/marty_common/grpc_service_factory.py)
+remains available for compatibility. Current Rust service infrastructure belongs
+to Marty Microservices Framework; deployment composition belongs to marty-ui.
+See [shared service ownership](DRY_IMPLEMENTATION_GUIDE.md) before migrating a service.
+
+The packaged `grpc_service_factory_examples.py` is retired. It imported absent
+TrustAnchorService/PKDService application classes and had no tracked code caller.
+Its generated trust-anchor protobuf module still exists and is retained.
+The old `main_dry.py` migration example and `src/marty_common` paths in this
+guide were not current entry points. Removing these claims does not remove the
+factory, generated protocols or service implementations.
+
+| Interface | Current behavior |
+| --- | --- |
+| `GRPCServiceFactory(config)` | Holds configuration, service definitions and server lifecycle state |
+| `register_service(name, servicer_factory, registration_func, health_service_name=None, dependencies=None, priority=100)` | Adds a definition; returns the factory for chaining |
+| `create_grpc_service_factory(service_name, config_type="grpc", **config_kwargs)` | Builds configuration and queues standard health/logging service definitions |
+| `create_server(**kwargs)` | Constructs the gRPC server and attempts registration in priority order |
+| `start(**kwargs)`, `serve(**kwargs)`, `stop(grace_period=30)` | Start, wait for termination, and request graceful shutdown |
+| `run_single_service(...)` | Convenience entry point that creates a factory, registers a service and serves |
+| `ServiceRegistry`, `register_service_globally(...)`, `grpc_service(...)` | Maintain definitions in the separate global registry |
+| `auto_register_service(...)`, `auto_register_from_config(...)` | Attempt convention-based discovery; failures are logged |
+
+A service supplies its real constructor and generated
+`add_*Servicer_to_server` callback to `register_service`. Stored
+`dependencies` are merged with creation keyword arguments; creation arguments
+take precedence. Multiple definitions are supported, and lower numeric
+priorities are attempted first.
+
+The decorator/global registry does not automatically populate a factory's
+`services` list. The former example that decorated a class and immediately
+called `create_grpc_service_factory(...).serve()` did not establish registration
+of that application service. Explicitly registering a definition is distinct
+from adding it to the global registry.
+
+Configuration comes from [base_config.py](../packages/marty-common/marty_common/base_config.py).
+Use actual supported field names and `get_grpc_config()`/`get_tls_config()`
+results when inspecting a retained service. Selecting a `hybrid` configuration
+does not make this factory start an HTTP application.
+
+## Qualification work retained
+
+This is an interface inventory, not a production startup recipe. The existing
+implementation has integration limits that the removed examples did not test:
+
+- Auto-registration still tries historical `src.proto` paths before looking
+  for a callback in the supplied service module. Qualify discovery and manual
+  registration against actual generated namespaces and constructor dependencies.
+- Registration exceptions are logged and startup can continue without a requested
+  service. A running server alone does not establish that all required RPCs exist.
+- Standard health definitions and reflection setup do not prove application
+  readiness. The health-update path looks for `_health_servicer`, while the
+  constructor initializes `health_servicer`; qualify actual serving status.
+- TLS configuration can fall back to an insecure port when certificate/key
+  configuration is missing. This factory must not be treated as fail-closed
+  transport security. Correcting that behavior needs explicit transport
+  requirements and positive/negative startup tests.
+- Qualify bind failures, certificate loading, shutdown/draining and signal
+  handling in the owning process. Verify configured message limits, keepalive
+  and reflection behavior rather than inferring them from configuration fields.
+- Preserve single-service, multi-service, dependency-injection and explicit
+  registration scenarios when replacing this compatibility API. A decorator
+  migration needs a defined registry-to-factory step and tests.
+- Verify health, logging-streamer and application RPC registration with actual
+  clients, including startup failures and missing dependencies. Broader
+  telemetry, HTTP/hybrid operation and discovery remain owner-specific work.
+
+The [compatibility tooling ownership note](features/compatibility-tooling-ownership.md)
+also records registration-path qualification. Retiring the nonworking sample
+does not complete these requirements or authorize removing a service's existing
+server setup before its replacement is tested.
