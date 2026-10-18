@@ -3,11 +3,10 @@
 from __future__ import annotations
 
 import logging
-import random
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, TypeVar, Union
+from typing import Any, TypeVar
 
 from tenacity import (
     after_log,
@@ -16,12 +15,10 @@ from tenacity import (
     retry_if_exception_type,
     stop_after_attempt,
     stop_after_delay,
-    wait_combine,
     wait_exponential,
     wait_exponential_jitter,
     wait_fixed,
     wait_random,
-    wait_random_exponential,
 )
 from tenacity import retry as tenacity_retry  # type: ignore
 
@@ -31,7 +28,6 @@ logger = logging.getLogger(__name__)
 T = TypeVar("T")
 
 
- # Duplicate block removed (future import, logging, TypeVar) -- consolidated at top
 
 
 @dataclass
@@ -155,13 +151,18 @@ def _create_stop_strategy(config: RetryConfig) -> Any:  # noqa: ANN401
     strategies = [stop_after_attempt(config.max_attempts)]
     if config.max_total_delay > 0:
         strategies.append(stop_after_delay(config.max_total_delay))
-    return strategies[0] if len(strategies) == 1 else strategies
+    return strategies[0] if len(strategies) == 1 else strategies[0] | strategies[1]
 
 
 def create_retry_policy(
     config: RetryConfig | None = None, name: str | None = None, enable_logging: bool = True
 ) -> Any:  # noqa: ANN401
     """Create a comprehensive retry policy with monitoring."""
+    return _create_retry_policy(config, name, enable_logging, is_retryable_exception, logger)
+
+
+def _create_retry_policy(config, name, enable_logging, predicate, policy_logger):
+    """Build the shared policy while retaining each public facade's logger."""
     if config is None:
         config = RetryConfig()
 
@@ -169,7 +170,7 @@ def create_retry_policy(
     stop_strategy = _create_stop_strategy(config)
 
     # Create retry condition
-    retry_condition = retry_if_exception(is_retryable_exception)
+    retry_condition = retry_if_exception(predicate)
     if config.retry_on_exceptions:
         retry_condition = retry_if_exception_type(config.retry_on_exceptions)
 
@@ -182,8 +183,8 @@ def create_retry_policy(
 
     # Add logging if enabled
     if enable_logging and name:
-        retry_kwargs["before"] = before_log(logger, logging.DEBUG)
-        retry_kwargs["after"] = after_log(logger, logging.DEBUG)
+        retry_kwargs["before"] = before_log(policy_logger, logging.DEBUG)
+        retry_kwargs["after"] = after_log(policy_logger, logging.DEBUG)
 
     return tenacity_retry(**retry_kwargs)
 

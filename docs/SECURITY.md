@@ -39,8 +39,10 @@ The compatibility repository retains these configured controls:
   exclusions live in [pyproject.toml](../pyproject.toml); tests and both generated
   protobuf namespaces are excluded. Existing rule selection remains explicit
   in the hook, with narrow reviewed annotations for false positives.
-- The same pre-commit configuration retains detect-secrets with the existing
-  baseline. Running or installing hooks is distinct from CI enforcement.
+- The same pre-commit configuration retains detect-secrets, but its configured
+  baseline is absent from this tree and needs explicit review/provisioning.
+  The manual scanner can scan tracked files without approving a baseline.
+  Running or installing hooks is distinct from CI enforcement.
 - [CodeQL](../.github/workflows/codeql.yml) runs Python analysis through the
   organization workflow. [Organization quality](../.github/workflows/organization-quality.yml)
   configures workflow validation and dependency review.
@@ -68,11 +70,15 @@ Their enabled flags did not configure current hooks or workflows.
 the [crypto-boundary validator](../scripts/validation/validate_crypto_boundaries.py).
 Retained policies do not independently prove runtime enforcement.
 
-The separate [manual security scanner](../scripts/security_scan.sh) remains.
-It contains dependency, code, secrets and container scanning paths, but
-suppresses some errors and targets some retired deployment assets. Review
-execution failures and incomplete coverage; its completion message is not a
-release gate. No replacement parity for all its capabilities is established.
+The [manual security scanner](../scripts/security_scan.py) runs selected checks
+and returns 0 for recognized clean results, 1 for findings, and 2 for unavailable,
+failed, malformed or incomplete scans. The shell entry point forwards its exit
+status. It reads Bandit's version and arguments from the maintained hook,
+requires explicit container/filesystem targets, and never builds the retired
+Compose stack or globally installs scanners. See
+[scanner usage and limits](features/compatibility-consolidation.md).
+These outcomes cover selected automated checks, not compliance or release
+qualification; optional scanner adapters still need their tools and valid output.
 
 ## Open security automation and acceptance requirements
 

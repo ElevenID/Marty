@@ -103,3 +103,9 @@ current editor/lint/type-check tooling, pre-commit installation (including
 commit-message hooks), optional browser tooling, controlled output directories,
 non-root permissions, deliberate Docker access and only current service ports.
 No replacement container is delivered or claimed by removing the broken files.
+
+Use `python scripts/security_scan.py --help` for the portable manual scanner;
+`security_scan.sh` remains a thin compatibility entry point. Bandit shares the
+maintained hook configuration, failures propagate, and reports go to ignored
+`reports/generated/security/`. See
+[scanner and compatibility behavior](../docs/features/compatibility-consolidation.md).
