@@ -169,6 +169,19 @@ root plugin delivery surface. They were deleted only after package inspection,
 consumer-zero evidence, and retained rollback evidence. Neither package is a
 source directory or a current deployment dependency.
 
+The completed one-time deletion workflow, helper, inventory manifest and their
+helper-specific tests are retired too. The
+[governed deletion run](https://github.com/ElevenID/Marty/actions/runs/32862337568)
+completed on 2026-08-25: two packages and two remaining live versions were
+deleted, with seven versions already absent. Both packages were absent in the
+2026-10-18 authenticated organization inventory readback. The exact nine-version
+inventory and recovery-bundle SHA-256 remain available in the
+[immutable historical manifest](https://github.com/ElevenID/Marty/blob/734f8221e4279bc0e42cf3a627c329cfa0f34e6c/release/retired-oci-packages.json).
+This source cleanup changes neither registry contents nor recovery archives;
+it does not requalify the original recovery bundle's current storage location.
+Any future package retirement needs a new reviewed inventory and authorization,
+not the old v1.0.0-specific deletion workflow.
+
 Use immutable artifacts, SBOMs, checksums, and attestations published by the
 canonical Rust owners. Production changes are intentionally outside this
 repository. Beta deployments are performed from `marty-ui` only.

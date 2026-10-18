@@ -117,3 +117,9 @@ section preserves role separation, public verification, signed evidence,
 tamper/chain detection and durable audit requirements. The retained Python
 provider/evidence APIs and security policy fixtures are not removed or qualified
 by retiring these scripts.
+
+The one-time root OCI package deletion kit is also retired after its completed
+run and authenticated absent-package readback. See the
+[release boundary](../docs/architecture.md#release-and-deployment-boundary)
+for the historical run and recovery-inventory reference. Current publication,
+security scanning and rollback archives are outside this script cleanup.
