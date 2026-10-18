@@ -2,6 +2,11 @@
 
 This guide demonstrates how to generate master lists for testing the trust service without database insertion.
 
+The generator produces offline synthetic fixtures, not trusted ingestion or
+certificate/signature conformance evidence. Its old `--database-insert` mode is
+unsupported and fails before generation; the retained import requirements and
+current ownership are in [demo qualification](features/demo-data-qualification.md#synthetic-generator-integration-follow-up).
+
 ## Generating Master Lists for Testing
 
 The `generate_synthetic_data.py` script now supports a `--master-list-only` mode that generates master lists specifically for trust service testing without inserting them into the database.
