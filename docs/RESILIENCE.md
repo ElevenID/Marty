@@ -1,119 +1,74 @@
-# Resilience Layer
+# Resilience ownership and qualification
 
-> **Historical record:** This describes the retired Python service runtime's
-> resilience integration. It is not a current runtime guide. Do not configure
-> the removed launcher; current retry, circuit-breaker, and failure-policy
-> behavior is owned by the shared Rust MMF resilience crate.
+Shared service resilience belongs to Rust
+[`mmf-resilience`](https://github.com/ElevenID/marty-microservices-framework/tree/main/crates/mmf-resilience).
+Its source owns retry/backoff, circuit breakers, bulkheads, timeouts, and fallback
+chains. New service work should compose that owner rather than add another Python
+runtime. This is not a claim that every former Python integration has migrated.
 
-This document describes the resilience features added to the Marty microservice platform.
+## Retained compatibility APIs
 
-## Overview
+The Python [resilience package](../packages/marty-common/marty_common/resilience/__init__.py)
+remains available pending an audited migration of its consumers. This cleanup
+preserves its primitives, interceptors, configuration, degradation, monitoring,
+and chaos APIs.
 
-Components delivered:
+| Capability | Retained Python owner |
+| --- | --- |
+| Breaker states, thresholds, reset windows, error classification | [circuit_breaker.py](../packages/marty-common/marty_common/resilience/circuit_breaker.py) |
+| Bounded retry, backoff, sync/async calls | [retry.py](../packages/marty-common/marty_common/resilience/retry.py), [advanced_retry.py](../packages/marty-common/marty_common/resilience/advanced_retry.py) |
+| gRPC client/server composition and typed error translation | [comprehensive_interceptors.py](../packages/marty-common/marty_common/resilience/comprehensive_interceptors.py), [error_codes.py](../packages/marty-common/marty_common/resilience/error_codes.py) |
+| Environment presets, YAML and environment overrides | [config.py](../packages/marty-common/marty_common/resilience/config.py) |
+| Ordered fallback, cached/default responses, health and feature controls | [graceful_degradation.py](../packages/marty-common/marty_common/resilience/graceful_degradation.py) |
+| Metrics, registered component health and reports | [metrics.py](../packages/marty-common/marty_common/resilience/metrics.py), [monitoring.py](../packages/marty-common/marty_common/resilience/monitoring.py) |
 
-1. Standardized error taxonomy (`marty_common.resilience.error_codes`) mapped to canonical gRPC status codes.
-2. Lightweight in‑memory circuit breaker (`CircuitBreaker`) applied inbound (server interceptor) and optionally outbound (`async_call_with_resilience`).
-3. Retry helpers (`retry_sync`, `retry_async`, `default_retry`) built on `tenacity` with exponential backoff + jitter.
-4. Composite async gRPC server interceptor (`ResilienceServerInterceptor`) providing:
-   - Exception translation (including custom `MartyError` subclasses).
-   - Per‑RPC circuit breaking.
-   - Failure / chaos injection for resilience testing.
-5. Outbound helper `async_call_with_resilience` combining circuit breaker + retry around client stub calls.
+The former `apps.runtime` launcher and `scripts/resilience_demo.py` are retired.
+Their environment wiring is not a current deployment contract. Consult the
+actual configuration owner for supported fields rather than copying the old
+quickstart's service setup, Flask health endpoint, or nonexistent config paths.
 
-## Environment Variables
+## Checks and remaining acceptance work
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `MARTY_RESILIENCE_ENABLED` | `true` | Toggle registration of the resilience interceptor in `apps.runtime` |
-| `MARTY_CIRCUIT_BREAKER_ENABLED` | `true` | Enable server‑side circuit breaker logic (still creates no‑op breakers if disabled) |
-| `MARTY_FAILURE_INJECTION` | `false` | Enable failure injection feature |
-| `MARTY_FAILURE_INJECTION_RATE` | `0.0` | Probability (0.0‑1.0) of random injected transient failure when enabled |
+Collected Python checks are in
+[chaos_resilience_test.py](../tests/unit/chaos_resilience_test.py) and
+[compatibility_consolidation_test.py](../tests/unit/compatibility_consolidation_test.py).
+The former covers deterministic injector cleanup and breaker/retry/fallback
+composition; the latter covers compatibility behavior including sync/async retry
+limits. These tests do not qualify deployed services or the Rust runtime.
 
-Per‑request targeted failure injection: add metadata `x-failure-inject: true` (only honored when `MARTY_FAILURE_INJECTION` is enabled).
+The obsolete `integration_tests` and `comprehensive_integration_tests` modules
+reported random, in-process mock outcomes. Neither performed real gRPC calls nor
+was collected by the normal pytest filename pattern. Their orchestrators, mock
+services, canned scenarios, and print runners were removed; a printed success
+rate was not an integration assertion. Their intent remains acceptance work:
 
-## Error Mapping
+- Verify breaker closed/open/half-open transitions, threshold and timeout
+  boundaries, failed recovery probes, successful recovery, and client-error
+  classification without waiting on random outcomes.
+- Verify bounded sync/async retry, non-retryable errors, backoff/jitter bounds,
+  attempt/deadline limits, and combined retry/breaker/fallback behavior.
+- Verify configured fallback ordering, unavailable/failed fallbacks, explicit
+  degraded responses, and recovery to primary operation. Authentication and
+  authorization failures must not become successful access through fallback.
+- Exercise real gRPC client/server interceptor composition, typed error/status
+  propagation, deadlines, latency, and cancellation across transport boundaries.
+  Retain per-method breaker policy and structured protobuf `Any` error-detail
+  requirements until implemented and qualified in the owning service.
+- Qualify concurrency limits and error classification, and any required adaptive,
+  Fibonacci, or polynomial backoff separately; their Python configuration names
+  do not establish equivalent Rust support.
+- Validate deployment configuration and threshold overrides at startup. Check
+  that observed latency, retry counts, breaker states, dependency health, and
+  alerts reflect real outcomes rather than only local mock counters.
+- Exercise controlled dependency outages, simultaneous failures, load and
+  recovery in the service owner. Qualify fault-injection controls separately;
+  no deployment injection configuration is established by these retired demos.
 
-| Error Class | Category | gRPC Status |
-|-------------|----------|-------------|
-| `ValidationError` | validation | `INVALID_ARGUMENT` |
-| `NotFoundError` | not_found | `NOT_FOUND` |
-| `ConflictError` | conflict | `ALREADY_EXISTS` |
-| `UnauthorizedError` | unauthorized | `PERMISSION_DENIED` |
-| `TransientBackendError` | transient | `UNAVAILABLE` |
-| other / unknown | internal | `INTERNAL` |
-
-Helper: `map_exception_to_status(exc)` returns `(grpc.StatusCode, message)`.
-
-## Circuit Breaker
-
-State machine: `CLOSED -> OPEN -> HALF_OPEN -> CLOSED` with immediate reopen on HALF_OPEN failure.
-
-Config (`CircuitBreakerConfig`):
-
-- `failure_threshold`: consecutive failures in CLOSED to OPEN the breaker.
-- `recovery_timeout`: seconds to stay OPEN before allowing a HALF_OPEN trial.
-- `half_open_success_threshold`: successes required while HALF_OPEN to fully CLOSE.
-- `failure_reset_timeout`: inactivity window after which the failure counter resets while CLOSED.
-
-Inbound usage: one breaker per fully-qualified RPC method path.
-
-Outbound usage: `async_call_with_resilience("service.Method", lambda: stub.Method(req))`.
-
-## Retry Helpers
-
-``default_retry(max_attempts=5, base=0.2, max_wait=3.0)``
-
-Backoff: exponential with jitter via `tenacity.wait_exponential_jitter`.
-
-Retry predicate: transient exceptions (`TransientBackendError` or those marked transient by `exception_is_transient`).
-
-Decorators: `@retry_async()`, `@retry_sync()` or call policy returned by `default_retry`.
-
-## Failure Injection
-
-Purpose: Validate client retry paths, circuit breaker transitions, observability alerts under error conditions.
-
-Activate globally with `MARTY_FAILURE_INJECTION=true` and optionally set probability `MARTY_FAILURE_INJECTION_RATE=0.25`.
-
-Force per-call injection with request metadata: `x-failure-inject: true`.
-
-Injected failures raise `TransientBackendError` -> mapped to `UNAVAILABLE`.
-
-## Testing
-
-Added unit tests:
-
-- `test_circuit_breaker.py` – state transitions, half-open behavior, reset timer.
-- `test_resilience_interceptor.py` – error mapping verification & failure injection.
-
-Run all tests:
-
-```bash
-pytest -k resilience -v
-```
-
-## Integration Guidance
-
-Inbound (already wired): Set `MARTY_RESILIENCE_ENABLED=false` to temporarily disable.
-
-Outbound example:
-
-```python
-from marty_common.resilience import async_call_with_resilience
-
-async def get_doc(stub, request):
-    return await async_call_with_resilience(
-        "document_signer.GetDocument", lambda: stub.GetDocument(request),
-        retry_kwargs={"max_attempts": 4}
-    )
-```
-
-## Future Enhancements
-
-- Metrics export (success/failure counts, state) via Prometheus.
-- Configurable breaker policies per method via config file.
-- Structured error detail metadata (rich protobuf Any attachments).
-
+The old `FailureScenario.failure_type` and `duration_seconds` fields were unused;
+its quickstart also supplied a nonexistent `latency_range` field. Selecting fault
+types, bounding their duration, and exercising latency remain explicit
+requirements for a future qualification harness, not implemented guarantees.
+No equivalence between Python configuration and Rust configuration is assumed.
 
 ## Retained Python qualification tooling
 
