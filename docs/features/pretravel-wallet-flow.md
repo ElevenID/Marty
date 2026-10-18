@@ -69,3 +69,40 @@ Compatibility verification still requires native wheels matching the checkout's
 API surface. Use the exact Core revision/features selected by CI; a same-version
 historical release wheel can lack those APIs. This migration does not qualify
 every shared Python compatibility module or retire its remaining native profiles.
+
+
+## Retired wallet HTTP scratch demo
+
+The unreferenced `examples/wallet-demo.http` is retired. Its old
+`/credential-offer` requests, JSON token exchange, self-attested wallet strings,
+and proofless credential request are not a current integration recipe. The
+historical secret-scan fingerprint remains for repository history; no wallet or
+credential service implementation is removed by deleting this request artifact.
+
+Preserve these acceptance requirements under the Rust issuance and wallet owners:
+
+- Exercise issuer metadata, offer initiation, preauthorization/token exchange,
+  nonce/holder proof and credential delivery with a real wallet and the selected
+  template. Inspect the actual current metadata and schemas instead of copying
+  retired endpoint paths, request bodies, or the example SD-JWT response.
+- Verify expected selective disclosure and supported credential formats against
+  the configured template. Identity-document and age-gate examples (including
+  over-18/over-21 versus raw birth/age claims) still need approved evidence,
+  derivation, privacy and wallet qualification; sample claims prove no identity
+  or age. Do not forward raw biometric/travel data merely because the demo did.
+- Reject unsupported credential types/formats, invalid or consumed preauthorization
+  codes, invalid/expired access tokens, and missing/invalid/replayed holder proof.
+  Test issuer, tenant, holder and template binding, including cross-tenant and
+  wrong-challenge attempts. A client-chosen audience/nonce or a `self_attested`
+  string is not a substitute for Rust's holder-proof requirements.
+- Verify pending offer versus completed credential status, error propagation,
+  expiry/consumption, no-store capability handling, and recovery from interrupted
+  wallet exchanges without inferring successful issuance from a timeout.
+
+The existing Rust issuance
+[initiation](https://github.com/ElevenID/marty-ui/blob/main/rust/services/issuance/tests/initiation_http_behavior.rs),
+[token exchange](https://github.com/ElevenID/marty-ui/blob/main/rust/services/issuance/tests/token_exchange_behavior.rs),
+and [proof/nonce](https://github.com/ElevenID/marty-ui/blob/main/rust/services/issuance/tests/proof_nonce_behavior.rs)
+checks are source entry points for the owner audit. This artifact cleanup does
+not claim those checks cover every listed requirement or establish real-wallet
+interoperability. No issuance, signing, KMS or hardening behavior changes here.
