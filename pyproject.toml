@@ -21,7 +21,6 @@ dependencies = [
     "marty-rs==0.1.56",
     # Cryptography and PKI
     "cryptography>=41.0.7",
-    "certvalidator>=0.11.1",
     # Protocol support
     "protobuf>=6.31.1",
     # JWT support retained by compatibility code and test fixtures
@@ -245,13 +244,6 @@ ignore_errors = true
 [[tool.mypy.overrides]]
 module = [
     "src.*"
-]
-ignore_missing_imports = true
-
-# Additional missing module patterns
-[[tool.mypy.overrides]]
-module = [
-    "certvalidator.*"
 ]
 ignore_missing_imports = true
 
