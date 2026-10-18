@@ -113,3 +113,27 @@ async def get_doc(stub, request):
 - Metrics export (success/failure counts, state) via Prometheus.
 - Configurable breaker policies per method via config file.
 - Structured error detail metadata (rich protobuf Any attachments).
+
+
+## Retained Python qualification tooling
+
+`marty_common.resilience.chaos_testing` retains its public injector, configuration,
+context manager, and `ResilienceTestSuite` APIs for compatibility. Its embedded
+pytest fixtures and standalone print demo were removed from the runtime package.
+Collected checks now live in `tests/unit/chaos_resilience_test.py`; they exercise
+injected exceptions and cleanup, breaker recovery with controlled time, and a
+bounded retry/breaker/fallback sequence through the real Python primitives.
+These checks qualify retained compatibility behavior, not the Rust runtime.
+
+The synthetic suite's aggregate counters are not integration qualification:
+`chaos_context` starts a background task whose exceptions do not reach the
+protected operation, and retry policy factories do not populate the suite's
+separate retry metrics registry. Its degradation method also accepts but does
+not invoke the supplied fallback operation. Those public APIs remain unchanged;
+callers must not infer verified fault handling from their printed summaries.
+A future API audit must define how concurrent delay injection and synchronous
+failure injection interact before changing the context manager's behavior.
+
+Memory pressure, CPU spike, and disk-full enum values have no injection dispatch
+implementation. Real-service, deployment, and Rust fault-injection qualification
+remain separate work; retaining these names does not establish support.
