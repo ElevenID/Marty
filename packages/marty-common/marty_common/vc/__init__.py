@@ -1,11 +1,5 @@
-"""Verifiable credential helpers for SD-JWT and OIDC4VCI flows."""
+"""Retained SD-JWT compatibility helpers pending canonical Rust issuance."""
 
-from .oidc4vci import (
-    CredentialOffer,
-    CredentialOfferGrant,
-    CredentialOfferGrantPreAuthorizedCode,
-    Oidc4VciSession,
-)
 from .sd_jwt import (
     SdJwtConfig,
     SdJwtDisclosure,
@@ -15,10 +9,6 @@ from .sd_jwt import (
 )
 
 __all__ = [
-    "CredentialOffer",
-    "CredentialOfferGrant",
-    "CredentialOfferGrantPreAuthorizedCode",
-    "Oidc4VciSession",
     "SdJwtConfig",
     "SdJwtDisclosure",
     "SdJwtIssuanceInput",

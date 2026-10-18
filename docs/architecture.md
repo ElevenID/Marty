@@ -123,6 +123,16 @@ or add an API-key-only signing shortcut. Keep MRZ, VDS-NC trust/signature and
 NFC/SOD evidence outcomes, disclosure claims, and unfinished audience/nonce and
 mDoc requirements explicit until the owning Rust workflow supports them.
 
+The unused Python `vc/oidc4vci.py` offer/grant/session dataclasses and their
+package exports are retired. No tracked runtime or test consumed them; their
+legacy offer encoding is not the current Rust protocol contract. Use the Rust
+issuance service for credential offers, authorization, token exchange and
+session state. The separate SQLAlchemy `Oidc4VciSessionRecord` and repository
+remain pending their own consumer/data audit. SD-JWT issuance and pretravel
+verification remain until the migration above is implemented and qualified.
+The root harness no longer installs the unused Authlib or Python `sd-jwt`
+engines; retained SD-JWT operations already call Rust native kernels.
+
 ## CSCA parity record
 
 The historical CSCA API exposed the following intended operations:
