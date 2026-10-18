@@ -59,3 +59,36 @@ particular package are separate checks.
 The retired helper's root build commands are not replacement publication
 procedures. Consult the image owner's current release and pull instructions
 rather than creating a parallel image publication path.
+
+## TLS and ACME qualification
+
+The uncalled `scripts/acme_bootstrap.sh` wrapper is retired. It generated a
+parallel Pebble Compose stack and an unconsumed `config/acme.yaml`; its smoke
+check initialized an ACME directory/account but did not request a certificate.
+Unpinned fixture images, always-valid domain checks and a TLS-verification bypass
+did not qualify a deployment or the Let's Encrypt staging route.
+
+The retained [ACME client](../../packages/marty-common/marty_common/acme_client.py)
+and [gRPC TLS adapter](../../packages/marty-common/marty_common/grpc_tls.py) still
+provide compatibility interfaces for initial issuance and renewal. Their removal
+requires a separate consumer and Rust replacement audit. TLS identities and ACME
+account keys have a distinct capability boundary from long-term credential issuer
+keys; retiring the wrapper does not remove those features or change their keys.
+
+Preserve these requirements under the current Rust runtime/deployment owners:
+
+- A governed disposable Pebble fixture with pinned images, deliberate port/data
+  ownership, trusted CA configuration and actual HTTP-01/domain validation;
+  explicit account creation, order, challenge, finalization and certificate retrieval.
+- Verified certificate chain, subject/domain, expiry and TLS/mTLS loading; renewal
+  policy and positive/negative failure checks for unavailable ACME, invalid challenge,
+  rejected order and expired or mismatched certificates. Let's Encrypt staging
+  interoperability remains an unqualified requirement until separately exercised.
+- Defined account and TLS key custody, file/storage permissions, rotation and cleanup
+  appropriate to their owner. Do not treat local fixture directories or generated
+  YAML as managed issuer KMS custody or current runtime configuration.
+
+These are retained acceptance requirements, not a claim that removing the wrapper
+implements Rust ACME support or completes certificate/transport qualification.
+No running container, certificate storage directory or external ACME account is
+changed by this source cleanup.
