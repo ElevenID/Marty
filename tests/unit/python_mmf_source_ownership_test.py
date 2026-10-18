@@ -31,7 +31,6 @@ HISTORICAL_GUIDES = (
     ROOT / "docs" / "DATABASE_PER_SERVICE.md",
     ROOT / "docs" / "DEVELOPER_GUIDE.md",
     ROOT / "docs" / "PROMETHEUS_MONITORING.md",
-    ROOT / "docs" / "RESILIENCE.md",
     ROOT / "docs" / "production_readiness_plan.md",
 )
 
