@@ -129,3 +129,9 @@ owners before claiming acceptance:
   cleanup. Do not execute generic shell database drops or delete a checkout's
   caches as a substitute for per-test resource isolation. Existing user data and
   untracked local workflows are outside this cleanup.
+
+The unused shared blank-image/minimal-PDF constructors are also retired. Real
+image/PDF vectors and their document-processing qualification requirements above
+remain. The generic external marker no longer skips tests based on the retired
+PassportEye package. External tests must own their specific dependency and
+deployment requirements; the Docker availability check remains.
