@@ -68,6 +68,7 @@ dependencies = [
     "structlog>=23.2.0",
     
     # Utilities
+    "tenacity>=8.3.0", # Retained resilience retry policies
     "python-dateutil>=2.8.2",
     "pytz>=2023.3",
     
