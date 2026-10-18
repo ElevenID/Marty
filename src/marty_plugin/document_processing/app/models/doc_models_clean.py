@@ -218,15 +218,6 @@ class PreTravelVerificationRequest(BaseModel):
     nonce: str | None = None
 
 
-class TokenizedCredential(BaseModel):
-    """Issued credential (sd-jwt or mdoc placeholder)."""
-
-    format: str
-    token: str
-    disclosures: list[str] | None = None
-    presentation_definition: dict[str, Any] | None = None
-
-
 class PreTravelWalletOffer(BaseModel):
     """Pending Rust-owned offer; bearer capabilities must not be logged or cached."""
 
@@ -268,7 +259,6 @@ ContainerList.model_rebuild()
 TransactionInfo.model_rebuild()
 ProcessResponse.model_rebuild()
 PreTravelVerificationRequest.model_rebuild()
-TokenizedCredential.model_rebuild()
 PreTravelWalletOffer.model_rebuild()
 PreTravelVerificationResult.model_rebuild()
 
@@ -292,7 +282,6 @@ __all__ = [
     "PreTravelVerificationRequest",
     "PreTravelVerificationResult",
     "PreTravelWalletOffer",
-    "TokenizedCredential",
     "ProcessingStatus",
     "RfidLocation",
     "Status",
