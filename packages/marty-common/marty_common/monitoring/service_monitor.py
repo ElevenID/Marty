@@ -648,7 +648,12 @@ class MetricsInterceptor(grpc.ServerInterceptor):
         self.metrics_collector = metrics_collector
 
     def intercept_service(self, continuation, handler_call_details):
-        def wrapper(request, context):
+        handler = continuation(handler_call_details)
+        if handler is None:
+            return None
+
+        @contextmanager
+        def measure():
             start_time = time.time()
             method_name = handler_call_details.method
 
@@ -656,7 +661,7 @@ class MetricsInterceptor(grpc.ServerInterceptor):
             self.metrics_collector.increment_counter("grpc.requests.total", {"method": method_name})
 
             try:
-                response = continuation(request, context)
+                yield
 
                 # Record success
                 self.metrics_collector.increment_counter(
@@ -669,9 +674,6 @@ class MetricsInterceptor(grpc.ServerInterceptor):
                     "grpc.errors.total", {"method": method_name, "error_type": type(e).__name__}
                 )
                 raise
-            else:
-                return response
-
             finally:
                 # Record duration
                 duration = time.time() - start_time
@@ -679,7 +681,27 @@ class MetricsInterceptor(grpc.ServerInterceptor):
                     "grpc.requests.duration", duration, {"method": method_name}
                 )
 
-        return wrapper
+        def wrap(behavior):
+            if handler.response_streaming:
+                def streaming(request, context):
+                    with measure():
+                        yield from behavior(request, context)
+                return streaming
+
+            def unary(request, context):
+                with measure():
+                    return behavior(request, context)
+            return unary
+
+        constructors = {
+            (False, False): (grpc.unary_unary_rpc_method_handler, handler.unary_unary),
+            (False, True): (grpc.unary_stream_rpc_method_handler, handler.unary_stream),
+            (True, False): (grpc.stream_unary_rpc_method_handler, handler.stream_unary),
+            (True, True): (grpc.stream_stream_rpc_method_handler, handler.stream_stream),
+        }
+        constructor, behavior = constructors[(handler.request_streaming, handler.response_streaming)]
+        return constructor(wrap(behavior), request_deserializer=handler.request_deserializer,
+                           response_serializer=handler.response_serializer)
 
 
 @contextmanager

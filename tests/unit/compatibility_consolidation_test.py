@@ -8,6 +8,7 @@ from pathlib import Path
 import pickle
 import subprocess
 import sys
+from concurrent.futures import ThreadPoolExecutor
 from types import ModuleType, SimpleNamespace
 
 import pytest
@@ -75,6 +76,60 @@ def test_retry_types_pickle_and_separate_metric_histories(modules):
     basic.get_retry_metrics("same").record_success()
     assert enhanced.get_retry_metrics("same").successful_calls == 0
     assert basic.get_retry_metrics("same").successful_calls == 1
+
+
+@pytest.mark.parametrize("kind", ["unary_unary", "unary_stream", "stream_unary", "stream_stream"])
+def test_metrics_interceptor_dispatches_real_grpc_calls(modules, kind):
+    import grpc
+
+    module = modules("monitoring.service_monitor")
+    collector = module.MetricsCollector()
+    request_streaming = kind.startswith("stream_")
+    response_streaming = kind.endswith("_stream")
+
+    def behavior(request, context):
+        values = list(request) if request_streaming else [request]
+        if values == [b"error"]:
+            context.abort(grpc.StatusCode.INVALID_ARGUMENT, "expected")
+        return iter(values) if response_streaming else b"".join(values)
+
+    handler = getattr(grpc, kind + "_rpc_method_handler")(
+        behavior, request_deserializer=lambda x: x, response_serializer=lambda x: x)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        server = grpc.server(pool, interceptors=[module.create_metrics_interceptor(SimpleNamespace(metrics_collector=collector))])
+        server.add_generic_rpc_handlers((grpc.method_handlers_generic_handler("probe", {"call": handler}),))
+        port = server.add_insecure_port("127.0.0.1:0")
+        server.start()
+        try:
+            with grpc.insecure_channel(f"127.0.0.1:{port}") as channel:
+                call = getattr(channel, kind)("/probe/call")
+                result = call(iter([b"ok"]) if request_streaming else b"ok", timeout=5)
+                assert (list(result) if response_streaming else result) == ([b"ok"] if response_streaming else b"ok")
+                with pytest.raises(grpc.RpcError):
+                    result = call(iter([b"error"]) if request_streaming else b"error", timeout=5)
+                    if response_streaming:
+                        list(result)
+        finally:
+            server.stop(0).wait(5)
+    assert len(collector.get_metrics("grpc.requests.total")) == 2
+    assert len(collector.get_metrics("grpc.requests.success.total")) == 1
+    assert len(collector.get_metrics("grpc.errors.total")) == 1
+    assert len(collector.get_metrics("grpc.requests.duration")) == 2
+
+
+def test_scanner_resolves_output_relative_to_caller(scanner, monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    seen = []
+
+    def run(tool, args, root, directory):
+        seen.append(directory)
+        assert directory == tmp_path / "relative-output"
+        assert directory.is_absolute()
+        return {"tool": tool, "status": "passed"}
+
+    monkeypatch.setattr(scanner, "run_check", run)
+    assert scanner.main(["code", "--output-dir", "relative-output"]) == 0
+    assert seen
 
 
 @pytest.mark.parametrize("facade", ["retry", "retry_enhanced"])

@@ -69,6 +69,9 @@ the package's object model. Nonconflicting service factories, `ServiceMonitor`,
 available lazily through the package. Health-status and alert-severity enums
 are shared. Trust monitoring remains untouched. No service/thread starts merely
 by importing the package, and no runtime readiness is claimed by this move.
+The gRPC metrics interceptor now returns a proper method handler with the original
+serializers and request/response cardinality. Streaming success and duration are
+recorded when response iteration finishes, and iteration failures record errors.
 
 ## Retry compatibility
 

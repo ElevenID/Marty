@@ -191,6 +191,7 @@ def main(argv=None, *, root: Path = ROOT) -> int:
     directory = args.output_dir or root / "reports/generated/security" / (
         datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ") + "-" + uuid.uuid4().hex[:8]
     )
+    directory = directory.resolve()
     # A new directory prevents stale output from being interpreted as a new scan.
     try:
         directory.mkdir(parents=True, exist_ok=False)
