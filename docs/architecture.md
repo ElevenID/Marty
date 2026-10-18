@@ -67,6 +67,49 @@ or protocol kernels. They may translate DTOs, coordinate calls, or expose
 compatibility interfaces, but synthetic success and silent fallback are
 prohibited.
 
+## KMS-only compatibility refactoring
+
+Long-term issuer signing keys belong to the managed KMS boundary of the Rust
+`signing-keys` service. Moving a cryptographic primitive into Rust does not
+make application-held private PEM, a local key directory, or encrypted private
+key database columns into managed custody. Do not add another Python provider
+or local fallback as a substitute for the canonical managed signing path.
+TLS identities, ephemeral session secrets and product-owned holder/device keys
+have separate capability boundaries; do not erase those features as issuer-key
+cleanup.
+
+The unconsumed `shared/services/key_management_extended.py` is retired. It
+scheduled local-file key rotation, wrote a separate SQLite usage ledger and
+computed heuristic security reports. It was not wired into a deployed service
+or current tests. Keep the underlying compatibility `KeyManagementService`
+until its consumers and native-boundary tests have an actual replacement.
+Deleting the extension does not establish KMS-only custody for that base class.
+
+Preserve these lifecycle and coverage requirements under the Rust owner:
+
+- Provider-backed rotation, expiry and activation policy, stable public key
+  identity/version metadata, overlap and concurrent-rotation handling.
+- Durable tenant-scoped usage/audit records with operation, time and outcome;
+  bounded queries, retention and failure behavior. A separate local SQLite
+  log must not stand in for the managed service's audit contract.
+- Expiry, key-strength and rotation-policy reporting, plus explicitly defined
+  anomaly detection. Historical point scores and arbitrary usage thresholds
+  did not qualify those security decisions.
+- Positive and negative managed-signing/rotation tests, including unavailable
+  KMS, wrong tenant/purpose, unsupported algorithms, replay/concurrency and no
+  application-held long-term private keys or local fallback. Retained
+  authenticated import requirements must terminate at the approved managed-KMS
+  boundary; lifecycle APIs must not export private keys.
+
+Rust service tests live with the
+[signing-keys owner](https://github.com/ElevenID/marty-ui/tree/main/rust/services/signing-keys/tests).
+Their existence is not a claim that provider/device or deployed acceptance is
+complete. The retained Python pretravel/certificate/SD-JWT paths currently
+expect private-key loading; switching their provider to Vault cannot replace
+that operation because its client deliberately rejects private-key loading.
+Port those operations to managed remote-signature preparation/assembly or the
+Rust service before retiring active callers, with actual success/failure tests.
+
 ## CSCA parity record
 
 The historical CSCA API exposed the following intended operations:
