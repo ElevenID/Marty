@@ -109,3 +109,17 @@ Use `python scripts/security_scan.py --help` for the portable manual scanner;
 maintained hook configuration, failures propagate, and reports go to ignored
 `reports/generated/security/`. See
 [scanner and compatibility behavior](../docs/features/compatibility-consolidation.md).
+
+The standalone crypto-boundary validator and software-HSM demonstration are
+retired. Use the managed Rust Signing Keys qualification owner described in
+[security requirements](../docs/SECURITY.md) for provider/grant checks. The same
+section preserves role separation, public verification, signed evidence,
+tamper/chain detection and durable audit requirements. The retained Python
+provider/evidence APIs and security policy fixtures are not removed or qualified
+by retiring these scripts.
+
+The one-time root OCI package deletion kit is also retired after its completed
+run and authenticated absent-package readback. See the
+[release boundary](../docs/architecture.md#release-and-deployment-boundary)
+for the historical run and recovery-inventory reference. Current publication,
+security scanning and rollback archives are outside this script cleanup.
