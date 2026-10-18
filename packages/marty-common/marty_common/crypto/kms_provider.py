@@ -1,9 +1,7 @@
 """
 KMS/HSM Provider Abstraction for Secure Key Management
 
-This module provides a unified interface for key management operations
-that can be backed by various providers including Cloud KMS, Hardware
-Security Modules (HSMs), or software-based implementations for development.
+This module defines the retained provider interface for managed key custody.
 
 All private key operations are wrapped through providers to ensure:
 1. Consistent security across environments
@@ -20,6 +18,8 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import Enum
 from typing import Any
+
+from marty_common.native_backends import NativeOperationError
 
 from .role_separation import (
     CryptoRole,
@@ -38,8 +38,6 @@ class KMSProvider(Enum):
     GCP_KMS = "gcp_kms"
     HASHICORP_VAULT = "hashicorp_vault"
     PKCS11_HSM = "pkcs11_hsm"
-    SOFTWARE_HSM = "software_hsm"  # For development/testing
-    FILE_BASED = "file_based"  # For development only
 
 
 class KeyOperation(Enum):
@@ -137,128 +135,14 @@ class KMSProviderInterface(ABC):
         pass
 
 
-class SoftwareHSMProvider(KMSProviderInterface):
-    """Software-based HSM implementation for development and testing."""
-
-    def __init__(self, storage_path: str = "/tmp/marty_software_hsm"):
-        self.storage_path = storage_path
-        self.logger = logging.getLogger(f"{__name__}.SoftwareHSMProvider")
-        self._keys: dict[str, KeyMaterial] = {}
-        self._private_keys: dict[str, bytes] = {}
-
-    async def generate_key(self, key_identity: KeyIdentity, algorithm: str, **kwargs) -> KeyMaterial:
-        """Generate a new key pair."""
-
-        # Validate role permissions
-        policy = get_role_policy(key_identity.role)
-        if policy.requires_hsm() and not kwargs.get("allow_software", False):
-            raise ValueError(f"Role {key_identity.role} requires hardware HSM")
-
-        from marty_common.crypto import generate_key_pair
-
-        if algorithm.upper().startswith("RSA"):
-            key_size = int(algorithm.replace("RSA", "") or "2048")
-            private_key, public_key_pem = generate_key_pair("RSA", key_size)
-        elif algorithm.upper().startswith("EC") or algorithm == "ES256":
-            private_key, public_key_pem = generate_key_pair("EC", 256)
-        else:
-            raise ValueError(f"Unsupported algorithm: {algorithm}")
-
-        # Create key material
-        key_material = KeyMaterial(
-            key_identity=key_identity,
-            algorithm=algorithm,
-            public_key_pem=public_key_pem,
-            provider=KMSProvider.SOFTWARE_HSM,
-            provider_key_id=key_identity.full_key_id,
-            created_at=datetime.now(UTC),
-            metadata=kwargs,
-        )
-
-        # Store keys
-        self._keys[key_identity.full_key_id] = key_material
-        self._private_keys[key_identity.full_key_id] = private_key
-
-        self.logger.info(f"Generated key for {key_identity.role}/{key_identity.purpose}")
-        return key_material
-
-    async def sign(self, key_identity: KeyIdentity, data: bytes, algorithm: str = "SHA256") -> bytes:
-        """Sign data using the specified key."""
-
-        # Validate operation
-        RoleSeparationEnforcer.validate_key_operation(key_identity, "sign", key_identity.role)
-
-        private_key = self._private_keys.get(key_identity.full_key_id)
-        if not private_key:
-            raise ValueError(f"Key not found: {key_identity.full_key_id}")
-
-        key_material = self._keys[key_identity.full_key_id]
-        from marty_common.crypto import sign_data
-
-        signing_algorithm = "ES256" if key_material.algorithm.upper().startswith(("EC", "ES")) else "RS256"
-        signature = sign_data(data, private_key, signing_algorithm)
-
-        self.logger.debug(f"Signed data with key {key_identity.full_key_id}")
-        return signature
-
-    async def encrypt(self, key_identity: KeyIdentity, plaintext: bytes, algorithm: str = "AES-256-GCM") -> bytes:
-        """Encrypt data using the specified key."""
-        # For this implementation, we'll use the key to derive an encryption key
-        # In a real HSM, this would be handled internally
-        raise NotImplementedError("Encryption not implemented in SoftwareHSM")
-
-    async def decrypt(self, key_identity: KeyIdentity, ciphertext: bytes, algorithm: str = "AES-256-GCM") -> bytes:
-        """Decrypt data using the specified key."""
-        raise NotImplementedError("Decryption not implemented in SoftwareHSM")
-
-    async def get_public_key(self, key_identity: KeyIdentity) -> bytes:
-        """Get the public key in PEM format."""
-        key_material = self._keys.get(key_identity.full_key_id)
-        if not key_material:
-            raise ValueError(f"Key not found: {key_identity.full_key_id}")
-        return key_material.public_key_pem
-
-    async def delete_key(self, key_identity: KeyIdentity) -> bool:
-        """Delete a key."""
-        full_key_id = key_identity.full_key_id
-        if full_key_id in self._keys:
-            del self._keys[full_key_id]
-            del self._private_keys[full_key_id]
-            self.logger.info(f"Deleted key {full_key_id}")
-            return True
-        return False
-
-    async def list_keys(self, role: CryptoRole | None = None) -> list[KeyMaterial]:
-        """List available keys, optionally filtered by role."""
-        keys = list(self._keys.values())
-        if role:
-            keys = [k for k in keys if k.key_identity.role == role]
-        return keys
-
-    async def key_exists(self, key_identity: KeyIdentity) -> bool:
-        """Check if a key exists."""
-        return key_identity.full_key_id in self._keys
-
-
-class FileBasedProvider(KMSProviderInterface):
-    """File-based provider for development (inherits from existing FileKeyVaultClient logic)."""
-
-    def __init__(self, storage_path: str):
-        self.storage_path = storage_path
-        self.logger = logging.getLogger(f"{__name__}.FileBasedProvider")
-        # Implementation would extend existing FileKeyVaultClient
-
-    async def generate_key(self, key_identity: KeyIdentity, algorithm: str, **kwargs) -> KeyMaterial:
-        # Implementation using existing FileKeyVaultClient logic
-        raise NotImplementedError("FileBasedProvider not fully implemented")
-
-    # ... other methods would delegate to FileKeyVaultClient
-
-
 class KMSManager:
     """Central manager for KMS/HSM operations with role enforcement."""
 
     def __init__(self, provider: KMSProviderInterface):
+        provider_type = getattr(provider, "provider_type", None)
+        if not isinstance(provider_type, KMSProvider):
+            raise NativeOperationError("An explicit managed provider identity is required")
+        self.provider_type = provider_type
         self.provider = provider
         self.logger = logging.getLogger(f"{__name__}.KMSManager")
         self.audit_logs: list[KeyOperationAuditLog] = []
@@ -277,11 +161,6 @@ class KMSManager:
             issuer_identifier=kwargs.get("issuer_identifier"),
             device_identifier=kwargs.get("device_identifier"),
         )
-
-        # Validate role policy
-        policy = get_role_policy(role)
-        if policy.requires_hsm() and isinstance(self.provider, (FileBasedProvider,)):
-            self.logger.warning(f"Role {role} requires HSM but using file-based provider")
 
         try:
             key_material = await self.provider.generate_key(key_identity, algorithm, **kwargs)
@@ -361,7 +240,7 @@ class KMSManager:
             timestamp=datetime.now(UTC),
             operation=operation,
             key_identity=key_identity,
-            provider=KMSProvider.SOFTWARE_HSM,  # Get from provider
+            provider=self.provider_type,
             success=success,
             error_message=error_message,
             requesting_entity=requesting_entity,
@@ -416,11 +295,6 @@ class KMSManager:
 def create_kms_manager(provider_type: KMSProvider, **config) -> KMSManager:
     """Factory function to create KMS manager with specified provider."""
 
-    if provider_type == KMSProvider.SOFTWARE_HSM:
-        provider = SoftwareHSMProvider(config.get("storage_path", "/tmp/marty_software_hsm"))
-    elif provider_type == KMSProvider.FILE_BASED:
-        provider = FileBasedProvider(config.get("storage_path", "/tmp/marty_keys"))
-    else:
-        raise NotImplementedError(f"Provider {provider_type} not implemented yet")
-
-    return KMSManager(provider)
+    if not isinstance(provider_type, KMSProvider):
+        raise NativeOperationError("An explicit managed provider identity is required")
+    raise NotImplementedError(f"Managed adapter for {provider_type} is not implemented")
