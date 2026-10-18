@@ -107,8 +107,21 @@ Their existence is not a claim that provider/device or deployed acceptance is
 complete. The retained Python pretravel/certificate/SD-JWT paths currently
 expect private-key loading; switching their provider to Vault cannot replace
 that operation because its client deliberately rejects private-key loading.
-Port those operations to managed remote-signature preparation/assembly or the
-Rust service before retiring active callers, with actual success/failure tests.
+Pretravel issuance must move to the canonical Rust issuance service; Python
+must retain only any still-needed evidence verification and request/result
+translation, not native preparation, signing-grant minting or credential
+assembly. Retire the Python SD-JWT issuer only after this caller has a supported
+replacement and actual success/failure coverage.
+
+The existing Rust initiation API returns a credential offer. Its credential API
+requires an authorized access token, wallet proof, one-use nonce, fresh issuer
+resolution and lifecycle checks before managed signing. The retained pretravel
+API instead returns a credential synchronously. Resolve that response contract
+through a deliberate wallet-offer migration or a dedicated Rust-owned pretravel
+workflow; do not proxy initiation and describe an offer as an issued credential,
+or add an API-key-only signing shortcut. Keep MRZ, VDS-NC trust/signature and
+NFC/SOD evidence outcomes, disclosure claims, and unfinished audience/nonce and
+mDoc requirements explicit until the owning Rust workflow supports them.
 
 ## CSCA parity record
 
