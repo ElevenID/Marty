@@ -12,13 +12,27 @@ from marty_common.native_backends import NativeOperationError
     ],
 )
 def test_generate_and_sign_verify(algorithm, key_size):
-    priv, pub = crypto_module.generate_key_pair(algorithm=algorithm, key_size=key_size)
+    from cryptography.hazmat.primitives import hashes, serialization
+    from cryptography.hazmat.primitives.asymmetric import ec, padding, rsa
+
     data = b"test message"
-    sig_alg = "RS256" if algorithm == "RSA" else "ES256"
-    sig = crypto_module.sign_data(data, priv, sig_alg)
+    if algorithm == "RSA":
+        private = rsa.generate_private_key(public_exponent=65537, key_size=key_size)
+        sig = private.sign(data, padding.PKCS1v15(), hashes.SHA256())
+        sig_alg = "RS256"
+    else:
+        private = ec.generate_private_key(ec.SECP256R1())
+        sig = private.sign(data, ec.ECDSA(hashes.SHA256()))
+        sig_alg = "ES256"
+    pub = private.public_key().public_bytes(
+        serialization.Encoding.DER, serialization.PublicFormat.SubjectPublicKeyInfo
+    )
     assert crypto_module.verify_signature(data, sig, pub, sig_alg)
-    # tamper
     assert not crypto_module.verify_signature(data + b"!", sig, pub, sig_alg)
+    with pytest.raises(NativeOperationError, match="Rust managed-KMS"):
+        crypto_module.generate_key_pair(algorithm=algorithm, key_size=key_size)
+    with pytest.raises(NativeOperationError, match="Rust managed-KMS"):
+        crypto_module.sign_data(data, b"private-key-input", sig_alg)
 
 
 def test_password_hash_roundtrip():

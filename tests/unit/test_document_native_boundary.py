@@ -70,47 +70,90 @@ else:
         )
 
 
-def test_shared_software_key_management_uses_native_or_fails_closed() -> None:
-    with TemporaryDirectory() as directory:
-        service = KeyManagementService(directory)
-        for curve_name in ("secp256r1", "secp384r1"):
-            key_id = f"test-{curve_name}"
-            service.generate_key(
-                key_id,
-                KeyType.EC,
-                KeyUsage.DOCUMENT_SIGNING,
-                curve_name=curve_name,
-            )
-            assert service.export_key_as_pem(key_id).startswith(
-                b"-----BEGIN PUBLIC KEY-----"
-            )
-            assert service.export_key_as_pem(key_id, include_private=True).startswith(
-                b"-----BEGIN PRIVATE KEY-----"
-            )
+def test_shared_key_management_rejects_software_custody_without_writing_files(tmp_path):
+    service = KeyManagementService(str(tmp_path))
+    for key_type in (KeyType.RSA, KeyType.EC):
+        with pytest.raises(NativeOperationError, match="Rust managed-KMS"):
+            service.generate_key("test-key", key_type, KeyUsage.DOCUMENT_SIGNING)
+    with pytest.raises(NativeOperationError, match="Private-key export"):
+        service.export_key_as_pem("test-key", include_private=True)
+    assert list(tmp_path.iterdir()) == []
 
-        service.generate_key(
-            "test-rsa",
-            KeyType.RSA,
-            KeyUsage.DOCUMENT_SIGNING,
-            key_size=2048,
+
+def test_existing_software_key_data_is_preserved_but_cannot_be_loaded(tmp_path):
+    import json
+
+    (tmp_path / "old.json").write_text(
+        json.dumps({"key_id": "old", "hsm_backed": False})
+    )
+    (tmp_path / "old.key").write_bytes(b"private-data-must-remain-untouched")
+    service = KeyManagementService(str(tmp_path))
+    before = {p.name: p.read_bytes() for p in tmp_path.iterdir()}
+    with pytest.raises(NativeOperationError, match="Private-key loading"):
+        service.load_private_key("old")
+    with pytest.raises(NativeOperationError, match="Private-key export"):
+        service.export_key_as_pem("old", include_private=True)
+    assert before == {p.name: p.read_bytes() for p in tmp_path.iterdir()}
+
+
+def test_shared_key_management_preserves_managed_provider_metadata_and_public_export(
+    tmp_path,
+):
+    from types import SimpleNamespace
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric import ec
+
+    public_pem = (
+        ec.generate_private_key(ec.SECP256R1())
+        .public_key()
+        .public_bytes(
+            serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo
         )
-        assert service.export_key_as_pem("test-rsa").startswith(
-            b"-----BEGIN PUBLIC KEY-----"
-        )
+        .decode("ascii")
+    )
+    calls = []
 
-        with pytest.raises(NativeOperationError, match="P-521"):
-            service.generate_key(
-                "test-p521",
-                KeyType.EC,
-                KeyUsage.DOCUMENT_SIGNING,
-                curve_name="secp521r1",
-            )
-        with pytest.raises(NativeOperationError, match="PKCS#12"):
-            service.export_key_as_pkcs12("test-rsa", b"secret")
-        with pytest.raises(NativeOperationError, match="backup"):
-            service.backup_keys("retired.zip", b"secret")
-        with pytest.raises(NativeOperationError, match="restore"):
-            service.restore_keys("retired.zip", b"secret")
+    def generate_key(**kwargs):
+        calls.append(kwargs)
+        return {"key_handle": "opaque-test-handle", "public_key_pem": public_pem}
 
+    service = KeyManagementService(
+        str(tmp_path),
+        use_hsm=True,
+        hsm_service=SimpleNamespace(generate_key=generate_key),
+    )
+    result = service.generate_key(
+        "test-key",
+        KeyType.EC,
+        KeyUsage.DOCUMENT_SIGNING,
+        metadata={"intent": "retained"},
+    )
+    assert result["hsm_key_handle"] == "opaque-test-handle"
+    assert result["metadata"] == {"intent": "retained"}
+    assert calls == [{"key_id": "test-key", "key_type": "ec", "key_size": None}]
+    assert service.export_key_as_pem("test-key").replace(
+        b"\r\n", b"\n"
+    ) == public_pem.encode("ascii")
+    assert not list(tmp_path.glob("*.key"))
+    with pytest.raises(NativeOperationError, match="PKCS#12"):
+        service.export_key_as_pkcs12("test-key", b"secret")
+    with pytest.raises(NativeOperationError, match="backup"):
+        service.backup_keys("retired.zip", b"secret")
+    with pytest.raises(NativeOperationError, match="restore"):
+        service.restore_keys("retired.zip", b"secret")
     with pytest.raises(HSMOperationError, match="disabled"):
         MockHSMService().initialize({})
+
+
+def test_private_key_loader_never_invokes_provider_secret_export(tmp_path):
+    from types import SimpleNamespace
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("private provider retrieval must never be attempted")
+
+    service = KeyManagementService(
+        str(tmp_path), use_hsm=True, hsm_service=SimpleNamespace(get_key=forbidden)
+    )
+    with pytest.raises(NativeOperationError, match="Private-key loading"):
+        service.load_private_key("managed-key")
+    assert list(tmp_path.iterdir()) == []

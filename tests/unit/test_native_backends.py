@@ -85,74 +85,60 @@ def test_common_crypto_bridge_uses_shared_typed_errors_and_native_mrz() -> None:
     )
 
 
-def test_common_crypto_bridge_exposes_native_did_key_generation() -> None:
+def test_common_crypto_bridge_rejects_private_operations_even_with_legacy_wheels():
     from marty_common import crypto_bridge
+    from marty_common.native_policy import RETIRED_PRIVATE_OPERATIONS
 
-    did, private_jwk = crypto_bridge.generate_did_key()
+    available = set().union(*map(set, crypto_bridge.get_available_functions().values()))
+    for name in RETIRED_PRIVATE_OPERATIONS:
+        assert name not in available
+        with pytest.raises(NativeOperationError, match="Rust managed-KMS"):
+            getattr(crypto_bridge, name)(b"do-not-log-private-key-material")
 
-    assert did.startswith("did:key:")
-    assert '"kty":"OKP"' in private_jwk
-    assert '"d":' in private_jwk
 
+def test_common_crypto_bridge_does_not_export_unreviewed_native_symbols(monkeypatch):
+    import importlib.util
+    import marty_verification
 
-def test_common_crypto_bridge_scopes_certificate_builder_to_the_operation(
-    monkeypatch,
-) -> None:
-    from marty_common import crypto_bridge
+    def forbidden(*args):
+        raise AssertionError("unreviewed native symbol must never be exposed")
 
-    bridge_source = (
-        ROOT / "packages/marty-common/marty_common/crypto_bridge.py"
-    ).read_text(encoding="utf-8")
-    bridge_tree = ast.parse(bridge_source)
-    verifier_capabilities = next(
-        node.value
-        for node in bridge_tree.body
-        if isinstance(node, ast.Assign)
-        and any(
-            isinstance(target, ast.Name)
-            and target.id == "_MARTY_VERIFICATION_CAPABILITIES"
-            for target in node.targets
-        )
+    monkeypatch.setattr(
+        marty_verification, "future_local_sign", forbidden, raising=False
     )
-    startup_capabilities = {
-        item.value
-        for item in verifier_capabilities.elts
-        if isinstance(item, ast.Constant) and isinstance(item.value, str)
-    }
-    assert "build_self_signed_certificate_with_key" not in startup_capabilities
-
-    calls = []
-    native = SimpleNamespace(
-        build_self_signed_certificate_with_key=lambda **kwargs: kwargs["result"]
+    spec = importlib.util.spec_from_file_location(
+        "isolated_crypto_bridge",
+        ROOT / "packages/marty-common/marty_common/crypto_bridge.py",
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    assert not hasattr(module, "future_local_sign")
+    assert "future_local_sign" not in module.__all__
+    assert (
+        "future_local_sign"
+        not in module.get_available_functions()["marty_verification"]
     )
 
-    def load_backend(name, required_capabilities):
-        calls.append((name, tuple(required_capabilities)))
-        return native
 
-    monkeypatch.setattr(crypto_bridge, "load_native_backend", load_backend)
+def test_common_crypto_bridge_missing_optional_operation_fails_on_use(monkeypatch):
+    import importlib.util
+    import marty_verification
 
-    assert crypto_bridge.build_self_signed_certificate_with_key(result=b"cert") == b"cert"
-    assert calls == [
-        ("marty_verification", ("build_self_signed_certificate_with_key",))
-    ]
-
-
-def test_common_crypto_bridge_certificate_builder_remains_fail_closed(
-    monkeypatch,
-) -> None:
-    from marty_common import crypto_bridge
-
-    def unavailable(_name, _required_capabilities):
-        raise NativeBackendUnavailable("certificate builder profile unavailable")
-
-    monkeypatch.setattr(crypto_bridge, "load_native_backend", unavailable)
-
-    with pytest.raises(
-        NativeBackendUnavailable,
-        match="certificate builder profile unavailable",
-    ):
-        crypto_bridge.build_self_signed_certificate_with_key(result=b"unused")
+    monkeypatch.delattr(marty_verification, "generate_random_bytes", raising=False)
+    spec = importlib.util.spec_from_file_location(
+        "isolated_crypto_bridge",
+        ROOT / "packages/marty-common/marty_common/crypto_bridge.py",
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    assert module.compute_check_digit("L898902C3") == "6"
+    assert module.get_module_status()["marty_verification"]
+    assert (
+        "generate_random_bytes"
+        not in module.get_available_functions()["marty_verification"]
+    )
+    with pytest.raises(NativeBackendUnavailable, match="generate_random_bytes"):
+        module.generate_random_bytes(16)
 
 
 def test_common_crypto_rejects_legacy_fake_signatures_and_password_hashes() -> None:
