@@ -28,7 +28,6 @@ RETIRED_DELIVERY_PATHS = (
 HISTORICAL_GUIDES = (
     ROOT / "docs" / "guides" / "CERTIFICATE_MANAGEMENT_MIGRATION_PLAN.md",
     ROOT / "docs" / "guides" / "CONFIGURATION_CONSOLIDATION_GUIDE.md",
-    ROOT / "docs" / "guides" / "NATIVE_DEVELOPMENT.md",
     ROOT / "docs" / "DATABASE_PER_SERVICE.md",
     ROOT / "docs" / "DEVELOPER_GUIDE.md",
     ROOT / "docs" / "PROMETHEUS_MONITORING.md",
@@ -119,7 +118,7 @@ def test_consumer_zero_framework_adapters_remain_absent() -> None:
     assert not returned, f"consumer-zero framework adapters returned: {returned}"
 
 
-def test_retained_python_mmf_guides_are_explicitly_historical() -> None:
+def test_python_mmf_guides_distinguish_history_from_current_ownership() -> None:
     for guide in HISTORICAL_GUIDES:
         introduction = " ".join(
             line.lstrip("> ")
@@ -130,6 +129,13 @@ def test_retained_python_mmf_guides_are_explicitly_historical() -> None:
             guide
         )
         assert "Do not" in introduction, guide
+
+    # Native development is current owner/qualification guidance after retiring
+    # the Python UI scaffolds, rather than an archived setup procedure.
+    current = (ROOT / "docs/guides/NATIVE_DEVELOPMENT.md").read_text(encoding="utf-8")
+    assert "https://github.com/ElevenID/marty-ui/blob/main/DEVELOPMENT_SETUP.md" in current
+    for retired_command in ("make dev-api", "make dev-ui", "make dev-infra", "export PYTHONPATH="):
+        assert retired_command not in current
 
 
 def test_retired_framework_is_not_a_build_context() -> None:
