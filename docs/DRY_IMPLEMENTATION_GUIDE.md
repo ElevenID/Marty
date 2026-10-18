@@ -21,7 +21,6 @@ the orphan generator does not remove or migrate these APIs:
   and [configuration manager](../packages/marty-common/marty_common/config_manager.py).
 - [gRPC service factory](../packages/marty-common/marty_common/grpc_service_factory.py)
   and [server framework](../packages/marty-common/marty_common/grpc_server.py).
-- [Shared testing utilities](../packages/marty-common/marty_common/testing/README.md).
 
 Use the actual package signatures rather than the retired generated examples.
 Consumers, registration behavior and configuration policy require qualification
@@ -54,6 +53,31 @@ and experimental pattern detection remain unqualified proposals. Likewise,
 shared monitoring, gateway integration and service-mesh traffic/security
 requirements belong with their current owners and need actual qualification;
 they are not completed by this documentation cleanup.
+
+## Shared testing requirements
+
+The former `marty_common.testing` scaffold imported a `test_utilities` module
+that is absent from this repository. Its example tests and the unused PKD
+`conftest_dry_example.py` depended on that missing API; they are retired.
+The actual PKD `tests/conftest.py`, application modules and existing tests remain.
+The retained configuration and gRPC interfaces above are unaffected.
+
+Shared test infrastructure remains unfinished work. Implement it with the
+owning service/test workspace before advertising the old fixture API:
+
+- Reusable mocks, explicit sync/async test clients, service-specific dependency
+  overrides and authentication fixtures, with deterministic cleanup.
+- Temporary resources, representative certificate/image/MRZ/masterlist data,
+  and asynchronous wait/timeout helpers. Sample dictionaries are not valid
+  cryptographic fixtures or evidence of integration coverage.
+- Service health/readiness checks and deliberately selected mock, partial and
+  integration modes. Missing dependencies must not silently turn an intended
+  integration check into a passing mock run.
+- PKD and document-processing scenarios with real owning-service tests; define
+  package exports and fixture discovery before migrating consumers.
+
+No replacement testing package or `MARTY_TEST_MODE` behavior is delivered by
+retiring this scaffold. Current repository checks remain the commands below.
 
 ## Development commands
 
