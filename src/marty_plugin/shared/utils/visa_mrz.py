@@ -9,11 +9,17 @@ Follows ICAO Doc 9303 Part 7 specifications for visa MRZ format
 and check digit computation algorithms (via Rust marty_rs).
 """
 
-import re
 from datetime import date
 
 from marty_common.crypto_bridge import compute_check_digit as _rust_compute_check_digit
+
 from marty_plugin.shared.models.visa import MRZData, Visa, VisaType
+from marty_plugin.shared.utils._mrz_fields import (
+    format_date as _format_date,
+)
+from marty_plugin.shared.utils._mrz_fields import (
+    sanitize_field as _sanitize_field,
+)
 
 
 class MRZGenerator:
@@ -38,18 +44,7 @@ class MRZGenerator:
         Returns:
             Sanitized MRZ text
         """
-        if not text:
-            return filler * max_length
-
-        # Convert to uppercase and remove invalid characters
-        text = text.upper()
-        text = re.sub(r"[^A-Z0-9<]", "<", text)
-
-        # Replace multiple consecutive < with single <
-        text = re.sub(r"<+", "<", text)
-
-        # Truncate or pad to required length
-        return text[:max_length] if len(text) > max_length else text.ljust(max_length, filler)
+        return _sanitize_field(text, max_length, filler)
 
     @classmethod
     def compute_check_digit(cls, data: str) -> str:
@@ -79,7 +74,7 @@ class MRZGenerator:
         Returns:
             6-character date string
         """
-        return date_obj.strftime("%y%m%d")
+        return _format_date(date_obj)
 
     @classmethod
     def format_name_for_mrz(cls, surname: str, given_names: str, max_length: int) -> str:
