@@ -40,7 +40,8 @@ strings, an action-specific context record and entity dictionaries containing
 `reasons` and `errors`. Evaluation exceptions produce a denied decision with
 errors; callers must enforce the decision and must not treat errors as permission.
 
-This example demonstrates a denied gateway request with no role membership:
+This example evaluates the gateway policy set for an active user with no role
+membership. It denies without evaluation errors:
 
 ```python
 from marty_common.cedar_engine import CedarEngine
@@ -50,19 +51,39 @@ engine = CedarEngine.with_defaults()
 decision = engine.is_authorized(
     principal='MIP::User::"unassigned-user"',
     action='MIP::Action::"credentials:read"',
-    resource='MIP::Organization::"example-org"',
+    resource='MIP::Credential::"example-credential"',
     context=build_request_context("127.0.0.1"),
-    entities=[],
+    entities=[
+        {
+            "uid": {"type": "MIP::User", "id": "unassigned-user"},
+            "attrs": {"email": "", "status": "ACTIVE"},
+            "parents": [],
+        },
+        {
+            "uid": {"type": "MIP::Credential", "id": "example-credential"},
+            "attrs": {
+                "format": "SD_JWT_VC", "status": "ACTIVE",
+                "compliance_code": "UNSPECIFIED", "issuer_id": "example-issuer",
+                "trust_level": 0,
+            },
+            "parents": [],
+        },
+    ],
 )
 assert not decision.allowed
+assert not decision.errors
 ```
 
 Real callers supply authenticated identity and organization facts using the
 [entity builders](../packages/marty-common/marty_common/cedar_entities.py).
-Route mapping and HTTP enforcement live in
+HTTP route mapping and permission checks live in
 [cedar_actions.py](../packages/marty-common/marty_common/cedar_actions.py) and
 [cedar_middleware.py](../packages/marty-common/marty_common/cedar_middleware.py).
-This engine does not establish those facts or enforce a transport boundary by itself.
+That middleware checks API-key access and organization membership permissions;
+it does not invoke `CedarEngine` or these entity builders. Editing the bundled
+gateway Cedar policies therefore does not change its HTTP permission decisions.
+Callers using `CedarEngine` must wire and enforce its decisions explicitly.
+The engine does not establish identity facts or enforce a transport boundary by itself.
 
 File loading reads the current contents when the factory runs. The
 `policies` setter and `append_policies()` change an instance's policy text;
