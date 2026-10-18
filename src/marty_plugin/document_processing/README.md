@@ -61,7 +61,9 @@ partial. Do not interpret health/license placeholders as license validation or
 an MRZ checksum result as verification of a physical document. Separate CMC
 routes remain delegated to their service client and need their own qualification.
 The unused local Dockerfile, Makefile, Docker runner, API verifier and orphan
-local test fixtures are retired. They referenced missing Compose/test files;
+local test fixtures are retired. The unused duplicate
+`tests/document_processing` fixtures/config and `tests/fixtures/fastapi_fixtures.py`
+also retire; root behavior tests and shared vectors/data loaders remain. They referenced missing Compose/test files;
 the image recipe did not install its project/native wheels/Tesseract, and the
 verifier posted non-image bytes while expecting obsolete response aliases.
 Use the root checks and Uvicorn command above for the retained compatibility app.
