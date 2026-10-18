@@ -123,3 +123,11 @@ run and authenticated absent-package readback. See the
 [release boundary](../docs/architecture.md#release-and-deployment-boundary)
 for the historical run and recovery-inventory reference. Current publication,
 security scanning and rollback archives are outside this script cleanup.
+
+The uncalled `seed_demo_data.py` is retired. It targeted obsolete demo
+infrastructure and did not qualify its schema, fake key/artifact uploads,
+issuance or role provisioning. Preserve its data, storage and role journeys in
+[demo data qualification](../docs/features/demo-data-qualification.md), using
+service-owned Rust APIs and managed KMS. The separate
+`seed_marty_org_catalog.py` OpenBao registry seeder remains; its configuration
+and non-key secret references are unchanged.
