@@ -73,3 +73,27 @@ The [compatibility tooling ownership note](features/compatibility-tooling-owners
 also records registration-path qualification. Retiring the nonworking sample
 does not complete these requirements or authorize removing a service's existing
 server setup before its replacement is tested.
+
+
+## Retired launch wrappers
+
+The unreferenced `marty_common.grpc_server_runner` and
+`marty_plugin.mdl_engine.src.main` / `marty_plugin.mdoc_engine.src.main` launch
+wrappers are retired. They targeted the absent `src.services` namespace; the
+mDL/mDoc wrappers also attempted shared table creation before discovery. They
+were not qualified startup owners and had no tracked deployment or package
+entry point.
+
+The mDL/mDoc service modules, models, generated protocols, database utilities,
+and the public gRPC factory/server/configuration APIs remain available.
+The separate trust-anchor launcher is outside this retirement.
+
+A replacement startup owner must explicitly register the actual generated
+service callbacks, provide constructor dependencies/channels, and prove RPCs
+are callable before reporting readiness. In particular, mDoc has async RPC
+handlers: qualify the selected server's async execution rather than assuming a
+synchronous factory can run them. Preserve schema initialization/migration
+ownership without silently recreating tables on startup. Qualify health,
+logging/reflection, configured worker/port limits, startup failure handling, and
+graceful draining with real clients. None of these requirements is completed by
+removing the old wrappers, and no new Rust service entry point is claimed here.
