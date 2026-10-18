@@ -150,18 +150,26 @@ def test_external_signer_round_trip_uses_real_native_verification(
 ) -> None:
     service = _service(tmp_path)
     record = _store_native_unsigned(service)
-    private_raw, public_raw = service_module.crypto_bridge.ecdsa_p256_generate()
-    public_der = service_module.crypto_bridge.raw_public_key_to_spki(public_raw, "P256")
-    service.signer_public_key_pem = service_module.crypto_bridge.save_public_key_pem(
-        public_der
+    from cryptography.hazmat.primitives import hashes, serialization
+    from cryptography.hazmat.primitives.asymmetric import ec
+
+    # This isolated provider double owns a test-only key. Application/native
+    # compatibility APIs must not generate or consume the private key.
+    private_key = ec.generate_private_key(ec.SECP256R1())
+    service.signer_public_key_pem = (
+        private_key.public_key()
+        .public_bytes(
+            serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo
+        )
+        .decode("ascii")
     )
     observed: dict[str, bytes] = {}
 
     class Stub:
         def SignDocument(self, request: Any) -> Any:  # noqa: N802
             observed["document_content"] = request.document_content
-            signature = service_module.crypto_bridge.ecdsa_p256_sign(
-                private_raw, request.document_content
+            signature = private_key.sign(
+                request.document_content, ec.ECDSA(hashes.SHA256())
             )
             return SimpleNamespace(
                 success=True,

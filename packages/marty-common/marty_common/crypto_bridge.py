@@ -19,85 +19,15 @@ from marty_common.native_backends import (
     NativeOperationError,
     load_native_backend,
 )
-
-_MARTY_RS_CAPABILITIES = (
-    "BitstringStatusList",
-    "TokenStatusList",
-    "create_bitstring_credential_subject",
-    "create_status_list_claim",
-    "generate_did_key",
-    "generate_p256_key",
-    "oid4vci_sign_credential",
-    "verify_mdoc_cbor",
-    "verify_sd_jwt",
-    "verify_vcdm_jwt",
+from marty_common.native_policy import (
+    OPTIONAL_VERIFICATION_OPERATIONS,
+    REQUIRED_NATIVE_BACKENDS,
+    RETIRED_PRIVATE_OPERATIONS,
 )
+from marty_common.native_public_exports import PUBLIC_NATIVE_EXPORTS
 
-_MARTY_VERIFICATION_CAPABILITIES = (
-    "active_authentication_build_apdu",
-    "active_authentication_generate_challenge",
-    "active_authentication_parse_response",
-    "active_authentication_verify",
-    "apdu_build_read_binary_commands",
-    "apdu_encode",
-    "apdu_parse_command",
-    "apdu_parse_response",
-    "ChainValidator",
-    "NativeBacSession",
-    "NativeEacChipAuthentication",
-    "NativeEacSecureMessaging",
-    "NativePaceSession",
-    "ValidationConfig",
-    "certificate_der_to_pem",
-    "certificate_pem_to_der",
-    "compute_check_digit",
-    "compare_passport_hashes_json",
-    "dtc_assemble_signature",
-    "dtc_create",
-    "dtc_prepare_signing",
-    "dtc_sign",
-    "dtc_verify",
-    "eac_calculate_mac",
-    "eac_certificate_fingerprint",
-    "eac_serialize_certificate",
-    "eac_sign_terminal_challenge",
-    "eac_verify_certificate_signature",
-    "ecdsa_p256_generate",
-    "ecdsa_p384_generate",
-    "emrtd_inspect_rsa_public_key_json",
-    "emrtd_parse_biometric_template_json",
-    "emrtd_parse_dg15_json",
-    "emrtd_parse_ef_com_json",
-    "emrtd_parse_ef_dg1_json",
-    "emrtd_parse_ef_dg2_json",
-    "emrtd_parse_elementary_file_json",
-    "emrtd_parse_tlv_json",
-    "emrtd_rsa_public_key_spki",
-    "emrtd_validate_biometric_quality_json",
-    "generate_random_bytes",
-    "get_certificate_info",
-    "get_certificate_public_key",
-    "hash_data",
-    "iso9796_recover",
-    "iso9796_scheme1_sign",
-    "iso9796_verify",
-    "load_certificate_der",
-    "load_certificate_pem",
-    "load_private_key_pem",
-    "load_public_key_pem",
-    "parse_master_list",
-    "parse_mrz",
-    "parse_sod",
-    "passport_data_group_file_id",
-    "pbkdf2_sha256",
-    "raw_private_key_to_pkcs8",
-    "raw_public_key_to_spki",
-    "save_private_key_pem",
-    "save_public_key_pem",
-    "validate_check_digit",
-    "verify_sod_data_group_hash",
-    "verify_sod_signature",
-)
+_MARTY_RS_CAPABILITIES = REQUIRED_NATIVE_BACKENDS["_marty_rs"]
+_MARTY_VERIFICATION_CAPABILITIES = REQUIRED_NATIVE_BACKENDS["marty_verification"]
 
 _marty_rs = load_native_backend("_marty_rs", _MARTY_RS_CAPABILITIES)
 _marty_verification = load_native_backend(
@@ -106,8 +36,8 @@ _marty_verification = load_native_backend(
 )
 
 # These flags remain for source compatibility.  Import failure raises before a
-# partially functional module can be observed, so an imported bridge is always
-# fully native-backed.
+# missing required public core can be observed. Optional session/password APIs
+# are separately checked when called and are not implied by these flags.
 _marty_rs_available = True
 _marty_verification_available = True
 
@@ -119,34 +49,21 @@ _PROTECTED_EXPORTS = {
 }
 
 
-def _export_public(module: Any) -> set[str]:
+def _export_public(module: Any, names: tuple[str, ...]) -> set[str]:
     exported: set[str] = set()
-    for name in dir(module):
-        if name.startswith("_") or name in _PROTECTED_EXPORTS:
+    for name in names:
+        if name in _PROTECTED_EXPORTS or not hasattr(module, name):
             continue
         globals()[name] = getattr(module, name)
         exported.add(name)
     return exported
 
 
-_VERIFICATION_EXPORTS = _export_public(_marty_verification)
-_MARTY_RS_EXPORTS = _export_public(_marty_rs)
-
-
-def build_self_signed_certificate_with_key(*args: Any, **kwargs: Any) -> bytes:
-    """Build a certificate through an explicitly capable native backend.
-
-    Certificate issuance is not a verifier-startup requirement.  Load and
-    validate this optional capability only when a caller actually requests the
-    operation, while retaining the same typed fail-closed error when the
-    installed verifier profile does not provide it.
-    """
-
-    native = load_native_backend(
-        "marty_verification",
-        ("build_self_signed_certificate_with_key",),
-    )
-    return native.build_self_signed_certificate_with_key(*args, **kwargs)
+_VERIFICATION_EXPORTS = _export_public(
+    _marty_verification,
+    PUBLIC_NATIVE_EXPORTS["marty_verification"] + OPTIONAL_VERIFICATION_OPERATIONS,
+)
+_MARTY_RS_EXPORTS = _export_public(_marty_rs, PUBLIC_NATIVE_EXPORTS["_marty_rs"])
 
 
 def sha256(data: bytes) -> bytes:
@@ -311,6 +228,11 @@ CertificateChainValidator = _marty_verification.ChainValidator
 
 def _unsupported(name: str):
     def operation(*_args: Any, **_kwargs: Any) -> NoReturn:
+        if name in RETIRED_PRIVATE_OPERATIONS:
+            raise NativeOperationError(
+                f"{name} is retired from Python compatibility; "
+                "use the Rust managed-KMS workflow for long-term keys and signing"
+            )
         raise NativeOperationError(
             f"{name} is not exposed by the canonical Marty Rust bindings; "
             "the former Python/provider fallback is disabled"
@@ -346,6 +268,24 @@ _RETIRED_OPERATIONS = (
 )
 for _name in _RETIRED_OPERATIONS:
     globals().setdefault(_name, _unsupported(_name))
+for _name in RETIRED_PRIVATE_OPERATIONS:
+    globals()[_name] = _unsupported(_name)
+
+
+def _optional_native_operation(module_name: str, name: str):
+    def operation(*args: Any, **kwargs: Any) -> Any:
+        native = load_native_backend(module_name, (name,))
+        return getattr(native, name)(*args, **kwargs)
+
+    operation.__name__ = name
+    return operation
+
+
+for _module_name, _names in PUBLIC_NATIVE_EXPORTS.items():
+    for _name in _names:
+        globals().setdefault(_name, _optional_native_operation(_module_name, _name))
+for _name in OPTIONAL_VERIFICATION_OPERATIONS:
+    globals().setdefault(_name, _optional_native_operation("marty_verification", _name))
 
 
 def verify_open_badge_ob2(payload: dict[str, Any]) -> dict[str, Any]:
@@ -357,15 +297,15 @@ def verify_open_badge_ob3(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def issue_open_badge_ob2(request: dict[str, Any]) -> dict[str, Any]:
-    return json.loads(_marty_verification.open_badge_ob2_issue(json.dumps(request)))
+    raise NativeOperationError("Open Badge issuance requires the Rust managed-KMS issuer")
 
 
 def issue_open_badge_ob3(request: dict[str, Any]) -> dict[str, Any]:
-    return json.loads(_marty_verification.open_badge_ob3_issue(json.dumps(request)))
+    raise NativeOperationError("Open Badge issuance requires the Rust managed-KMS issuer")
 
 
 def get_available_functions() -> dict[str, list[str]]:
-    """Return the loaded native public surfaces for diagnostics."""
+    """Return actual allowed native capabilities, excluding compatibility stubs."""
 
     return {
         "marty_rs": sorted(_MARTY_RS_EXPORTS),
@@ -374,7 +314,7 @@ def get_available_functions() -> dict[str, list[str]]:
 
 
 def get_module_status() -> dict[str, bool]:
-    """Return availability after strict import and capability validation."""
+    """Return required public-core availability, not optional operation support."""
 
     return {"marty_rs": True, "marty_verification": True}
 
@@ -383,6 +323,9 @@ __all__ = sorted(
     _MARTY_RS_EXPORTS
     | _VERIFICATION_EXPORTS
     | set(_RETIRED_OPERATIONS)
+    | set(RETIRED_PRIVATE_OPERATIONS)
+    | set(OPTIONAL_VERIFICATION_OPERATIONS)
+    | set().union(*PUBLIC_NATIVE_EXPORTS.values())
     | {
         "Certificate",
         "CertificateChainValidator",

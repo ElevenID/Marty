@@ -9,8 +9,9 @@ This service is responsible for:
 4. Key backup and recovery
 5. Key usage auditing and tracking
 
-This module can use Rust implementations from marty-verification for key
-generation when available, providing better performance and security.
+Software key generation, private-key retrieval and private export are retired.
+The retained provider, public-key and lifecycle interfaces require managed-KMS
+qualification; they do not establish custody or provider acceptance by themselves.
 """
 
 from __future__ import annotations
@@ -103,9 +104,9 @@ class KeyManagementService:
     """
     Service for managing cryptographic keys throughout their lifecycle.
 
-    This service handles key generation, storage, rotation, backup,
-    and HSM integration. It supports both software keys and
-    hardware-backed keys stored in HSMs.
+    Retains provider key creation, public-key storage and lifecycle metadata.
+    Software custody, private retrieval/export and backup are retired. Provider
+    acceptance still requires managed-KMS qualification.
     """
 
     DEFAULT_KEY_STORE_PATH = os.path.join(os.environ.get("DATA_DIR", "data"), "keys")
@@ -138,7 +139,7 @@ class KeyManagementService:
             f"Initialized Key Management Service with store at {self.key_store_path}"
         )
         logger.info(f"HSM integration {'enabled' if use_hsm else 'disabled'}")
-        logger.info("Using Rust bindings for key generation")
+        logger.info("Software key generation is disabled; managed provider required")
 
     def generate_key(
         self,
@@ -151,7 +152,7 @@ class KeyManagementService:
         expiry_date: str | None = None,
     ) -> dict[str, Any]:
         """
-        Generate a new cryptographic key.
+        Request a new managed key through the configured provider.
 
         Args:
             key_id: Unique identifier for the key
@@ -165,6 +166,11 @@ class KeyManagementService:
         Returns:
             Dictionary containing the key information
         """
+        if not (self.use_hsm and self.hsm_service):
+            raise NativeOperationError(
+                "Software key generation is retired; use the Rust managed-KMS workflow"
+            )
+
         logger.info(f"Generating {key_type.value.upper()} key with ID {key_id}")
 
         if key_type == KeyType.RSA and not key_size:
@@ -199,54 +205,6 @@ class KeyManagementService:
             public_key_path = os.path.join(self.key_store_path, f"{key_id}.pub")
             with open(public_key_path, "w") as f:
                 f.write(hsm_result["public_key_pem"])
-
-        else:
-            # Generate key in software using Rust
-            if key_type == KeyType.RSA:
-                key_info["key_size"] = key_size
-                private_key_der, public_key_der = crypto_bridge.rsa_generate(key_size)
-            elif key_type == KeyType.EC:
-                key_info["curve_name"] = curve_name
-                generators = {
-                    "secp256r1": (crypto_bridge.ecdsa_p256_generate, "P256"),
-                    "secp384r1": (crypto_bridge.ecdsa_p384_generate, "P384"),
-                }
-                if curve_name == "secp521r1":
-                    raise NativeOperationError(
-                        "P-521 key generation cannot be serialized by the required native backend"
-                    )
-                generator = generators.get(curve_name)
-                if generator is None:
-                    msg = f"Unsupported EC curve: {curve_name}"
-                    raise ValueError(msg)
-                generate, native_key_type = generator
-                private_key_raw, public_key_raw = generate()
-                private_key_der = crypto_bridge.raw_private_key_to_pkcs8(
-                    private_key_raw, native_key_type
-                )
-                public_key_der = crypto_bridge.raw_public_key_to_spki(
-                    public_key_raw, native_key_type
-                )
-            else:
-                msg = f"Unsupported key type: {key_type}"
-                raise ValueError(msg)
-
-            private_key_pem = crypto_bridge.save_private_key_pem(
-                private_key_der
-            ).encode("ascii")
-            public_key_pem = crypto_bridge.save_public_key_pem(public_key_der).encode(
-                "ascii"
-            )
-
-            # Save the private key
-            private_key_path = os.path.join(self.key_store_path, f"{key_id}.key")
-            with open(private_key_path, "wb") as f:
-                f.write(private_key_pem)
-
-            # Save the public key
-            public_key_path = os.path.join(self.key_store_path, f"{key_id}.pub")
-            with open(public_key_path, "wb") as f:
-                f.write(public_key_pem)
 
         # Save the key info
         self._save_key_info(key_id, key_info)
@@ -328,42 +286,10 @@ class KeyManagementService:
         return results
 
     def load_private_key(self, key_id: str):
-        """
-        Load a private key for use.
-
-        Args:
-            key_id: Identifier of the key to load
-
-        Returns:
-            Private key object for software keys, or HSM key reference for HSM keys
-
-        Raises:
-            KeyNotFoundException: If the key does not exist
-        """
-        try:
-            key_info = self.get_key_info(key_id)
-        except KeyNotFoundException:
-            msg = f"Key with ID {key_id} not found"
-            raise KeyNotFoundException(msg)
-
-        # For HSM-backed keys, get the key from the HSM
-        if key_info.get("hsm_backed", False) and self.hsm_service:
-            if "hsm_key_handle" not in key_info:
-                msg = f"HSM key handle not found for key {key_id}"
-                raise KeyManagementError(msg)
-
-            return self.hsm_service.get_key(key_info["hsm_key_handle"])
-
-        # For software keys, load from file
-        private_key_path = os.path.join(self.key_store_path, f"{key_id}.key")
-        if not os.path.exists(private_key_path):
-            msg = f"Private key file for {key_id} not found"
-            raise KeyNotFoundException(msg)
-
-        with open(private_key_path, "rb") as f:
-            private_key_pem = f.read()
-        crypto_bridge.load_private_key_pem(private_key_pem.decode("ascii"))
-        return private_key_pem
+        """Reject private-key retrieval; managed keys remain non-exportable."""
+        raise NativeOperationError(
+            "Private-key loading is retired; use the Rust managed-KMS workflow"
+        )
 
     def load_public_key(self, key_id: str):
         """
@@ -402,6 +328,11 @@ class KeyManagementService:
         Raises:
             KeyNotFoundException: If the key does not exist
         """
+        if include_private:
+            raise NativeOperationError(
+                "Private-key export is retired; use the Rust managed-KMS workflow"
+            )
+
         try:
             self.get_key_info(key_id)
         except KeyNotFoundException:
@@ -415,8 +346,6 @@ class KeyManagementService:
             {"format": "PEM", "include_private": include_private},
         )
 
-        if include_private:
-            return self.load_private_key(key_id)
         return self.load_public_key(key_id)
 
     def get_certificate(self, key_id: str) -> Certificate | None:

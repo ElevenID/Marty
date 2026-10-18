@@ -118,8 +118,9 @@ consistency does not prove authenticity, liveness or document validity. VDS-NC
 trust/signature and NFC/SOD failures remain fail-closed. Unqualified mDoc and
 legacy audience/nonce requests are rejected explicitly. The unused Python SD-JWT
 issuer and its exports are retired after the pretravel migration; public-JWK
-SD-JWT verification remains. Other private-key compatibility APIs still need
-their own consumer audit.
+SD-JWT verification remains. The shared bridge now denies private-key operations
+and preserves explicit public exports; remaining caller/profile migration work
+is recorded in [native KMS compatibility](features/native-kms-compatibility.md).
 
 The unused Python `vc/oidc4vci.py` offer/grant/session dataclasses and their
 package exports are retired. No tracked runtime or test consumed them; their
