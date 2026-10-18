@@ -3,8 +3,8 @@
 """
 Digital Travel Credential (DTC) Engine Service Implementation.
 
-This service handles the creation, management, signing, and verification of
-Digital Travel Credentials (DTCs) according to ICAO standards.
+This compatibility adapter retains DTC lifecycle operations over Rust kernels.
+Managed-provider and deployed lifecycle qualification remain separate work.
 """
 
 import base64
@@ -46,6 +46,23 @@ class DTCEngineService(dtc_engine_pb2_grpc.DTCEngineServicer):
         self.config = config
         self._dtc_store: dict[str, dict[str, Any]] = {}
 
+        service_config = {}
+        try:
+            service_config = config.get_service("dtc_engine")
+        except Exception:  # pragma: no cover - defensive
+            service_config = {}
+
+        # Reject retired custody settings before files, directories or RPC clients.
+        if (
+            os.environ.get("DTC_SIGNING_KEY_PEM")
+            or os.environ.get("DTC_SIGNING_KEY_PATH")
+            or service_config.get("signing_key_pem")
+            or service_config.get("signing_key_path")
+        ):
+            raise ValueError(
+                "Application-held DTC signing keys are retired; configure a managed signing provider and public key"
+            )
+
         # Set up data directories
         self.data_dir = os.environ.get("DATA_DIR", "/data")
         self.dtc_storage_dir = os.path.join(self.data_dir, "dtc_store")
@@ -63,21 +80,8 @@ class DTCEngineService(dtc_engine_pb2_grpc.DTCEngineServicer):
         except Exception:
             self.logger.exception("Failed to connect to Document Signer service")
 
-        service_config = {}
-        try:
-            service_config = config.get_service("dtc_engine")
-        except Exception:  # pragma: no cover - defensive
-            service_config = {}
-
         self.signer_id = service_config.get("signer_id", "rust-dtc")
-        self.signing_key_pem = os.environ.get("DTC_SIGNING_KEY_PEM")
         self.signer_public_key_pem = os.environ.get("DTC_SIGNER_PUBLIC_KEY_PEM")
-
-        signing_key_path = service_config.get("signing_key_path") or os.environ.get(
-            "DTC_SIGNING_KEY_PATH"
-        )
-        if signing_key_path and Path(signing_key_path).exists():
-            self.signing_key_pem = Path(signing_key_path).read_text(encoding="utf-8")
 
         public_key_path = service_config.get(
             "signer_public_key_path"
@@ -86,16 +90,6 @@ class DTCEngineService(dtc_engine_pb2_grpc.DTCEngineServicer):
             self.signer_public_key_pem = Path(public_key_path).read_text(
                 encoding="utf-8"
             )
-
-        if self.signing_key_pem and not self.signer_public_key_pem:
-            try:
-                private_der = crypto_bridge.load_private_key_pem(self.signing_key_pem)
-                public_der = crypto_bridge.extract_public_key(private_der)
-                self.signer_public_key_pem = crypto_bridge.save_public_key_pem(
-                    public_der
-                )
-            except Exception:  # pragma: no cover - defensive
-                self.logger.warning("Failed to derive DTC public key from signing key")
 
         self.trust_anchors_pem: list[str] = []
         self.certificate_chain_pem: list[str] = []
@@ -406,10 +400,7 @@ class DTCEngineService(dtc_engine_pb2_grpc.DTCEngineServicer):
                     signature_info=signature_info,
                 )
 
-            if self.signing_key_pem:
-                signed = self._sign_dtc_with_native_key(dtc_data)
-            else:
-                signed = self._sign_dtc_with_external_provider(request.dtc_id, dtc_data)
+            signed = self._sign_dtc_with_external_provider(request.dtc_id, dtc_data)
 
             # Preserve Python-owned access-control and storage metadata while
             # replacing every protocol/cryptographic field with native output.
@@ -446,17 +437,6 @@ class DTCEngineService(dtc_engine_pb2_grpc.DTCEngineServicer):
             return dtc_engine_pb2.SignDTCResponse(
                 success=False, error_message="Failed to sign DTC"
             )
-
-    def _sign_dtc_with_native_key(self, dtc_data: dict[str, Any]) -> dict[str, Any]:
-        """Sign locally through the canonical Rust DTC implementation."""
-
-        dtc_payload = dict(dtc_data)
-        dtc_payload["signing_key_pem"] = self.signing_key_pem
-        dtc_payload["signer_id"] = self.signer_id
-        signed = json.loads(crypto_bridge.dtc_sign(json.dumps(dtc_payload)))
-        if not isinstance(signed, dict) or not signed.get("is_signed"):
-            raise ValueError("Native DTC signer returned an unsigned record")
-        return signed
 
     def _sign_dtc_with_external_provider(
         self, dtc_id: str, dtc_data: dict[str, Any]

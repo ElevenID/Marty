@@ -131,6 +131,36 @@ to Rust initiation and wallet proof.
 The root harness no longer installs the unused Authlib or Python `sd-jwt`
 engines; retained SD-JWT operations already call Rust native kernels.
 
+
+## DTC signing custody and migration
+
+The retained DTC compatibility service no longer accepts application-held
+signing keys. Nonempty `DTC_SIGNING_KEY_PEM`, `DTC_SIGNING_KEY_PATH`,
+`dtc_engine.signing_key_pem` or `dtc_engine.signing_key_path` settings reject at
+construction before key-file reads, directory creation or provider connection.
+The local `dtc_sign` selection and private-to-public derivation are retired;
+existing private-key data are not deleted. Provision signing keys only through
+an approved managed KMS owner.
+
+Keep signer identity, public-key PEM/path, trust anchors, certificate chain,
+storage/access-key handling and the six lifecycle RPCs. The remote adapter
+still uses native `dtc_prepare_signing` canonical bytes and
+`dtc_assemble_signature` public-key verification, with no local-key fallback.
+Missing providers or invalid returned signatures cannot persist signed state.
+The legacy DocumentSigner RPC is a compatibility boundary, not evidence of a
+qualified managed-KMS deployment. Its public-key binding alone does not prove
+tenant/purpose authorization, provider custody or fresh key lifecycle checks.
+
+Core's DTC create/prepare/assemble/verify kernels do not supply a durable
+service implementation of create/get/sign/revoke/QR/verify. The generic Rust
+wallet-offer API does not replace that DTC lifecycle. Map its authenticated
+access, durable storage, QR payload, revocation/status semantics and managed
+signing identity/authorization to the owning Rust service before retiring the
+compatibility API or claiming provider acceptance. Preserve Type 1/2/3 profile,
+certificate/trust/EKU and tamper/revocation requirements with that owner; a
+synthetic signing round trip or test-only ephemeral key is not deployment or
+device qualification.
+
 ## CSCA parity record
 
 The historical CSCA API exposed the following intended operations:
