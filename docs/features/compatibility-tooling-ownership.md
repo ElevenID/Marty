@@ -1,10 +1,45 @@
 # Compatibility tooling ownership
 
-The uncalled DRY configuration launcher imported retired `src.marty_common`
-paths and is removed. The published `marty_common.config.dry_env_generator`
-and its service registry remain supported APIs. Their consumers and configuration
-policy need a package migration before any further consolidation; this cleanup
-does not remove those interfaces or qualify historical defaults for production.
+## Deployment generation retirement
+
+The published `marty_common.config.dry_env_generator` module and
+`EnvironmentConfigGenerator` class remain importable, but generation now raises
+`EnvironmentGenerationRetiredError` (a `RuntimeError`) immediately. The retained
+`generate_service_env_vars`, `generate_docker_compose_config`,
+`generate_k8s_service_manifests`, and `write_env_file` signatures reject all
+requests. The former CLI exits nonzero without writing output. This is an
+intentional behavior change; it does not silently produce a different format.
+
+The old generator had no working tracked consumer. It emitted retired
+`docker/{service}.Dockerfile` paths, old service dependencies, Python mock/runtime
+environment settings, and permissive security templates. Those outputs and
+unused template constants are retired. The separate
+[`marty_common.service_registry`](../../packages/marty-common/marty_common/service_registry.py)
+API is unchanged. Local untracked launcher files are not removed by this change.
+
+Use the Rust-owned deployment catalog in `marty-ui`:
+
+- [Deployment guide](https://github.com/ElevenID/marty-ui/blob/main/deploy-config/README.md)
+- [Catalog implementation](https://github.com/ElevenID/marty-ui/tree/main/rust/crates/deployment-catalog)
+- [Service metadata](https://github.com/ElevenID/marty-ui/blob/main/deploy-config/catalog/services.json)
+
+In that checkout, `sh scripts/marty-deploy.sh validate` validates the catalog;
+`sh scripts/marty-deploy.sh plan <stack>` inspects a selected stack. Choose an
+existing supported stack from its guide. These commands are not replacements
+for the old generated `.env`, Compose dictionary, or Kubernetes Service APIs.
+No automatic Rust subprocess, file conversion, or deployment is performed by
+the compatibility shim. Retire old callers explicitly and use the deployment
+owner's existing manifests and configuration procedures.
+
+Any future generation feature must derive service/port/endpoint/dependency
+mappings from the current service owner, preserve environment-specific overrides
+and health/metrics wiring, keep secrets external, use fail-closed TLS/authz
+policy, and validate reproducible Compose/Kubernetes outputs against actual
+Rust deployment schemas. Kubernetes namespace/selector/port mappings and env
+file rendering still require explicit qualification; this retirement does not
+claim those features have migrated or approve the old defaults for production.
+
+## Protocol generation
 
 Protobuf Python implementations are generated once into `marty_plugin.proto.v1`
 from `proto/v1`. Both installed `proto.v1` and checkout `src.proto.v1` imports
