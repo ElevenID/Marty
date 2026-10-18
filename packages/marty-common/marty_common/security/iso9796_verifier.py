@@ -1,8 +1,9 @@
 """Compatibility models for native ISO/IEC 9796-2 verification.
 
-RSA recovery, signature validation, hashing, and simulator signing are owned by
+RSA recovery, signature validation and hashing are owned by
 the canonical ``marty_verification`` Rust extension. This module preserves the
-established Python API for passport-service callers.
+established public API for passport-service callers. Private simulator signing
+is retired.
 """
 
 from __future__ import annotations
@@ -12,7 +13,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import TYPE_CHECKING, Any
 
-from marty_common.native_backends import NativeBackendError, load_native_backend
+from marty_common.native_backends import NativeBackendError, NativeOperationError, load_native_backend
 
 if TYPE_CHECKING:
     from cryptography.hazmat.primitives.asymmetric import rsa
@@ -20,16 +21,8 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-def _native():
-    return load_native_backend(
-        "marty_verification",
-        (
-            "hash_data",
-            "iso9796_recover",
-            "iso9796_scheme1_sign",
-            "iso9796_verify",
-        ),
-    )
+def _native(*operations: str):
+    return load_native_backend("marty_verification", operations)
 
 
 def _public_key_der(public_key: rsa.RSAPublicKey) -> bytes:
@@ -38,16 +31,6 @@ def _public_key_der(public_key: rsa.RSAPublicKey) -> bytes:
     return public_key.public_bytes(
         encoding=serialization.Encoding.DER,
         format=serialization.PublicFormat.SubjectPublicKeyInfo,
-    )
-
-
-def _private_key_der(private_key: rsa.RSAPrivateKey) -> bytes:
-    from cryptography.hazmat.primitives import serialization
-
-    return private_key.private_bytes(
-        encoding=serialization.Encoding.DER,
-        format=serialization.PrivateFormat.PKCS8,
-        encryption_algorithm=serialization.NoEncryption(),
     )
 
 
@@ -68,7 +51,7 @@ class _NativeHash:
         self._data += bytes(data)
 
     def digest(self) -> bytes:
-        return bytes(_native().hash_data(self._algorithm, self._data))
+        return bytes(_native("hash_data").hash_data(self._algorithm, self._data))
 
     def hexdigest(self) -> str:
         return self.digest().hex()
@@ -157,24 +140,18 @@ class ISO9796Verifier:
             trailer=b"\xbc" if is_valid else None,
         )
 
-    def _verify_scheme_1(
-        self, signature: bytes, message: bytes, public_key: rsa.RSAPublicKey
-    ) -> ISO9796SignatureData:
+    def _verify_scheme_1(self, signature: bytes, message: bytes, public_key: rsa.RSAPublicKey) -> ISO9796SignatureData:
         return self.verify_signature(signature, message, public_key, ISO9796Scheme.SCHEME_1)
 
-    def _verify_scheme_2(
-        self, signature: bytes, message: bytes, public_key: rsa.RSAPublicKey
-    ) -> ISO9796SignatureData:
+    def _verify_scheme_2(self, signature: bytes, message: bytes, public_key: rsa.RSAPublicKey) -> ISO9796SignatureData:
         return self.verify_signature(signature, message, public_key, ISO9796Scheme.SCHEME_2)
 
-    def _rsa_verify_with_recovery(
-        self, signature: bytes, public_key: rsa.RSAPublicKey
-    ) -> bytes | None:
+    def _rsa_verify_with_recovery(self, signature: bytes, public_key: rsa.RSAPublicKey) -> bytes | None:
         """Recover a canonical Scheme 1 message through Rust."""
 
         try:
             return bytes(
-                _native().iso9796_recover(
+                _native("iso9796_recover").iso9796_recover(
                     _public_key_der(public_key), signature, ISO9796Scheme.SCHEME_1.value, None
                 )
             )
@@ -183,15 +160,13 @@ class ISO9796Verifier:
         except (RuntimeError, TypeError, ValueError):
             return None
 
-    def _parse_scheme_1_structure(
-        self, data: bytes
-    ) -> tuple[int, bytes, bytes, HashFunction, bytes] | None:
+    def _parse_scheme_1_structure(self, data: bytes) -> tuple[int, bytes, bytes, HashFunction, bytes] | None:
         """Describe a message already recovered and validated by Rust."""
 
         if not data:
             return None
         hash_function = HashFunction.SHA256
-        message_hash = bytes(_native().hash_data(hash_function.native_name, data))
+        message_hash = bytes(_native("hash_data").hash_data(hash_function.native_name, data))
         return 0x6A, bytes(data), message_hash, hash_function, b"\xbc"
 
     def _create_invalid_result(self, scheme: ISO9796Scheme) -> ISO9796SignatureData:
@@ -209,10 +184,8 @@ class ISO9796Verifier:
         private_key: rsa.RSAPrivateKey,
         hash_function: HashFunction = HashFunction.SHA256,
     ) -> bytes:
-        """Create a native Scheme 1 signature for tests and chip simulators."""
-
-        del hash_function  # Scheme 1 has full recovery and no embedded digest.
-        return bytes(_native().iso9796_scheme1_sign(_private_key_der(private_key), message))
+        """Reject retired test/simulator signing from the production adapter."""
+        raise NativeOperationError("ISO9796 simulator signing is retired; use public native verifier vectors")
 
 
 class PassportActiveAuthenticationVerifier:
@@ -225,14 +198,10 @@ class PassportActiveAuthenticationVerifier:
     def verify_active_authentication_response(
         self, challenge: bytes, signature: bytes, public_key: rsa.RSAPublicKey
     ) -> bool:
-        result = self.iso9796_verifier.verify_signature(
-            signature, challenge, public_key, ISO9796Scheme.SCHEME_1
-        )
+        result = self.iso9796_verifier.verify_signature(signature, challenge, public_key, ISO9796Scheme.SCHEME_1)
         return result.is_valid and result.recovered_message == challenge
 
-    def analyze_signature_structure(
-        self, signature: bytes, public_key: rsa.RSAPublicKey
-    ) -> dict[str, Any]:
+    def analyze_signature_structure(self, signature: bytes, public_key: rsa.RSAPublicKey) -> dict[str, Any]:
         analysis: dict[str, Any] = {
             "signature_length": len(signature),
             "key_size": public_key.key_size,
