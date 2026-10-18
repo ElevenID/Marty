@@ -36,7 +36,7 @@ not a deployable service.
 ## Development
 
 ```shell
-python -m pip install -e . pytest ruff build
+python -m pip install -e ".[proto]" pytest ruff build
 python -m pytest tests/unit packages/marty-common/tests -q
 python -m ruff check src tests
 python -m build

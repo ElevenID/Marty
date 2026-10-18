@@ -16,6 +16,13 @@ Generation is a checkout development command: the wheel does not ship protocol
 sources or `src.compile_protos`. Its broken `compile-protos` console entry point
 is removed; it never provided an installed generation command.
 
+The pinned compiler belongs to the root checkout's `proto` extra, installed by
+`make install` (or `python -m pip install -e ".[proto]"`). This also supplies the
+system-language protobuf pre-commit hook. Ordinary `marty-common` installations
+no longer install a compiler; gRPC, protobuf messages, reflection and health
+checking remain runtime dependencies. Protocol CI keeps its explicit pinned
+compiler installation and checks generated bindings and compatibility imports.
+
 The DTC source already contains Type 1, 2 and 3 profiles. Regeneration reconciles
 the stale implementation with those additive schema definitions; it does not
 establish that each profile has a completed runtime issuance feature.

@@ -7,7 +7,7 @@ help:
 	@echo "package  Build the Python package"
 
 install:
-	python -m pip install -e . pytest ruff build
+	python -m pip install -e ".[proto]" pytest ruff build
 
 test:
 	python -m pytest tests/unit packages/marty-common/tests -q

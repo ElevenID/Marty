@@ -36,6 +36,11 @@ pip install -e .
 
 ## Usage
 
+The shared runtime does not install `grpcio-tools`. When changing the owning
+checkout's protobuf schemas, use the root `proto` extra or `make install`; see
+[tooling ownership](../../docs/features/compatibility-tooling-ownership.md).
+The runtime declares protobuf, gRPC reflection and gRPC health checking directly.
+
 ```python
 from marty_common.crypto_bridge import verify_certificate_chain
 from marty_common.grpc_server import create_grpc_server
