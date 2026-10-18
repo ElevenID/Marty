@@ -60,6 +60,15 @@ independent device interoperability or standards compliance.
 
 ## Cross-service reliability and release quality
 
+The Python `biometric` extra retains OpenCV for document rectification and image
+quality callers. Unused `face-recognition` and `scikit-image` dependencies are
+retired; installing them did not provide a connected face-matching or OCR feature.
+OCR test selection no longer depends on those unrelated packages. Preserve
+biometric matching, liveness, template parsing and quality requirements with the
+Rust biometric owner; qualify actual models, thresholds, spoof rejection and
+device/image inputs before claiming support. Retained Python image processing
+and template APIs remain compatibility work and are not removed by this trim.
+
 - Exercise real authenticated REST/gRPC contracts, service discovery,
   dependency health/readiness and metrics endpoints against owned disposable
   deployments. A missing contract-test file is not a passing service matrix.

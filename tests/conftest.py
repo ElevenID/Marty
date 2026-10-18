@@ -92,14 +92,6 @@ def pytest_runtest_setup(item):
         except ImportError:
             pytest.skip("PassportEye not available")
 
-    # Skip numpy/skimage tests if not available
-    if item.get_closest_marker("ocr"):
-        try:
-            import numpy as np
-            import skimage
-        except ImportError:
-            pytest.skip("numpy/skimage not available for OCR tests")
-
     # Skip docker tests if docker not available
     if item.get_closest_marker("docker"):
         import subprocess
