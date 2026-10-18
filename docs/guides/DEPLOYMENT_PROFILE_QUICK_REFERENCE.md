@@ -41,7 +41,7 @@ timings and fleet percentages are not measured acceptance results.
 - Preserve theme/locale/language, operator biometric controls, audit flags, cache
   TTL and update settings. Verify runtime/UI application, missing-field defaults,
   tampering/access protection, and error visibility; a synchronized row alone
-  proves no enforced device behavior.
+  does not prove enforced device behavior.
 - Qualify authenticated profile sync over certificate-validated HTTPS, scoped and
   rotatable credentials, actual endpoint and response types,
   version/change detection, cache persistence, deletion/staleness handling and
