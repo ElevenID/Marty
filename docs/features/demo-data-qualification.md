@@ -9,9 +9,13 @@ Runtime composition and service-owned migrations belong to
 [marty-ui](https://github.com/ElevenID/marty-ui). Wallet journeys belong to
 [marty-authenticator](https://github.com/ElevenID/marty-authenticator) and
 [marty-integration-tests](https://github.com/ElevenID/marty-integration-tests).
-The retained Python demo seeder supplies only part of the historical schema;
-it is not a demonstrated replacement for the removed SQL. The synthetic
-certificate generator and existing seed helpers remain separate capabilities.
+The unconsumed Python `seed_demo_data.py` is also retired. It inserted into
+uncreated legacy demo tables, used retired service endpoints, uploaded fake
+PEM/credential artifacts and could report success after individual failures.
+It never demonstrated schema, issuance or user-provisioning acceptance. The
+synthetic certificate generator and OpenBao org-catalog seeder remain separate
+capabilities. Current Rust vendor/Canvas/template seeders cover different
+scenarios; their existence does not establish parity with this historical demo.
 
 ## Retained data and behavior requirements
 
@@ -30,6 +34,11 @@ tests before claiming a supported demo environment:
   linkage and trust decisions with the canonical native verification owner.
 - Revocation linked to issued credentials, with time, reason and actor; prove
   its effect on verification rather than relying on a stored status string.
+- Synthetic document, public certificate, issued-credential and audit artifacts
+  in object storage, linked to their current service-owned records. Qualify
+  storage authorization, content/format integrity, retention, failure handling
+  and cleanup. Historical bucket names and fake PEM/proof strings are not a
+  supported storage contract or cryptographic fixture.
 - Verification results and system/credential audit events with actor, service,
   resource or credential, action, outcome, time and appropriate request context.
   Qualify event correlation and access/retention policy without exposing secrets
@@ -41,11 +50,20 @@ tests before claiming a supported demo environment:
 
 ## Environment and acceptance requirements
 
-Preserve API/UI authentication and authorization journeys for admin, vendor
-and applicant roles, service health/readiness, synthetic seeding, logging and
+Preserve API/UI authentication and authorization journeys for admin, issuer,
+verifier, vendor and applicant roles, service health/readiness, synthetic
+seeding, logging and
 supported notification paths. Browser coverage should distinguish its full
 matrix from a fast subset. Wallet consent, presentation and rejection paths
 need real exchanges; a simulator alone does not qualify device interoperability.
+
+Provision API/database/object-storage credentials through the owning secret and
+configuration boundary, with separate roles, scoped access, rotation and failure
+reporting. These non-signing settings still need configuration; fixed demo/root
+credentials are not defaults to restore. Signing keys must be managed by KMS;
+do not upload private-key PEM/JWK material to an application KV store or add a
+local signing fallback. Exercise authenticated real issuance, wallet proof,
+holder presentation and verification through supported Rust services.
 
 Provision disposable databases through their current service owners, with
 least-privilege and tenant boundaries, repeatable seed/migration behavior,
