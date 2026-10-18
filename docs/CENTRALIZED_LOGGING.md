@@ -135,3 +135,14 @@ with PerformanceTimer(logger, "synthetic_operation"):
 Existing services using the mixin can call `init_logging(service_name)` during
 initialization. These helpers provide local context and timing; they do not
 establish collector ingestion, production readiness, or complete event coverage.
+
+
+Request context in the retained structured logger is local to the current
+execution context. Updates copy the current values, nested scopes restore the
+outer context even after exceptions, and clearing one request does not clear
+another task or thread. Both structured and standard JSON outputs use the same
+request/user/session/correlation field projection, including absent values as
+`null` inside a nonempty context. Arbitrary context keys are not added to events.
+Child tasks inherit their parent's context snapshot; detached work must clear or
+replace it deliberately. This does not change the middleware's process-wide
+logger setup or qualify multi-service logging configuration and ingestion.
