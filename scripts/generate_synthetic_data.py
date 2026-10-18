@@ -29,10 +29,9 @@ import random
 import secrets
 import string
 import sys
-import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 # Cryptography imports for ASN.1 DER encoding
 from cryptography import x509
@@ -54,14 +53,6 @@ except ImportError:
     PKD_SERVICE_AVAILABLE = False
     logger = logging.getLogger(__name__)
     logger.warning("PKD service not available - will use simplified .ml format")
-
-# Try to import existing test generators for compatibility
-try:
-    from tests.generators.passport_generator import PassportGenerator
-
-    PASSPORT_GENERATOR_AVAILABLE = True
-except ImportError:
-    PASSPORT_GENERATOR_AVAILABLE = False
 
 # Configure logging
 logging.basicConfig(
