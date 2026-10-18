@@ -74,7 +74,10 @@ class PassportGenerator:
         optional_data: str = "",
     ) -> str:
         """
-        Generate a valid MRZ (Machine Readable Zone) string.
+        Format synthetic MRZ text with native check digits.
+
+        Input lengths, date validity and complete MRZ conformance are not
+        validated. Use the native parser to validate any resulting fixture.
 
         Args:
             document_type: Type of document (P for passport)
@@ -89,7 +92,7 @@ class PassportGenerator:
             optional_data: Optional data
 
         Returns:
-            A valid MRZ string
+            Synthetic MRZ text, without a validity guarantee
         """
         # Ensure document type is valid
         if document_type not in ["P", "I", "A", "C"]:
@@ -306,7 +309,10 @@ class PassportGenerator:
         output_file: str | None = None,
     ) -> dict[str, Any]:
         """
-        Generate a complete passport data structure.
+        Generate a synthetic passport-shaped fixture.
+
+        DG2 is optional and simplified; SOD is optional placeholder data.
+        This method does not issue or authenticate a passport.
 
         Args:
             issuing_country: 3-letter country code
@@ -323,7 +329,7 @@ class PassportGenerator:
             output_file: File to save the passport data to
 
         Returns:
-            A dictionary containing the complete passport data structure
+            A dictionary containing synthetic MRZ/DG1 and optional DG2/SOD data
         """
         # Generate MRZ data
         mrz_data = self.generate_mrz(
