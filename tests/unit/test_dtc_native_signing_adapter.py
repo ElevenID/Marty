@@ -13,13 +13,12 @@ from marty_plugin.dtc_engine.src import dtc_engine_service as service_module
 from marty_plugin.proto import dtc_engine_pb2
 
 
-def _service(tmp_path: Any, *, signing_key: str | None = None) -> Any:
+def _service(tmp_path: Any) -> Any:
     service = service_module.DTCEngineService.__new__(service_module.DTCEngineService)
     service.logger = logging.getLogger("test.dtc.native")
     service.dtc_storage_dir = str(tmp_path)
     service._dtc_store = {}
     service.signer_id = "configured-signer"
-    service.signing_key_pem = signing_key
     service.signer_public_key_pem = "PUBLIC KEY PEM"
     service.document_signer_client = None
     return service
@@ -188,35 +187,6 @@ def test_external_signer_round_trip_uses_real_native_verification(
     assert stored["access_key_hash"] == record["access_key_hash"]
 
 
-def test_native_key_failure_never_routes_to_external_provider(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Any
-) -> None:
-    service = _service(tmp_path, signing_key="PRIVATE KEY PEM")
-    _store_unsigned(service)
-    calls = 0
-
-    class Stub:
-        def SignDocument(self, request: Any) -> Any:  # noqa: N802
-            nonlocal calls
-            calls += 1
-            return SimpleNamespace(success=True)
-
-    service.document_signer_client = SimpleNamespace(stub=Stub())
-    monkeypatch.setattr(service_module, "verify_password", lambda *_: True)
-
-    def fail_native(_: str) -> str:
-        raise RuntimeError("native signing failed")
-
-    monkeypatch.setattr(service_module.crypto_bridge, "dtc_sign", fail_native)
-
-    response = service.SignDTC(_request(), SimpleNamespace())
-
-    assert response.success is False
-    assert calls == 0
-    stored = json.loads((tmp_path / "dtc-1.json").read_text(encoding="utf-8"))
-    assert stored["is_signed"] is False
-
-
 def test_invalid_external_signature_is_never_persisted_as_signed(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Any
 ) -> None:
@@ -258,3 +228,95 @@ def test_invalid_external_signature_is_never_persisted_as_signed(
     assert response.success is False
     stored = json.loads((tmp_path / "dtc-1.json").read_text(encoding="utf-8"))
     assert stored["is_signed"] is False
+
+
+@pytest.mark.parametrize("source", ["env-pem", "env-path", "config-pem", "config-path"])
+def test_private_key_configuration_fails_before_files_or_provider(
+    monkeypatch, tmp_path, source
+):
+    monkeypatch.delenv("DTC_SIGNING_KEY_PEM", raising=False)
+    monkeypatch.delenv("DTC_SIGNING_KEY_PATH", raising=False)
+    value = (
+        "retired-private-key-material"
+        if source.endswith("pem")
+        else str(tmp_path / "absent-private-key.pem")
+    )
+    settings = {}
+    if source.startswith("env"):
+        monkeypatch.setenv(
+            "DTC_SIGNING_KEY_PEM" if source.endswith("pem") else "DTC_SIGNING_KEY_PATH",
+            value,
+        )
+    else:
+        settings[
+            "signing_key_pem" if source.endswith("pem") else "signing_key_path"
+        ] = value
+    config = SimpleNamespace(get_service=lambda _: settings)
+
+    def forbidden(*args, **kwargs):
+        pytest.fail(
+            "retired private-key configuration reached a file or provider operation"
+        )
+
+    monkeypatch.setattr(service_module.os, "makedirs", forbidden)
+    monkeypatch.setattr(service_module, "GRPCClient", forbidden)
+    monkeypatch.setattr(service_module.crypto_bridge, "load_private_key_pem", forbidden)
+    with pytest.raises(
+        ValueError, match="Application-held DTC signing keys are retired"
+    ) as error:
+        service_module.DTCEngineService(config)
+    assert value not in str(error.value)
+
+
+def test_constructor_preserves_public_trust_identity_and_storage_settings(
+    monkeypatch, tmp_path
+):
+    monkeypatch.delenv("DTC_SIGNING_KEY_PEM", raising=False)
+    monkeypatch.delenv("DTC_SIGNING_KEY_PATH", raising=False)
+    monkeypatch.setenv("DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.delenv("DTC_SIGNER_PUBLIC_KEY_PEM", raising=False)
+    files = {}
+    for name, content in {
+        "public": "public-only-binding",
+        "anchors": "anchor-a\n\nanchor-b",
+        "chain": "chain-a\n\nchain-b",
+    }.items():
+        path = tmp_path / (name + ".pem")
+        path.write_text(content, encoding="utf-8")
+        files[name] = str(path)
+    config = SimpleNamespace(
+        get_service=lambda _: {
+            "signer_id": "configured-provider",
+            "signer_public_key_path": files["public"],
+            "trust_anchors_path": files["anchors"],
+            "certificate_chain_path": files["chain"],
+        }
+    )
+    client = SimpleNamespace(stub=object())
+    monkeypatch.setattr(service_module, "GRPCClient", lambda **kwargs: client)
+    service = service_module.DTCEngineService(config)
+    assert (
+        service.document_signer_client is client
+        and service.signer_id == "configured-provider"
+    )
+    assert service.signer_public_key_pem == "public-only-binding"
+    assert service.trust_anchors_pem == ["anchor-a", "anchor-b"]
+    assert service.certificate_chain_pem == ["chain-a", "chain-b"]
+    assert Path(service.dtc_storage_dir).is_dir()
+    assert not hasattr(service, "signing_key_pem")
+
+
+def test_missing_provider_cannot_sign_or_mutate_record(monkeypatch, tmp_path):
+    service = _service(tmp_path)
+    _store_native_unsigned(service)
+    path = tmp_path / "dtc-1.json"
+    before = path.read_bytes()
+    monkeypatch.setattr(service_module, "verify_password", lambda *_: True)
+
+    def forbidden(*args, **kwargs):
+        pytest.fail("DTC attempted local signing without a provider")
+
+    monkeypatch.setattr(service_module.crypto_bridge, "dtc_sign", forbidden)
+    response = service.SignDTC(_request(), SimpleNamespace())
+    assert response.success is False
+    assert path.read_bytes() == before and service._dtc_store == {}
