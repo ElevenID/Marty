@@ -66,9 +66,40 @@ Keep generated scan output in ignored directories or bounded CI artifacts.
 The unconsumed security-automation and alternate Bandit YAML files are retired.
 Their enabled flags did not configure current hooks or workflows.
 [Crypto boundaries](../config/security/crypto_boundaries.yaml) and
-[security policy](../config/security/security_policy.yaml) remain, along with
-the [crypto-boundary validator](../scripts/validation/validate_crypto_boundaries.py).
-Retained policies do not independently prove runtime enforcement.
+[security policy](../config/security/security_policy.yaml) remain. Retained
+policies do not independently prove runtime enforcement.
+
+The standalone Python crypto-boundary validator and demonstration are retired.
+They generated in-process software keys (including explicit CSCA/DSC HSM-policy
+overrides), counted in-memory audit entries and checked configuration sections.
+The demonstration printed verification/tamper results without making a negative
+result fail the run. These scripts did not qualify managed KMS custody or durable
+audit behavior. The underlying role-separation, provider and evidence APIs remain
+pending a separate consumer and Rust replacement audit.
+
+Preserve their unique acceptance intent under the Rust owners:
+
+- Distinct CSCA, document-signer, wallet/device, verifier, evidence and ephemeral
+  session roles and purposes. Deny cross-role/purpose/tenant signing and private
+  key sharing while permitting authorized public verification. Holder/device and
+  ephemeral session capabilities remain separate from long-term issuer custody.
+  Qualify how role/purpose policy reaches actual Rust handlers, including defaults
+  and invalid-policy rejection; YAML section presence is not enforcement.
+- Managed signing success, unavailable-provider failure and no local/private-key
+  fallback. Validate actual returned signatures and key identity/version; provider
+  names or successful key construction are insufficient.
+- Signed verification and audit evidence with stable subject, actor, operation,
+  outcome and timestamp semantics; verifiable individual signatures, chain links
+  and public evidence export. Reject modified details/outcomes, invalid signatures
+  and broken chains. Define durable retention and failure/concurrency behavior;
+  an in-memory entry count is not an audit acceptance test.
+
+Managed-key and grant authorization qualification belongs to the Rust
+[Signing Keys owner](https://github.com/ElevenID/marty-ui/tree/main/rust/services/signing-keys).
+Its `scripts/probe_signing_keys_openbao_policy.py --rust-adapter` and
+`--grant-verifier` modes run the governed disposable-provider checks. Those checks
+are not a claim that every role/evidence requirement above has been implemented
+or qualified; keep remaining evidence and operational work open with its owner.
 
 The [manual security scanner](../scripts/security_scan.py) runs selected checks
 and returns 0 for recognized clean results, 1 for findings, and 2 for unavailable,
