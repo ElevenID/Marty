@@ -115,3 +115,23 @@ monitoring APIs and their consumers; qualify real dependency readiness,
 request/interceptor metrics, alert callbacks, graceful startup/shutdown and
 degraded health with current-owner tests. Synthetic counter increments and
 source examples are not service acceptance.
+
+
+## Consolidated compatibility logging
+
+The [consolidated module](../packages/marty-common/marty_common/logging/consolidated_logging.py)
+also retains `ServiceLogger`, `PerformanceTimer`, and `LoggingMixin.init_logging`
+for existing Python consumers. For example:
+
+```python
+from marty_common.logging import ServiceLogger, PerformanceTimer
+
+logger = ServiceLogger("compatibility_worker", __name__)
+with PerformanceTimer(logger, "synthetic_operation"):
+    logger.log_request_start("synthetic-request", "synthetic_operation")
+    logger.log_request_end("synthetic-request", "synthetic_operation", success=True)
+```
+
+Existing services using the mixin can call `init_logging(service_name)` during
+initialization. These helpers provide local context and timing; they do not
+establish collector ingestion, production readiness, or complete event coverage.
