@@ -36,6 +36,15 @@ def _request_fields() -> dict[str, Any]:
     }
 
 
+@contextmanager
+def _request_scope(**context):
+    token = _request_context.set({**(_request_context.get() or {}), **context})
+    try:
+        yield
+    finally:
+        _request_context.reset(token)
+
+
 class MartyStructuredLogger:
     """
     Centralized structured logging configuration for Marty Platform.
@@ -220,14 +229,9 @@ class MartyStructuredLogger:
         """Clear request context."""
         _request_context.set(None)
 
-    @contextmanager
     def request_context(self, **context):
         """Context manager for request-scoped logging context."""
-        token = _request_context.set({**(_request_context.get() or {}), **context})
-        try:
-            yield
-        finally:
-            _request_context.reset(token)
+        return _request_scope(**context)
 
 
 class PerformanceLogger:
@@ -441,48 +445,43 @@ class LoggingMiddleware:
         # Extract request info
         method = scope["method"]
         path = scope["path"]
-        client_ip = scope.get("client", ["unknown"])[0]
+        client = scope.get("client")
+        client_ip = client[0] if client else "unknown"
 
         # Generate request ID
         request_id = f"{int(time.time() * 1000)}-{id(scope)}"
 
-        # Set request context
-        logging_instance = setup_logging_for_service("middleware")
-        logging_instance.set_request_context(
+        with _request_scope(
             request_id=request_id, client_ip=client_ip, method=method, path=path
-        )
+        ):
+            start_time = time.time()
 
-        start_time = time.time()
+            # Intercept response
+            response_status = 500
+            response_size = 0
 
-        # Intercept response
-        response_status = 500
-        response_size = 0
+            async def send_wrapper(message):
+                nonlocal response_status, response_size
+                if message["type"] == "http.response.start":
+                    response_status = message["status"]
+                elif message["type"] == "http.response.body":
+                    if "body" in message:
+                        response_size += len(message["body"])
+                await send(message)
 
-        async def send_wrapper(message):
-            nonlocal response_status, response_size
-            if message["type"] == "http.response.start":
-                response_status = message["status"]
-            elif message["type"] == "http.response.body":
-                if "body" in message:
-                    response_size += len(message["body"])
-            await send(message)
-
-        try:
-            await self.app(scope, receive, send_wrapper)
-        except Exception as e:
-            self.logger.exception("request_error", error=str(e), error_type=type(e).__name__)
-            raise
-        finally:
-            # Log request performance
-            response_time = time.time() - start_time
-            self.performance_logger.log_request(
-                method=method,
-                endpoint=path,
-                status_code=response_status,
-                response_time=response_time,
-                response_size=response_size,
-                client_ip=client_ip,
-            )
-
-            # Clear request context
-            logging_instance.clear_request_context()
+            try:
+                await self.app(scope, receive, send_wrapper)
+            except Exception as e:
+                self.logger.exception("request_error", error=str(e), error_type=type(e).__name__)
+                raise
+            finally:
+                # Log request performance
+                response_time = time.time() - start_time
+                self.performance_logger.log_request(
+                    method=method,
+                    endpoint=path,
+                    status_code=response_status,
+                    response_time=response_time,
+                    response_size=response_size,
+                    client_ip=client_ip,
+                )

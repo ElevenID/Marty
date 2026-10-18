@@ -144,5 +144,8 @@ another task or thread. Both structured and standard JSON outputs use the same
 request/user/session/correlation field projection, including absent values as
 `null` inside a nonempty context. Arbitrary context keys are not added to events.
 Child tasks inherit their parent's context snapshot; detached work must clear or
-replace it deliberately. This does not change the middleware's process-wide
-logger setup or qualify multi-service logging configuration and ingestion.
+replace it deliberately. `LoggingMiddleware` uses its injected logger without
+rebuilding process-wide handlers on each request. The shared context scope remains active through error
+and performance events and restores its parent even on cancellation or logging
+failure. This does not change explicit logger setup elsewhere, the separate
+`RequestLoggingMiddleware`, or qualify multi-service configuration and ingestion.
