@@ -40,10 +40,13 @@ pip install -e .
 from marty_common.crypto_bridge import verify_certificate_chain
 from marty_common.grpc_server import create_grpc_server
 from marty_common.infrastructure.database import get_database_engine
-from marty_common.monitoring import setup_prometheus_metrics
+from marty_common.monitoring import create_default_monitor, create_service_monitor
 
 # Use shared infrastructure components
 ```
+
+See [compatibility consolidation](../../docs/features/compatibility-consolidation.md)
+for the two monitoring object models, stable import paths and retry behavior.
 
 ## Development
 

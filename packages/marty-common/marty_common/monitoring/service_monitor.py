@@ -1,5 +1,5 @@
 """
-Service health monitoring and metrics collection infrastructure for Marty services.
+Service-oriented monitoring API, distinct from the package health-check API.
 
 Provides comprehensive monitoring capabilities including health checks, metrics collection,
 centralized logging, and alerting for all microservices in the Marty architecture.
@@ -16,21 +16,14 @@ from collections import defaultdict, deque
 from collections.abc import Callable
 from contextlib import contextmanager
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from enum import Enum
 from typing import Any
 
 import grpc
 import psutil
 
-
-class HealthStatus(Enum):
-    """Service health status levels."""
-
-    HEALTHY = "healthy"
-    DEGRADED = "degraded"
-    UNHEALTHY = "unhealthy"
-    UNKNOWN = "unknown"
+from .health_monitor import AlertSeverity, HealthStatus
 
 
 class MetricType(Enum):
@@ -40,15 +33,6 @@ class MetricType(Enum):
     GAUGE = "gauge"
     HISTOGRAM = "histogram"
     SUMMARY = "summary"
-
-
-class AlertSeverity(Enum):
-    """Alert severity levels."""
-
-    INFO = "info"
-    WARNING = "warning"
-    ERROR = "error"
-    CRITICAL = "critical"
 
 
 @dataclass
@@ -74,7 +58,7 @@ class Metric:
     metric_type: MetricType
     value: int | float
     labels: dict[str, str] = field(default_factory=dict)
-    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
     help_text: str = ""
 
 
@@ -87,7 +71,7 @@ class ServiceInfo:
     instance_id: str
     host: str
     port: int
-    start_time: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    start_time: datetime = field(default_factory=lambda: datetime.now(UTC))
     metadata: dict[str, str] = field(default_factory=dict)
 
 
@@ -135,7 +119,7 @@ class MetricsCollector:
             self.metric_definitions[name] = {
                 "type": metric_type,
                 "help": help_text,
-                "created_at": datetime.now(timezone.utc),
+                "created_at": datetime.now(UTC),
             }
 
     def record_metric(self, name: str, value: float, labels: dict[str, str] | None = None) -> None:
@@ -325,12 +309,12 @@ class HealthMonitor:
                 error = None
 
             # Update check result
-            check.last_check = datetime.now(timezone.utc)
+            check.last_check = datetime.now(UTC)
             check.last_result = result
             check.last_error = error
 
         except Exception as e:
-            check.last_check = datetime.now(timezone.utc)
+            check.last_check = datetime.now(UTC)
             check.last_result = False
             check.last_error = str(e)
             return False
@@ -375,7 +359,7 @@ class HealthMonitor:
             self.status_history.append(
                 {
                     "status": new_status.value,
-                    "timestamp": datetime.now(timezone.utc),
+                    "timestamp": datetime.now(UTC),
                     "details": check_results,
                 }
             )
@@ -397,7 +381,7 @@ class HealthMonitor:
             "service": self.service_info.service_name,
             "status": self.current_status.value,
             "instance_id": self.service_info.instance_id,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "checks": checks_info,
         }
 
@@ -450,7 +434,7 @@ class AlertManager:
         recent_errors = [
             m
             for m in self.metrics_collector.get_metrics("grpc.errors.total")
-            if (datetime.now(timezone.utc) - m.timestamp).seconds < 300
+            if (datetime.now(UTC) - m.timestamp).seconds < 300
         ]
         return len(recent_errors) > 10
 
@@ -460,7 +444,7 @@ class AlertManager:
         recent_requests = [
             m
             for m in self.metrics_collector.get_metrics("grpc.requests.total")
-            if (datetime.now(timezone.utc) - m.timestamp).seconds < 600
+            if (datetime.now(UTC) - m.timestamp).seconds < 600
         ]
         # Only alert if service was previously active
         if len(recent_requests) == 0:
@@ -502,7 +486,7 @@ class AlertManager:
             for alert in self.alerts.values():
                 try:
                     should_trigger = alert.condition(current_metrics)
-                    now = datetime.now(timezone.utc)
+                    now = datetime.now(UTC)
 
                     if should_trigger and not alert.is_active:
                         # Check cooldown
@@ -650,7 +634,7 @@ class ServiceMonitor:
             "monitoring_status": {
                 "running": self._running,
                 "uptime_seconds": (
-                    datetime.now(timezone.utc) - self.service_info.start_time
+                    datetime.now(UTC) - self.service_info.start_time
                 ).total_seconds(),
             },
         }
