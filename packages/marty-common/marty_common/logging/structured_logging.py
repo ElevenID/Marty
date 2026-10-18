@@ -103,7 +103,7 @@ class MartyStructuredLogger:
         # Configure structlog
         structlog.configure(
             processors=[
-                structlog.threadlocal.merge_contextvars,
+                structlog.contextvars.merge_contextvars,
                 add_service_context,
                 add_request_context,
                 structlog.processors.TimeStamper(fmt="ISO"),
@@ -124,17 +124,21 @@ class MartyStructuredLogger:
     def _setup_standard_logging(self):
         """Configure standard Python logging with JSON formatting."""
 
+        service_fields = {
+            "service": self.service_name,
+            "version": self.version,
+            "environment": self.environment,
+            "hostname": self.hostname,
+            "pid": self.pid,
+        }
+
         # Create custom JSON formatter
         class MartyJSONFormatter(jsonlogger.JsonFormatter):
             def add_fields(self, log_record, record, message_dict):
                 super().add_fields(log_record, record, message_dict)
 
                 # Add service context
-                log_record["service"] = self.service_name
-                log_record["version"] = self.version
-                log_record["environment"] = self.environment
-                log_record["hostname"] = self.hostname
-                log_record["pid"] = self.pid
+                log_record.update(service_fields)
 
                 # Add timestamp in ISO format
                 if not log_record.get("timestamp"):
