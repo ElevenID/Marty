@@ -174,8 +174,7 @@ object_storage:
 
 # Key vault
 key_vault:
-  provider: "${MARTY_KEY_VAULT_PROVIDER:-file}"
-  file_path: 'tests/fixtures/keys'
+  provider: "${MARTY_KEY_VAULT_PROVIDER:-}"
   hsm_config_path: "${MARTY_HSM_CONFIG:-}"
 
 # Event bus
