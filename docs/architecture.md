@@ -104,32 +104,29 @@ Preserve these lifecycle and coverage requirements under the Rust owner:
 Rust service tests live with the
 [signing-keys owner](https://github.com/ElevenID/marty-ui/tree/main/rust/services/signing-keys/tests).
 Their existence is not a claim that provider/device or deployed acceptance is
-complete. The retained Python pretravel/certificate/SD-JWT paths currently
-expect private-key loading; switching their provider to Vault cannot replace
-that operation because its client deliberately rejects private-key loading.
-Pretravel issuance must move to the canonical Rust issuance service; Python
-must retain only any still-needed evidence verification and request/result
-translation, not native preparation, signing-grant minting or credential
-assembly. Retire the Python SD-JWT issuer only after this caller has a supported
-replacement and actual success/failure coverage.
+complete. Pretravel now delegates to the canonical Rust issuance service and
+returns a pending wallet offer with `credential: null`; the wallet must complete
+proof before Rust assembles and signs the credential through managed KMS.
+Python retains evidence verification and request/result translation only.
+See [pretravel wallet flow](features/pretravel-wallet-flow.md) for the response
+migration, server-bound organization/issuer/template and deployment qualification.
 
-The existing Rust initiation API returns a credential offer. Its credential API
-requires an authorized access token, wallet proof, one-use nonce, fresh issuer
-resolution and lifecycle checks before managed signing. The retained pretravel
-API instead returns a credential synchronously. Resolve that response contract
-through a deliberate wallet-offer migration or a dedicated Rust-owned pretravel
-workflow; do not proxy initiation and describe an offer as an issued credential,
-or add an API-key-only signing shortcut. Keep MRZ, VDS-NC trust/signature and
-NFC/SOD evidence outcomes, disclosure claims, and unfinished audience/nonce and
-mDoc requirements explicit until the owning Rust workflow supports them.
+The Rust credential API requires an authorized access token, wallet proof,
+one-use nonce, fresh issuer resolution and lifecycle checks before managed
+signing. Pretravel must not add an API-key-only signing shortcut. MRZ checksum
+consistency does not prove authenticity, liveness or document validity. VDS-NC
+trust/signature and NFC/SOD failures remain fail-closed. Unqualified mDoc and
+legacy audience/nonce requests are rejected explicitly. Shared Python SD-JWT
+and private-key compatibility APIs remain pending a separate consumer audit;
+this migration does not qualify or remove their other callers.
 
 The unused Python `vc/oidc4vci.py` offer/grant/session dataclasses and their
 package exports are retired. No tracked runtime or test consumed them; their
 legacy offer encoding is not the current Rust protocol contract. Use the Rust
 issuance service for credential offers, authorization, token exchange and
 session state. The separate SQLAlchemy `Oidc4VciSessionRecord` and repository
-remain pending their own consumer/data audit. SD-JWT issuance and pretravel
-verification remain until the migration above is implemented and qualified.
+remain pending their own consumer/data audit. Shared SD-JWT compatibility
+exports remain pending their own caller audit.
 The root harness no longer installs the unused Authlib or Python `sd-jwt`
 engines; retained SD-JWT operations already call Rust native kernels.
 

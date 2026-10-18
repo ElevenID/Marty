@@ -17,12 +17,13 @@ from typing import Any, Protocol
 import grpc
 from grpc_health.v1 import health_pb2_grpc
 from grpc_health.v1.health import HealthServicer
+from marty_plugin.proto.v1 import common_services_pb2_grpc
 
 from marty_common.grpc_logging import LoggingStreamerServicer
 from marty_common.grpc_server import GrpcServerConfig
 from marty_common.logging import ServiceLogger, configure_service_logging
-from marty_common.services import BaseService
-from marty_plugin.proto.v1 import common_services_pb2_grpc
+
+from .base_service import BaseService
 
 
 class ServicerProtocol(Protocol):

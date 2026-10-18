@@ -1,36 +1,28 @@
 """
-Pre-travel verification and credential issuance service.
+Pre-travel evidence verification and Rust wallet-offer adapter.
 
-This service validates MRZ, barcode, and NFC evidence and delegates credential
-signing to native-backed issuers. Unverified evidence and unsupported formats
-fail closed.
+This service checks MRZ consistency, barcode signatures and NFC/SOD evidence.
+Rust owns credential offers, wallet proof, credential assembly and KMS signing.
 """
 
 from __future__ import annotations
 
 import logging
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Optional
 
 from app.models.doc_models_clean import (
     MRZResult,
     PreTravelVerificationRequest,
     PreTravelVerificationResult,
-    TokenizedCredential,
 )
 from app.services.mrz_service import MRZProcessingService
-from marty_common.infrastructure.key_vault import (
-    FileKeyVaultClient,
-    KeyVaultConfig,
-    build_key_vault_client,
+from app.services.pretravel_issuance import (
+    PreTravelIssuanceConfig,
+    RustPreTravelIssuance,
 )
 from marty_common.services.certificate_validation import CertificateValidationService
-from marty_common.vc.sd_jwt import (
-    SdJwtConfig,
-    SdJwtIssuanceInput,
-    SdJwtIssuer,
-)
 from marty_common.verification.trust_list_manager import (
     PKDClient,
     TrustListCache,
@@ -45,40 +37,26 @@ logger = logging.getLogger(__name__)
 
 @dataclass(slots=True)
 class PreTravelConfig:
-    issuer: str = "https://issuer.pre-travel.example.com"
-    signing_key_id: str = "pretravel-signer"
-    signing_alg: str = "ES256"
-    key_vault_path: str = "data/keys"
+    issuance: PreTravelIssuanceConfig = field(default_factory=PreTravelIssuanceConfig)
+    credential_type: str = "PreTravelCredential"
     pkd_base_url: str | None = os.getenv("PKD_BASE_URL")
     trust_cache_dir: str = "data/trust"
 
 
 class PreTravelVerificationService:
-    """Handle pre-travel verification and token issuance."""
+    """Verify evidence and request a pending Rust wallet offer."""
 
-    def __init__(self, config: PreTravelConfig | None = None) -> None:
+    def __init__(
+        self,
+        config: PreTravelConfig | None = None,
+        *,
+        issuance: RustPreTravelIssuance | None = None,
+    ) -> None:
         self.config = config or PreTravelConfig()
-        kv_config = KeyVaultConfig(
-            provider="file", file_path=self.config.key_vault_path
-        )
-        self.key_vault = self._ensure_key_vault(kv_config)
+        self.issuance = issuance or RustPreTravelIssuance(self.config.issuance)
         self.mrz_service = MRZProcessingService()
         self.cert_validator = CertificateValidationService()
         self._trust_manager: TrustListManager | None = None
-
-    @staticmethod
-    def _ensure_key_vault(config: KeyVaultConfig) -> FileKeyVaultClient:
-        kv = build_key_vault_client(config)
-        # Ensure signing key exists
-        try:
-            import asyncio
-
-            asyncio.run(kv.ensure_key("pretravel-signer", "ecdsa-p256"))  # type: ignore[attr-defined]
-        except Exception:  # pragma: no cover - defensive
-            logger.exception(
-                "Failed to ensure signing key, continuing with existing state"
-            )
-        return kv  # type: ignore[return-value]
 
     async def _get_trust_manager(self) -> TrustListManager | None:
         """Lazily initialize trust manager backed by PKD."""
@@ -113,17 +91,33 @@ class PreTravelVerificationService:
         self, request: PreTravelVerificationRequest
     ) -> PreTravelVerificationResult:
         """
-        Verify provided evidence and issue a token only after successful checks.
+        Verify provided evidence and request an offer only after successful checks.
         """
         checks: list[str] = []
         mrz: MRZResult | None = None
+        if request.audience is not None or request.nonce is not None:
+            raise ValueError(
+                "Audience and nonce belong to the Rust wallet proof flow, not pretravel evidence"
+            )
+        if request.credential_type != self.config.credential_type:
+            raise ValueError(
+                "Pretravel credential type must match the configured Rust template"
+            )
+        if request.issuance_type.lower() != "sd-jwt":
+            raise ValueError(
+                "Pretravel mDoc issuance is not qualified; use the configured SD-JWT wallet flow"
+            )
 
         # Basic MRZ validation
         if request.mrz_lines:
             try:
                 parsed = self.mrz_service._process_mrz_lines(request.mrz_lines)  # pylint: disable=protected-access
+                if parsed is None or parsed.overallValid is not True:
+                    return PreTravelVerificationResult(
+                        is_valid=False, reason="MRZ validation failed", checks=checks
+                    )
                 mrz = parsed
-                checks.append("mrz_parsed")
+                checks.append("mrz_checksums_valid")
             except Exception as exc:  # pragma: no cover - defensive
                 logger.exception("MRZ parsing failed")
                 return PreTravelVerificationResult(
@@ -165,97 +159,35 @@ class PreTravelVerificationService:
                 is_valid=False, reason="No verifiable data provided", checks=checks
             )
 
-        credential: TokenizedCredential | None = None
-        if request.issuance_type.lower() == "sd-jwt":
-            credential = await self._issue_sd_jwt(request, mrz)
-        else:
-            from marty_common.native_backends import NativeOperationError
-
-            raise NativeOperationError(
-                "Pre-travel mDoc issuance requires a configured native mDoc issuer"
+        claims: dict[str, Any] = {
+            "barcodeDataPresent": bool(request.barcode_data),
+            "nfcPayloadPresent": bool(request.nfc_payload),
+        }
+        if mrz:
+            claims.update(
+                {
+                    name: getattr(mrz, name)
+                    for name in (
+                        "documentNumber",
+                        "surname",
+                        "givenNames",
+                        "issuingState",
+                        "nationality",
+                        "dateOfBirth",
+                        "dateOfExpiry",
+                    )
+                }
             )
+        offer = await self.issuance.offer(claims)
 
         return PreTravelVerificationResult(
             is_valid=True,
             mrz=mrz,
-            credential=credential,
+            wallet_offer=offer,
             checks=checks,
             vds_valid=vds_valid,
             trust_warnings=trust_warnings or None,
         )
-
-    async def _issue_sd_jwt(
-        self, request: PreTravelVerificationRequest, mrz: MRZResult | None
-    ) -> TokenizedCredential:
-        issuer_cfg = SdJwtConfig(
-            issuer=self.config.issuer,
-            signing_key_id=self.config.signing_key_id,
-            signing_algorithm=self.config.signing_alg,
-            kid=self.config.signing_key_id,
-        )
-
-        def _empty_chain() -> list[Any]:
-            return []
-
-        issuer = SdJwtIssuer(
-            key_vault=self.key_vault,
-            certificate_chain_provider=_empty_chain,
-            config=issuer_cfg,
-        )
-
-        base_claims: dict[str, Any] = {}
-        if mrz:
-            base_claims = {
-                "documentNumber": mrz.documentNumber,
-                "surname": mrz.surname,
-                "givenNames": mrz.givenNames,
-                "issuingState": mrz.issuingState,
-                "nationality": mrz.nationality,
-                "dateOfBirth": mrz.dateOfBirth,
-                "dateOfExpiry": mrz.dateOfExpiry,
-            }
-
-        selective_disclosures = {
-            "barcodeDataPresent": bool(request.barcode_data),
-            "nfcPayloadPresent": bool(request.nfc_payload),
-        }
-
-        issuance = SdJwtIssuanceInput(
-            subject_id=mrz.documentNumber if mrz and mrz.documentNumber else "unknown",
-            credential_type=request.credential_type,
-            base_claims=base_claims,
-            selective_disclosures=selective_disclosures,
-            audience=request.audience,
-            nonce=request.nonce,
-        )
-
-        result = await issuer.issue(issuance)
-        return TokenizedCredential(
-            format="sd-jwt",
-            token=result.token,
-            disclosures=result.disclosures,
-            presentation_definition=self._build_presentation_definition(request),
-        )
-
-    def _build_presentation_definition(
-        self, request: PreTravelVerificationRequest
-    ) -> dict[str, Any]:
-        """
-        Minimal OID4VP/OID4VCP-friendly presentation definition stub.
-        """
-        return {
-            "id": "pre-travel-vp",
-            "format": {"jwt_vc": {"alg": [self.config.signing_alg]}},
-            "input_descriptors": [
-                {
-                    "id": "pre-travel-credential",
-                    "name": request.credential_type,
-                    "constraints": {
-                        "fields": [{"path": ["$.vc.credentialSubject.documentNumber"]}]
-                    },
-                }
-            ],
-        }
 
     async def _verify_vds(self, barcode_data: str) -> tuple[Optional[bool], list[str]]:
         """Verify VDS-NC barcode with PKD-backed trust when available."""
