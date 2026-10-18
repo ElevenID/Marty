@@ -60,9 +60,16 @@ format/device acceptance remain feature work. The current MRZ field list is
 partial. Do not interpret health/license placeholders as license validation or
 an MRZ checksum result as verification of a physical document. Separate CMC
 routes remain delegated to their service client and need their own qualification.
-The legacy local Dockerfile/Makefile and smoke scripts are not deployment
-qualification and need their own packaging/consumer audit; the old local Compose
-and E2E commands referenced files that are absent from this checkout.
+The unused local Dockerfile, Makefile, Docker runner, API verifier and orphan
+local test fixtures are retired. They referenced missing Compose/test files;
+the image recipe did not install its project/native wheels/Tesseract, and the
+verifier posted non-image bytes while expecting obsolete response aliases.
+Use the root checks and Uvicorn command above for the retained compatibility app.
+Supported container packaging remains unfinished: install matching native
+wheels, Tesseract and language data, define real readiness/health semantics,
+configure credentials, and qualify authenticated real-image smoke/E2E tests.
+Removing these recipes does not migrate the complete OCR API to Rust or declare
+its unfinished packaging and device acceptance complete.
 
 ## Checks
 
