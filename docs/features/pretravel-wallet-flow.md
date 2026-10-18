@@ -50,9 +50,21 @@ issuance or proof that no Rust transaction was created.
 ## Compatibility and unfinished migration
 
 The pretravel adapter no longer provisions or loads a filesystem signing key.
-Existing local key data are not deleted by this code change. The old
-`TokenizedCredential` model and shared SD-JWT issuer exports remain pending a
-separate public-consumer audit; the pretravel result cannot contain that model.
+Existing local key data are not deleted by this code change. The obsolete `TokenizedCredential` model and Python `marty_common.vc.sd_jwt`
+issuer are retired after moving their last tracked runtime caller to Rust.
+This removes the Python public exports `SdJwtConfig`, `SdJwtDisclosure`,
+`SdJwtIssuanceInput`, `SdJwtIssuanceResult` and `SdJwtIssuer`; downstream callers
+must migrate to Rust initiation and wallet proof rather than importing them.
+The `marty_common.vc` package remains importable, and its separate
+`sd_jwt_verifier` module retains native public-JWK verification.
+
+The retired issuer's positive local-file-key test is removed with its owner.
+Replacement ownership is exercised by pretravel transport/evidence/API tests
+and Rust `initiation_http_behavior`/`credential_signing_behavior` tests. Those
+checks do not establish deployed managed-provider or wallet qualification.
+Disclosure selection, credential format/expiry and any future audience/nonce or
+certificate-chain policy must be qualified in the owning Rust workflow. No
+Python private-JWK construction or direct-signing fallback remains here.
 Compatibility verification still requires native wheels matching the checkout's
 API surface. Use the exact Core revision/features selected by CI; a same-version
 historical release wheel can lack those APIs. This migration does not qualify

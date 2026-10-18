@@ -116,17 +116,18 @@ one-use nonce, fresh issuer resolution and lifecycle checks before managed
 signing. Pretravel must not add an API-key-only signing shortcut. MRZ checksum
 consistency does not prove authenticity, liveness or document validity. VDS-NC
 trust/signature and NFC/SOD failures remain fail-closed. Unqualified mDoc and
-legacy audience/nonce requests are rejected explicitly. Shared Python SD-JWT
-and private-key compatibility APIs remain pending a separate consumer audit;
-this migration does not qualify or remove their other callers.
+legacy audience/nonce requests are rejected explicitly. The unused Python SD-JWT
+issuer and its exports are retired after the pretravel migration; public-JWK
+SD-JWT verification remains. Other private-key compatibility APIs still need
+their own consumer audit.
 
 The unused Python `vc/oidc4vci.py` offer/grant/session dataclasses and their
 package exports are retired. No tracked runtime or test consumed them; their
 legacy offer encoding is not the current Rust protocol contract. Use the Rust
 issuance service for credential offers, authorization, token exchange and
 session state. The separate SQLAlchemy `Oidc4VciSessionRecord` and repository
-remain pending their own consumer/data audit. Shared SD-JWT compatibility
-exports remain pending their own caller audit.
+remain pending their own consumer/data audit. The shared Python SD-JWT issuer is retired; downstream imports must move
+to Rust initiation and wallet proof.
 The root harness no longer installs the unused Authlib or Python `sd-jwt`
 engines; retained SD-JWT operations already call Rust native kernels.
 

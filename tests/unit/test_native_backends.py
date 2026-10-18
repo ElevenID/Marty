@@ -172,42 +172,6 @@ def test_common_crypto_rejects_legacy_fake_signatures_and_password_hashes() -> N
         )
 
 
-def test_sd_jwt_issuance_routes_signing_through_native_oid4vci(tmp_path) -> None:
-    from marty_common.infrastructure.key_vault import FileKeyVaultClient
-    from marty_common.vc.sd_jwt import (
-        SdJwtConfig,
-        SdJwtIssuanceInput,
-        SdJwtIssuer,
-    )
-
-    async def issue():
-        vault = FileKeyVaultClient(str(tmp_path))
-        await vault.ensure_key("issuer-key", "ecdsa-p256")
-        issuer = SdJwtIssuer(
-            vault,
-            lambda: [],
-            SdJwtConfig(
-                issuer="did:example:issuer",
-                signing_key_id="issuer-key",
-                kid="did:example:issuer#key-1",
-            ),
-        )
-        return await issuer.issue(
-            SdJwtIssuanceInput(
-                subject_id="did:example:holder",
-                credential_type="EmployeeCredential",
-                base_claims={"department": "engineering"},
-                selective_disclosures={"employee_id": "E-123"},
-            )
-        )
-
-    result = asyncio.run(issue())
-    assert result.credential_id.startswith("urn:uuid:")
-    assert result.token.count(".") == 2
-    assert len(result.disclosures) == 1
-    assert result.disclosure_objects[0].name == "employee_id"
-
-
 def test_generic_cms_placeholder_is_disabled() -> None:
     from marty_common.utils.asn1_utils import verify_cms_signature
 
