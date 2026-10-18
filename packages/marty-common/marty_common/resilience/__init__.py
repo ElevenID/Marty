@@ -224,8 +224,4 @@ __all__ = [
     "ChaosInjector",
     "ChaosType",
     "ResilienceTestSuite",
-    # Integration testing
-    "MockService",
-    "ResilienceIntegrationTest",
-    "TestMetrics",
 ]
