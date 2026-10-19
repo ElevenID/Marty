@@ -1,4 +1,5 @@
 import pytest
+import pytest_asyncio
 
 from marty_common.infrastructure import (
     DatabaseConfig,
@@ -8,11 +9,18 @@ from marty_common.infrastructure import (
 )
 
 
-@pytest.mark.asyncio
-async def test_outbox_repository_enqueue_and_claim():
+@pytest_asyncio.fixture
+async def database():
     database = DatabaseManager(DatabaseConfig(url="sqlite+aiosqlite:///:memory:"))
-    await database.create_all()
+    try:
+        await database.create_all()
+        yield database
+    finally:
+        await database.dispose()
 
+
+@pytest.mark.asyncio
+async def test_outbox_repository_enqueue_and_claim(database):
     async with database.session_scope() as session:
         repo = OutboxRepository(session)
         await repo.enqueue(topic="test.topic", payload=b"{}", key=b"key")
@@ -36,10 +44,7 @@ class _StubEventBus:
 
 
 @pytest.mark.asyncio
-async def test_outbox_dispatcher_flushes_messages():
-    database = DatabaseManager(DatabaseConfig(url="sqlite+aiosqlite:///:memory:"))
-    await database.create_all()
-
+async def test_outbox_dispatcher_flushes_messages(database):
     async with database.session_scope() as session:
         repo = OutboxRepository(session)
         await repo.enqueue(topic="flush.topic", payload=b"payload", key=None)
