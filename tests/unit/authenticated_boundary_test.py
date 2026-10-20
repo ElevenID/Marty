@@ -3,9 +3,12 @@
 import asyncio
 import importlib
 import json
+import os
 import sys
+import threading
 import time
 from datetime import datetime, timedelta, timezone
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
 
@@ -175,7 +178,10 @@ def test_real_mutual_tls_uses_certificate_identity_never_forwarded_headers(modul
 
 
 def test_native_jwt_enforces_signature_issuer_audience_and_expiry(modules):
-    pytest.importorskip("marty_rs", reason="Pinned native wheel required; installed in mandatory CI test lane")
+    if os.environ.get("CI") == "true":
+        importlib.import_module("_marty_rs")
+    else:
+        pytest.importorskip("_marty_rs", reason="Pinned native wheel required; installed in mandatory CI test lane")
     import jwt
 
     module = modules("marty_common.auth_interceptor")
@@ -238,3 +244,45 @@ def test_handler_context_is_reset_after_exception_or_cancellation(modules, monke
         assert module.get_auth_context() is None
 
     asyncio.run(run())
+
+
+@pytest.mark.parametrize("kind", ["unary_unary", "unary_stream", "stream_unary", "stream_stream"])
+def test_synchronous_handlers_keep_executor_and_request_iterator_semantics(modules, monkeypatch, kind):
+    module = modules("marty_common.auth_interceptor")
+    authorization = modules("marty_common.authorization")
+    interceptor, _ = jwt_interceptor(module, monkeypatch)
+    main_thread = threading.get_ident()
+    request_streaming, response_streaming = kind.startswith("stream_"), kind.endswith("_stream")
+
+    @authorization.require("document:read", policy_engine=SimpleNamespace(evaluate=lambda context: context.roles == ["reader"]))
+    def behavior(request, context):
+        assert threading.get_ident() != main_thread
+        identity = module.get_auth_context().identity
+        time.sleep(0.01)
+        values = list(request) if request_streaming else [request]
+        result = identity.encode() + b":" + b"".join(values)
+        return iter([result, result]) if response_streaming else result
+
+    async def run(pool):
+        server = grpc.aio.server(migration_thread_pool=pool, interceptors=[interceptor])
+        handler = getattr(grpc, kind + "_rpc_method_handler")(behavior)
+        server.add_generic_rpc_handlers((grpc.method_handlers_generic_handler("probe", {"call": handler}),))
+        port = server.add_insecure_port("127.0.0.1:0")
+        await server.start()
+        try:
+            async with grpc.aio.insecure_channel(f"127.0.0.1:{port}") as channel:
+                async def invoke(identity):
+                    response = getattr(channel, kind)("/probe/call")(
+                        iter([b"ok"]) if request_streaming else b"ok",
+                        metadata=(("authorization", "Bearer " + identity),), timeout=5)
+                    return [value async for value in response] if response_streaming else await response
+
+                result = await asyncio.gather(invoke("alice"), invoke("bob"))
+                expected = [b"alice:ok", b"bob:ok"]
+                assert result == ([[value, value] for value in expected] if response_streaming else expected)
+        finally:
+            await server.stop(0)
+        assert module.get_auth_context() is None
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        asyncio.run(run(pool))

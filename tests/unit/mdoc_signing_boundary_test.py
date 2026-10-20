@@ -1,6 +1,8 @@
 """Remote signing failures must never manufacture an active credential."""
 
 import asyncio
+import importlib
+import os
 from datetime import datetime, timezone
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -88,7 +90,10 @@ def test_document_changed_while_signer_is_awaited_is_not_activated(service, monk
 
 
 def test_native_signature_verification_binds_current_document_and_signer(service):
-    pytest.importorskip("marty_verification", reason="Pinned native wheel required; installed in mandatory CI test lane")
+    if os.environ.get("CI") == "true":
+        importlib.import_module("marty_verification")
+    else:
+        pytest.importorskip("marty_verification", reason="Pinned native wheel required; installed in mandatory CI test lane")
     module, instance, context, document_id = service
     key = ed25519.Ed25519PrivateKey.generate()
     public = key.public_key().public_bytes(serialization.Encoding.DER, serialization.PublicFormat.SubjectPublicKeyInfo)

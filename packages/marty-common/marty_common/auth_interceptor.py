@@ -99,6 +99,15 @@ class AuthServerInterceptor(grpc_aio.ServerInterceptor):
                 return None
             return auth
 
+        def authenticate_sync(context):
+            if self.bypass_health_checks and self._is_health_check(handler_call_details):
+                return AuthContext()
+            auth = self._authenticate_request_sync(handler_call_details, context)
+            if not auth.authenticated:
+                context.abort(grpc.StatusCode.UNAUTHENTICATED, "Authentication required")
+                return None
+            return auth
+
         behavior = (
             handler.stream_stream if handler.request_streaming and handler.response_streaming
             else handler.stream_unary if handler.request_streaming
@@ -137,19 +146,46 @@ class AuthServerInterceptor(grpc_aio.ServerInterceptor):
             finally:
                 _REQUEST_AUTH.reset(token)
 
+        def sync_unary(request, context):
+            auth = authenticate_sync(context)
+            if auth is None:
+                return None
+            token = _REQUEST_AUTH.set(auth)
+            try:
+                return behavior(request, context)
+            finally:
+                _REQUEST_AUTH.reset(token)
+
+        def sync_streaming(request, context):
+            auth = authenticate_sync(context)
+            if auth is None:
+                return
+            token = _REQUEST_AUTH.set(auth)
+            try:
+                yield from behavior(request, context)
+            finally:
+                _REQUEST_AUTH.reset(token)
+
         factory = {
             (False, False): grpc.unary_unary_rpc_method_handler,
             (False, True): grpc.unary_stream_rpc_method_handler,
             (True, False): grpc.stream_unary_rpc_method_handler,
             (True, True): grpc.stream_stream_rpc_method_handler,
         }[(handler.request_streaming, handler.response_streaming)]
+        asynchronous = inspect.iscoroutinefunction(behavior) or inspect.isasyncgenfunction(behavior)
+        wrapped = (streaming if handler.response_streaming else unary) if asynchronous else (
+            sync_streaming if handler.response_streaming else sync_unary
+        )
         return factory(
-            streaming if handler.response_streaming else unary,
+            wrapped,
             request_deserializer=handler.request_deserializer,
             response_serializer=handler.response_serializer,
         )
 
     async def _authenticate_request(self, handler_call_details, grpc_context=None):
+        return self._authenticate_request_sync(handler_call_details, grpc_context)
+
+    def _authenticate_request_sync(self, handler_call_details, grpc_context=None):
         values = [
             value for name, value in handler_call_details.invocation_metadata
             if name.lower() == "authorization"
@@ -164,15 +200,18 @@ class AuthServerInterceptor(grpc_aio.ServerInterceptor):
                 except UnicodeDecodeError:
                     return AuthContext()
             # An invalid supplied credential never falls back to a different identity.
-            return await self._authenticate_jwt({"authorization": value})
-        return await self._authenticate_mtls(grpc_context)
+            return self._authenticate_jwt_sync({"authorization": value})
+        return self._authenticate_mtls_sync(grpc_context)
 
     async def _authenticate_jwt(self, metadata):
+        return self._authenticate_jwt_sync(metadata)
+
+    def _authenticate_jwt_sync(self, metadata):
         authorization = metadata.get("authorization", "")
         if not isinstance(authorization, str) or not authorization.startswith("Bearer ") or self.jwt_jwks is None:
             return AuthContext()
         try:
-            native = load_native_backend("marty_rs", ("oidc_validate_id_token",))
+            native = load_native_backend("_marty_rs", ("oidc_validate_id_token",))
             claims = json.loads(native.oidc_validate_id_token(json.dumps({
                 "compact_jwt": authorization[7:],
                 "jwks": self.jwt_jwks,
@@ -194,6 +233,9 @@ class AuthServerInterceptor(grpc_aio.ServerInterceptor):
             return AuthContext()
 
     async def _authenticate_mtls(self, grpc_context):
+        return self._authenticate_mtls_sync(grpc_context)
+
+    def _authenticate_mtls_sync(self, grpc_context):
         if grpc_context is None:
             return AuthContext()
         try:
