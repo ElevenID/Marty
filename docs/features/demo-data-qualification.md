@@ -148,3 +148,23 @@ rollback, idempotence, tenant isolation and failure propagation rather than
 counting attempted inserts or marking a partly committed run complete.
 This retirement does not implement that replacement or qualify the historical
 Python service deployment.
+
+## Demo vendor seed ownership
+
+The uncalled `marty_common.demo_seed_data` module and its
+`get_demo_vendor_seed_bundle()` builder are retired. The full generated
+organization, seven credential types and eight credential templates already
+match `marty-ui/contracts/demo-seed-reference-v1.json` exactly. The Rust
+`demo-vendor-seed` crate consumes that corpus directly; Canvas's Rust seed
+configuration consumes its released system identifiers. In the UI checkout,
+use the existing `seed-demo-vendor-fixtures` Make target and its packaged
+`marty-demo-vendor-seed` runner with the owning environment's prerequisites.
+
+Keep that corpus, Rust seed behavior/database tests, `migration_profile.py`
+and `system_ids.py`. The UI provenance check reads the Python source at
+immutable Marty commit `36bb2aac65759edc2ccdce120e16a61391a7ce32`; it does not
+need the source on current main. Historical external Python imports should
+migrate to the Rust-owned seed command rather than copying the data builder.
+Bundle equality establishes data preservation only: real wallet issuance,
+managed key custody, tenant isolation and deployed seed acceptance still need
+their respective runtime qualification.
