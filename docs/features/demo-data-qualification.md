@@ -15,7 +15,8 @@ PEM/credential artifacts and could report success after individual failures.
 It never demonstrated schema, issuance or user-provisioning acceptance. The
 OpenBao org-catalog seeder remains a separate capability; the unconsumed
 synthetic dataset generator and its heuristic reader are retired. Current
-Rust vendor/Canvas/template seeders cover different scenarios; their existence does not establish parity with this historical demo.
+Rust vendor/Canvas/template seeders cover different scenarios; their existence
+does not establish parity with this historical demo.
 
 ## Retained data and behavior requirements
 
@@ -107,7 +108,8 @@ The generator's duplicate database adapter was already retired: it used the
 wrong namespace/configuration and incompatible SQL columns, and could report
 success after skipping every write. Removing the remaining script does not
 restore its `--database-insert` mode. Actual retained trust-service APIs and
-database code are unchanged; the separate development writer is retired below. A future Rust-owned import
+database code are unchanged; the separate development writer is retired below.
+A future Rust-owned import
 must distinguish synthetic seeding from trusted ingestion, validate
 certificates/signatures and tenant/trust boundaries, and qualify idempotence,
 rollback, failure reporting and observed writes before claiming success.
@@ -131,8 +133,8 @@ verification, and committed records separately. This was not qualified trusted
 ingestion or an isolated tenant-aware seeding path. No real trust API, model,
 database manager, schema, configuration field or revocation processor is removed.
 
-Preserve a bounded country/count selection and one linked CSCA ? DSC ?
-master-list ? CRL dataset, including good/bad/unknown revocation, expired and
+Preserve a bounded country/count selection and one linked CSCA to DSC to
+master-list to CRL dataset, including good/bad/unknown revocation, expired and
 valid certificates, revocation reason/time and issuer/serial references.
 A replacement must separate synthetic from trusted records, validate actual
 cryptographic evidence before assigning trust flags, and use service-owned
