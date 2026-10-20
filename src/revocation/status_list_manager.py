@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 class StatusListFormat(str, Enum):
     """Status list format types."""
 
-    TOKEN_STATUS_LIST = "tsl"  # IETF draft-14 for mDoc
+    TOKEN_STATUS_LIST = "tsl"  # IETF draft-14 for mDoc  # nosec B105 -- Public status-list credential-format identifier, not a secret.
     BITSTRING_STATUS_LIST = "bitstring"  # W3C v1.0 for SD-JWT VC
 
 

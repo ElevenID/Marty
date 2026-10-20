@@ -39,8 +39,8 @@ class MessageType(str, Enum):
     """Normative MIP message types currently modeled by the platform."""
 
     CREDENTIAL_OFFER = "CredentialOffer"
-    TOKEN_REQUEST = "TokenRequest"
-    TOKEN_RESPONSE = "TokenResponse"
+    TOKEN_REQUEST = "TokenRequest"  # nosec B105 -- Protocol message type name, not an authentication credential.
+    TOKEN_RESPONSE = "TokenResponse"  # nosec B105 -- Protocol message type name, not an authentication credential.
     CREDENTIAL_REQUEST = "CredentialRequest"
     CREDENTIAL_RESPONSE = "CredentialResponse"
     PRESENTATION_REQUEST = "PresentationRequest"

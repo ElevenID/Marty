@@ -287,13 +287,13 @@ def create_development_config() -> ServiceConfig:
             port=5432,
             database="marty_dev",
             username="marty_dev",
-            password="dev_password",
+            password="dev_password",  # nosec B106 -- Explicit development factory or unresolved production template; see docs/SECURITY.md.
             ssl_mode="disable",
             pool_size=5,
         ),
         security=SecurityConfig(
             encryption_key="dev_encryption_key_12345678901234",
-            jwt_secret="dev_jwt_secret_123456789012345678",
+            jwt_secret="dev_jwt_secret_123456789012345678",  # nosec B106 -- Explicit development factory or unresolved production template; see docs/SECURITY.md.
             cors_origins=["http://localhost:3000"],
             rate_limit_requests=1000,
         ),
@@ -311,7 +311,7 @@ def create_development_config() -> ServiceConfig:
         trust=TrustConfig(
             policy="fail_closed",
             refresh_interval=3600,  # 1 hour for dev
-            cache_directory="/tmp/marty/trust",
+            cache_directory="/tmp/marty/trust",  # nosec B108 -- Development trust-cache example; production cache custody requires qualification (docs/SECURITY.md).
         ),
         key_rotation=KeyRotationConfig(
             rotation_warning_days=7,
@@ -335,14 +335,14 @@ def create_production_config() -> ServiceConfig:
             port=5432,
             database="marty",
             username="marty_app",
-            password="${DB_PASSWORD}",  # To be replaced
+            password="${DB_PASSWORD}",  # To be replaced  # nosec B106 -- Explicit development factory or unresolved production template; see docs/SECURITY.md.
             ssl_mode="require",
             pool_size=20,
             max_overflow=40,
         ),
         security=SecurityConfig(
             encryption_key="${ENCRYPTION_KEY}",  # To be replaced
-            jwt_secret="${JWT_SECRET}",  # To be replaced
+            jwt_secret="${JWT_SECRET}",  # To be replaced  # nosec B106 -- Explicit development factory or unresolved production template; see docs/SECURITY.md.
             cors_origins=["https://marty.example.com"],
             rate_limit_requests=100,
         ),

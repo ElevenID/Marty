@@ -2,11 +2,11 @@
 
 ## Manual security scanner
 
-Run from an environment with the current project and selected scanner dependencies
-installed. Python 3.11 or newer is required; Bandit configuration loading uses
-PyYAML from the development dependencies. The code scan uses uv to execute the
-Bandit version and arguments declared in `.pre-commit-config.yaml`, including
-the current source scope, exclusions and rule selection in `pyproject.toml`.
+Python 3.11 or newer and uv are sufficient for the Bandit code scan; it reads
+its exact version, all maintained source/script targets and plugin exclusions
+from `pyproject.toml`. Local pre-commit and required CI use this same fail-closed
+runner. Other checks require their selected scanner dependencies; dependency
+auditing also requires the installed project in the active interpreter.
 
 ```sh
 python scripts/security_scan.py code
@@ -28,7 +28,9 @@ Results are isolated in a new ignored `reports/generated/security/` run director
 or a new explicit `--output-dir`. Existing directories are rejected so stale
 reports cannot become new acceptance. `summary.json` names the selected checks;
 raw tool output stays in that directory and may contain sensitive findings.
-Use bounded private retention and do not commit these reports.
+Use bounded private retention and do not commit these reports. `--ephemeral`
+instead removes temporary reports on exit; the local hook and CI use it. Bandit
+then prints file/line/rule diagnostics without copying source or secret literals.
 
 - Exit 0: selected tools returned recognized clean results.
 - Exit 1: recognized results contain findings, regardless of a tool's own zero
@@ -53,7 +55,8 @@ It does not register patterns or print their values into the summary.
 The removed shell report generators, custom keyword dumps, source-count compliance
 scores and arbitrary image inventory did not qualify security behavior. Current
 [security requirements](../SECURITY.md) remain open under their owning services.
-The scanner does not add a CI/release gate or replace those requirements.
+Only the Bandit code action is enforced by the existing CI Gate. Other manual
+adapters do not add CI/release gates or replace those requirements.
 
 ## Monitoring namespaces
 

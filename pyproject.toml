@@ -296,14 +296,14 @@ module = [
 ]
 ignore_missing_imports = true
 
+# Shared scanner pin/scope. Bandit itself owns the plugin policy below.
+[tool.security_scan.bandit]
+version = "1.9.4"
+targets = ["src", "packages/marty-common/marty_common", "scripts"]
+
 [tool.bandit]
 exclude_dirs = [
     "*/tests/*", "*src/proto/*", "*src/marty_plugin/proto/*",
-]
-skips = [
-    "B101",  # Skip assert_used test
-    "B404",  # Skip subprocess import warnings (handled by ruff)
-    "B603",  # Skip subprocess without shell=True when properly used
 ]
 
 [tool.pydocstyle]
@@ -366,7 +366,7 @@ dev = [
     "black>=24.2.0",
     "isort>=5.13.2",
     "mypy>=1.8.0",
-    "bandit>=1.9.4",
+    "bandit[toml]>=1.9.4",
     "xenon>=0.9.1",
     "pydocstyle>=6.3.0",
     "safety>=3.0.0",

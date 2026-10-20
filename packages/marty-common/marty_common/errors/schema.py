@@ -55,8 +55,8 @@ class ErrorCode:
     """
 
     # Authentication errors (AUTH.*)
-    AUTH_INVALID_TOKEN = "AUTH.INVALID_TOKEN"
-    AUTH_TOKEN_EXPIRED = "AUTH.TOKEN_EXPIRED"
+    AUTH_INVALID_TOKEN = "AUTH.INVALID_TOKEN"  # nosec B105 -- Public error-code label, not an authentication credential.
+    AUTH_TOKEN_EXPIRED = "AUTH.TOKEN_EXPIRED"  # nosec B105 -- Public error-code label, not an authentication credential.
     AUTH_SESSION_EXPIRED = "AUTH.SESSION_EXPIRED"
     AUTH_INVALID_CREDENTIALS = "AUTH.INVALID_CREDENTIALS"
     AUTH_MFA_REQUIRED = "AUTH.MFA_REQUIRED"

@@ -16,6 +16,18 @@ env:
   MARTY_CORE_REVISION: 359df1d20f152e21783fe43078d753fa1b494ce4
 
 jobs:
+  bandit:
+    name: Bandit security scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7
+      - name: Check all maintained Python sources and scripts
+        run: uv run --no-project --python 3.11 python scripts/security_scan.py code --ephemeral
+      - name: Prove findings and incomplete scans fail locally and in CI
+        run: uv run --no-project --python 3.11 --with pytest==8.4.2 --with pytest-asyncio==1.2.0 --with PyYAML==6.0.3 --with pre-commit==4.3.0 python -m pytest tests/unit/bandit_gate_test.py -q
+
   build-native-wheels:
     name: Build pinned native wheels
     runs-on: ubuntu-latest
@@ -94,7 +106,7 @@ jobs:
   ci-gate:
     name: CI Gate
     if: always()
-    needs: [build-native-wheels, test]
+    needs: [build-native-wheels, test, bandit]
     runs-on: ubuntu-latest
     permissions:
       actions: read

@@ -346,7 +346,7 @@ class IdempotencyMiddleware(BaseHTTPMiddleware):
                     "token": str(data.get("token") or ""),
                 }
         except Exception:
-            return {"request_hash": str(payload), "token": ""}
+            return {"request_hash": str(payload), "token": ""}  # nosec B105 -- Empty lock-token sentinel, not an authentication credential.
         return {}
 
     async def _renew_redis_lock(self, redis_client: Any, lock_key: str, lock_token: str) -> None:

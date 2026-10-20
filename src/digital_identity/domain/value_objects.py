@@ -63,7 +63,7 @@ class RevocationMethod(str, Enum):
     CRL = "CRL"
     STATUS_LIST_2021 = "STATUS_LIST_2021"
     BITSTRING_STATUS_LIST = "BITSTRING_STATUS_LIST"
-    TOKEN_STATUS_LIST = "TOKEN_STATUS_LIST"
+    TOKEN_STATUS_LIST = "TOKEN_STATUS_LIST"  # nosec B105 -- Public credential-format identifier, not a secret.
     
     def __str__(self) -> str:
         return self.value

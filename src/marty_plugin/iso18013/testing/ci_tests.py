@@ -33,9 +33,9 @@ class TestISO18013Protocol:
         engagement = _engagement()
         encoded = engagement.to_bytes()
 
-        assert DeviceEngagement.from_bytes(encoded).to_bytes() == encoded
+        assert DeviceEngagement.from_bytes(encoded).to_bytes() == encoded  # nosec B101 -- Pytest helper assertion, not a runtime authorization guard.
         qr_png = engagement.to_qr_code()
-        assert qr_png.startswith(b"\x89PNG\r\n\x1a\n")
+        assert qr_png.startswith(b"\x89PNG\r\n\x1a\n")  # nosec B101 -- Pytest helper assertion, not a runtime authorization guard.
 
     @pytest.mark.parametrize("malformed", (b"", b"bad", b"\xa1"))
     def test_malformed_cbor_fails_closed(self, malformed: bytes) -> None:
@@ -47,18 +47,18 @@ class TestISO18013Protocol:
             data_elements={"org.iso.18013.5.1": ["family_name", "age_over_21"]}
         )
         parsed_request = MdlRequest.from_bytes(request.to_bytes())
-        assert parsed_request.doc_type == "org.iso.18013.5.1.mDL"
-        assert parsed_request.data_elements == {
+        assert parsed_request.doc_type == "org.iso.18013.5.1.mDL"  # nosec B101 -- Pytest helper assertion, not a runtime authorization guard.
+        assert parsed_request.data_elements == {  # nosec B101 -- Pytest helper assertion, not a runtime authorization guard.
             "org.iso.18013.5.1": ["family_name", "age_over_21"]
         }
-        assert parsed_request.nonce
+        assert parsed_request.nonce  # nosec B101 -- Pytest helper assertion, not a runtime authorization guard.
 
         response = MdlResponse(
             "org.iso.18013.5.1.mDL", b"native-response", ResponseStatus.Ok
         )
         parsed_response = MdlResponse.from_bytes(response.to_bytes())
-        assert parsed_response.data == b"native-response"
-        assert parsed_response.status == ResponseStatus.Ok
+        assert parsed_response.data == b"native-response"  # nosec B101 -- Pytest helper assertion, not a runtime authorization guard.
+        assert parsed_response.status == ResponseStatus.Ok  # nosec B101 -- Pytest helper assertion, not a runtime authorization guard.
 
     @pytest.mark.asyncio
     async def test_session_establishment_and_encrypted_exchange(self) -> None:
@@ -69,12 +69,12 @@ class TestISO18013Protocol:
 
         await reader.establish(holder_key)
         await holder.establish(reader_key)
-        assert await reader.state() == SessionState.Established
-        assert await holder.state() == SessionState.Established
+        assert await reader.state() == SessionState.Established  # nosec B101 -- Pytest helper assertion, not a runtime authorization guard.
+        assert await holder.state() == SessionState.Established  # nosec B101 -- Pytest helper assertion, not a runtime authorization guard.
 
         ciphertext = await reader.send_encrypted(b"requested-elements")
-        assert ciphertext != b"requested-elements"
-        assert await holder.receive_encrypted(ciphertext) == b"requested-elements"
+        assert ciphertext != b"requested-elements"  # nosec B101 -- Pytest helper assertion, not a runtime authorization guard.
+        assert await holder.receive_encrypted(ciphertext) == b"requested-elements"  # nosec B101 -- Pytest helper assertion, not a runtime authorization guard.
 
     @pytest.mark.asyncio
     async def test_replay_and_authentication_failures_are_rejected(self) -> None:
@@ -86,7 +86,7 @@ class TestISO18013Protocol:
         await receiver.establish(sender_key)
 
         ciphertext = await sender.send_encrypted(b"one-time")
-        assert await receiver.receive_encrypted(ciphertext) == b"one-time"
+        assert await receiver.receive_encrypted(ciphertext) == b"one-time"  # nosec B101 -- Pytest helper assertion, not a runtime authorization guard.
         with pytest.raises(NativeOperationError):
             await receiver.receive_encrypted(ciphertext)
         with pytest.raises(NativeOperationError):
@@ -107,7 +107,7 @@ class TestISO18013Protocol:
         with pytest.raises(NativeOperationError, match="exceeds"):
             await sender.send_encrypted(b"oversized")
         await sender.terminate()
-        assert await sender.state() == SessionState.Terminated
+        assert await sender.state() == SessionState.Terminated  # nosec B101 -- Pytest helper assertion, not a runtime authorization guard.
         with pytest.raises(NativeOperationError):
             await sender.send_encrypted(b"ok")
 
@@ -126,5 +126,5 @@ class TestISO18013Applications:
 class TestNativeTransports:
     def test_transport_capability_diagnostics_are_explicit(self) -> None:
         capabilities = transport_capabilities()
-        assert set(capabilities) == {"ble", "nfc", "https"}
-        assert all(isinstance(value, bool) for value in capabilities.values())
+        assert set(capabilities) == {"ble", "nfc", "https"}  # nosec B101 -- Pytest helper assertion, not a runtime authorization guard.
+        assert all(isinstance(value, bool) for value in capabilities.values())  # nosec B101 -- Pytest helper assertion, not a runtime authorization guard.

@@ -106,7 +106,9 @@ No replacement container is delivered or claimed by removing the broken files.
 
 Use `python scripts/security_scan.py --help` for the portable manual scanner;
 `security_scan.sh` remains a thin compatibility entry point. Bandit shares the
-maintained hook configuration, failures propagate, and reports go to ignored
+canonical `pyproject.toml` policy with the local hook and required CI lane.
+Failures and incomplete source inventories propagate. `--ephemeral` removes
+reports after local/CI checks; explicitly retained manual reports go to ignored
 `reports/generated/security/`. See
 [scanner and compatibility behavior](../docs/features/compatibility-consolidation.md).
 
