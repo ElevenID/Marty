@@ -132,7 +132,7 @@ class PolicyEngine:
             action = f'MIP::Action::"{context.action}"'
             resource = f'MIP::ServiceResource::"{context.resource or "default"}"'
             cedar_context = {
-                "ip_address": {"__extn": {"fn": "ip", "arg": context.attributes.get("ip_address", "0.0.0.0")}},
+                "ip_address": {"__extn": {"fn": "ip", "arg": context.attributes.get("ip_address", "0.0.0.0")}},  # nosec B104 -- Cedar IP sentinel, not a listening socket.
                 "timestamp": int(time.time()),
                 "mfa_authenticated": context.attributes.get("mfa_authenticated", False),
             }
@@ -355,7 +355,7 @@ def _extract_auth_context(grpc_context: Any) -> dict[str, Any]:
             attributes = {
                 k: v for k, v in claims.items() if k not in ("sub", "user_id", "roles")
             }
-        except Exception:
+        except Exception:  # nosec B110 -- Unqualified legacy identity extraction; authentication-owner obligations in docs/SECURITY.md.
             pass
 
     # Fall back to client certificate subject

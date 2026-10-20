@@ -108,7 +108,7 @@ def build_request_context(
     Formats ip_address as a Cedar ipaddr extension type.
     """
     ctx: dict[str, Any] = {
-        "ip_address": {"__extn": {"fn": "ip", "arg": ip_address or "0.0.0.0"}},
+        "ip_address": {"__extn": {"fn": "ip", "arg": ip_address or "0.0.0.0"}},  # nosec B104 -- Cedar IP sentinel, not a listening socket.
         "timestamp": int(time.time()),
         "mfa_authenticated": mfa_authenticated,
     }

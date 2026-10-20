@@ -143,7 +143,7 @@ class OfflineVerifier:
                             crl_der, certificate_der, issuer_der
                         )
                         break
-                    except Exception:
+                    except Exception:  # nosec B112 -- Try next issuer; no CRL evidence is accepted without native validation.
                         continue
                 if validated is None:
                     logger.warning("Ignoring unauthenticated or stale CRL: %s", path)

@@ -1,21 +1,36 @@
 # Compatibility check ownership
 
 The retained pre-commit configuration provides format/lint, secret detection,
-protobuf generation and security checks. Bandit scans actual `src` and
-`packages/marty-common/marty_common` sources recursively using
-`pyproject.toml`; tests and both generated protobuf namespaces are excluded
-by the scanner itself. The hook uses Bandit 1.9.4; the development dependency
-requires at least that version. Existing hook rule selection is preserved.
-Run it with:
+protobuf generation and security checks. Bandit uses one fail-closed runner,
+`scripts/security_scan.py code`, in the local hook, manual scans and the required
+`Bandit security scan` CI lane. The existing CI Gate requires that lane on pull
+requests and merge groups.
+
+`[tool.security_scan.bandit]` in `pyproject.toml` owns the exact scanner pin
+(1.9.4) and source targets: `src`, `packages/marty-common/marty_common`, and
+`scripts`. `[tool.bandit]` owns recursive test/generated-protobuf exclusions.
+All plugins are enabled. Reviewed rule-specific `nosec` annotations explain
+individual exceptions; there is no global skipped-rule list or findings baseline.
+See [remaining runtime qualification](../SECURITY.md#bandit-exceptions-and-runtime-qualification).
 
 ```sh
-uv run --no-project --with pre-commit==4.3.0 pre-commit run bandit --all-files
+uv run --no-project --python 3.11 --with pre-commit==4.3.0 pre-commit run bandit --all-files
+python scripts/security_scan.py code --ephemeral
 ```
 
-An unsuccessful scan or finding is not a passing result. Keep generated reports
-in ignored output or CI artifacts. CodeQL, dependency review and secret scanning
-remain distinct controls; this cleanup does not establish equivalence for every
-capability in the separate manual security scanner.
+Python 3.11+ and uv are required. No application/native dependencies are needed
+for the code scan. Missing or empty source roots, omitted files, scanner errors,
+malformed reports and findings cannot pass. Raw Bandit may exit zero for syntax
+errors; the shared runner inspects its report and rejects those incomplete scans.
+Config-file changes trigger the hook too. Local and CI checks use ephemeral
+reports, print rule/file diagnostics without source or secret literals, and
+remove temporary output on exit. Manual retained reports must stay private and
+ignored. Real positive/negative probes, including actual hook execution, live in
+`tests/unit/bandit_gate_test.py` and run in the required CI lane.
+
+CodeQL, dependency review and secret scanning remain distinct controls. Bandit
+analyzes Python; Rust runtime and managed-key qualification remain with their
+native owners.
 
 ## Typing and documentation coverage
 

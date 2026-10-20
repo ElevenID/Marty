@@ -220,7 +220,7 @@ class MDocEngineServicer(mdoc_engine_pb2_grpc.MDocEngineServicer):  # type: igno
                 new_sig.signer_id = signer_id  # type: ignore
                 new_sig.signature = raw_signature  # type: ignore
                 new_sig.is_valid = True  # type: ignore
-            except Exception:
+            except Exception:  # nosec B110 -- Unresolved legacy signing qualification; Rust Signing Keys owner obligations in docs/SECURITY.md.
                 pass
         mdoc.signature_info.CopyFrom(new_sig)
         mdoc.status = "ACTIVE"

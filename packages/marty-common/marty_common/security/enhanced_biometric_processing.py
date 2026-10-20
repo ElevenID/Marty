@@ -936,7 +936,7 @@ class PassportBiometricProcessor:
             if fmt == FingerprintFormat.ISO_FINGER_MINUTIAE and len(template_data) >= 30:
                 minutiae_count = struct.unpack(">H", template_data[28:30])[0]
                 return min(minutiae_count, 100)  # Cap at reasonable limit
-        except Exception:
+        except Exception:  # nosec B110 -- Unavailable metadata yields zero minutiae, never a successful biometric match.
             pass
 
         return 0  # Unknown

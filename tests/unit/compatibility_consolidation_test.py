@@ -234,14 +234,14 @@ def test_scanner_uses_hook_scope_and_records_real_result(scanner, monkeypatch, t
     monkeypatch.setattr(scanner.shutil, "which", lambda _: "available")
 
     def execute(command, **kwargs):
-        import yaml
+        import tomllib
 
-        config = yaml.safe_load((ROOT / ".pre-commit-config.yaml").read_text())
-        version = next(r["rev"] for r in config["repos"] if r["repo"] == "https://github.com/PyCQA/bandit")
-        assert command[:5] == ["uv", "run", "--no-project", "--with", f"bandit=={version}"]
+        config = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+        version = config["tool"]["security_scan"]["bandit"]["version"]
+        assert command[:5] == ["uv", "run", "--no-project", "--with", f"bandit[toml]=={version}"]
         assert "packages/marty-common/marty_common" in command
         assert "-c" in command and "pyproject.toml" in command
-        Path(command[-1]).write_text(json.dumps({"errors": [], "metrics": {"_totals": {"loc": 10}}, "results": []}))
+        Path(command[-1]).write_text(json.dumps({"errors": [], "metrics": {"_totals": {"loc": 10}, **{str(path): {"loc": 1} for path in scanner.bandit_inventory(ROOT, scanner.bandit_policy(ROOT))}}, "results": []}))
         return SimpleNamespace(returncode=0, stdout="", stderr="")
 
     monkeypatch.setattr(scanner.subprocess, "run", execute)
@@ -258,7 +258,7 @@ def test_scanner_never_passes_incomplete_or_finding_runs(scanner, monkeypatch, t
         if failure == "timeout":
             raise subprocess.TimeoutExpired(command, 1)
         Path(command[-1]).write_text("invalid" if failure == "malformed" else json.dumps({
-            "errors": [], "metrics": {"_totals": {"loc": 10}}, "results": [{"test_id": "B605"}],
+            "errors": [], "metrics": {"_totals": {"loc": 10}, **{str(path): {"loc": 1} for path in scanner.bandit_inventory(ROOT, scanner.bandit_policy(ROOT))}}, "results": [{"test_id": "B605"}],
         }))
         return SimpleNamespace(returncode=1 if failure == "finding" else 0, stdout="", stderr="")
 

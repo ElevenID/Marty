@@ -454,7 +454,7 @@ class MetricsServer:
         self,
         service_name: str,
         version: str = "1.0.0",
-        host: str = "0.0.0.0",
+        host: str = "0.0.0.0",  # nosec B104 -- Compatibility listener default; deployment exposure requires qualification (docs/SECURITY.md).
         port: int = 8080,
     ) -> None:
         self.service_name = service_name
@@ -607,7 +607,7 @@ def get_metrics_server() -> MetricsServer | None:
 def init_metrics_server(
     service_name: str,
     version: str = "1.0.0",
-    host: str = "0.0.0.0",
+    host: str = "0.0.0.0",  # nosec B104 -- Compatibility listener default; deployment exposure requires qualification (docs/SECURITY.md).
     port: int = 8080,
 ) -> MetricsServer:
     """Initialize the global metrics server."""
@@ -619,7 +619,7 @@ def init_metrics_server(
 async def start_metrics_server(
     service_name: str,
     version: str = "1.0.0",
-    host: str = "0.0.0.0",
+    host: str = "0.0.0.0",  # nosec B104 -- Compatibility listener default; deployment exposure requires qualification (docs/SECURITY.md).
     port: int = 8080,
 ) -> MetricsServer:
     """Initialize and start the metrics server."""
@@ -631,7 +631,7 @@ async def start_metrics_server(
 def start_metrics_server_sync(
     service_name: str,
     version: str = "1.0.0",
-    host: str = "0.0.0.0",
+    host: str = "0.0.0.0",  # nosec B104 -- Compatibility listener default; deployment exposure requires qualification (docs/SECURITY.md).
     port: int = 8080,
 ) -> MetricsServer:
     """Initialize and start the metrics server in a thread (for sync gRPC services)."""

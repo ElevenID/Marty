@@ -50,7 +50,7 @@ class ChaosInjector:
         if not config.enabled:
             return
 
-        if random.random() > config.probability:
+        if random.random() > config.probability:  # nosec B311 -- Synthetic chaos selection or retry jitter; never key/token generation.
             return
 
         self.active_chaos[target] = config
@@ -119,12 +119,12 @@ class ChaosInjector:
             AuthorizationError("Random authorization error"),
         ]
 
-        error = random.choice(errors)
+        error = random.choice(errors)  # nosec B311 -- Synthetic chaos selection or retry jitter; never key/token generation.
         raise error
 
     async def _inject_intermittent_failures(self, config: ChaosConfig) -> None:
         """Inject intermittent failures that come and go."""
-        if random.random() < config.intensity:
+        if random.random() < config.intensity:  # nosec B311 -- Synthetic chaos selection or retry jitter; never key/token generation.
             from marty_common.resilience.enhanced_errors import TransientError
 
             raise TransientError("Intermittent failure injection")
@@ -329,7 +329,7 @@ class ResilienceTestSuite:
                     results["fallback_used"] += 1
                 else:
                     results["primary_successes"] += 1
-            except Exception:
+            except Exception:  # nosec B110 -- Expected injected failure; request totals already include this failed trial.
                 pass
 
         # Trigger degradation by injecting failures
@@ -352,7 +352,7 @@ class ResilienceTestSuite:
                         results["fallback_used"] += 1
                     else:
                         results["primary_successes"] += 1
-            except Exception:
+            except Exception:  # nosec B110 -- Expected injected failure; request totals already include this failed trial.
                 pass
 
         self.test_results["graceful_degradation"] = results

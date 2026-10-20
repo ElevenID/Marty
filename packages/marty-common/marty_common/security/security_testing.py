@@ -256,7 +256,7 @@ class SecurityTestFramework:
             for i in range(10):
                 response = await self.client.post(
                     f"{self.base_url}{endpoint}",
-                    json={"username": f"test{i}", "password": "invalid"},
+                    json={"username": f"test{i}", "password": "invalid"},  # nosec B105 -- Deliberately invalid authentication test input.
                 )
                 responses.append(response.status_code)
 
@@ -629,7 +629,7 @@ async def security_framework():
 async def test_authentication_security(security_framework):
     """Test authentication security."""
     result = await security_framework.test_authentication_bypass()
-    assert result, "Authentication bypass vulnerabilities detected"
+    assert result, "Authentication bypass vulnerabilities detected"  # nosec B101 -- Pytest helper assertion, not a runtime authorization guard.
 
 
 @pytest.mark.security
@@ -639,8 +639,8 @@ async def test_injection_vulnerabilities(security_framework):
     sql_result = await security_framework.test_sql_injection()
     xss_result = await security_framework.test_xss_vulnerability()
 
-    assert sql_result, "SQL injection vulnerabilities detected"
-    assert xss_result, "XSS vulnerabilities detected"
+    assert sql_result, "SQL injection vulnerabilities detected"  # nosec B101 -- Pytest helper assertion, not a runtime authorization guard.
+    assert xss_result, "XSS vulnerabilities detected"  # nosec B101 -- Pytest helper assertion, not a runtime authorization guard.
 
 
 @pytest.mark.security
@@ -648,7 +648,7 @@ async def test_injection_vulnerabilities(security_framework):
 async def test_security_headers(security_framework):
     """Test security headers implementation."""
     result = await security_framework.test_security_headers()
-    assert result, "Required security headers missing"
+    assert result, "Required security headers missing"  # nosec B101 -- Pytest helper assertion, not a runtime authorization guard.
 
 
 @pytest.mark.security
@@ -658,13 +658,13 @@ def test_cryptography_implementations():
 
     # Test JWT security
     jwt_results = crypto_utils.test_jwt_security()
-    assert jwt_results.get("algorithm_confusion") is True, "JWT algorithm confusion vulnerability"
-    assert jwt_results.get("expiration_check") is True, "JWT expiration not properly checked"
+    assert jwt_results.get("algorithm_confusion") is True, "JWT algorithm confusion vulnerability"  # nosec B101 -- Pytest helper assertion, not a runtime authorization guard.
+    assert jwt_results.get("expiration_check") is True, "JWT expiration not properly checked"  # nosec B101 -- Pytest helper assertion, not a runtime authorization guard.
 
     # Test encryption strength
     encryption_results = crypto_utils.test_encryption_strength()
-    assert encryption_results.get("aes_encryption") is True, "AES encryption failed"
-    assert encryption_results.get("key_derivation") is True, "Key derivation failed"
+    assert encryption_results.get("aes_encryption") is True, "AES encryption failed"  # nosec B101 -- Pytest helper assertion, not a runtime authorization guard.
+    assert encryption_results.get("key_derivation") is True, "Key derivation failed"  # nosec B101 -- Pytest helper assertion, not a runtime authorization guard.
 
 
 if __name__ == "__main__":

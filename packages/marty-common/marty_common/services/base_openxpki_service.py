@@ -36,7 +36,7 @@ class BaseOpenXPKIService:
         self.password = self._resolve_secret(
             env_var="OPENXPKI_PASSWORD",
             file_var="OPENXPKI_PASSWORD_FILE",
-            secret_name="OpenXPKI password",
+            secret_name="OpenXPKI password",  # nosec B106 -- Human-readable secret description; credential is resolved separately.
         )
 
         # Validate required credentials are provided
