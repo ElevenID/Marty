@@ -12,7 +12,6 @@ import logging
 import os
 from contextvars import ContextVar
 from pathlib import Path
-from typing import Any
 
 import grpc
 from grpc import aio as grpc_aio
