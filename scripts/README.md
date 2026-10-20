@@ -39,8 +39,8 @@ demo data and acceptance requirements are in
 [demo data qualification](../docs/features/demo-data-qualification.md).
 
 The unconsumed Helm-values, logging/OpenXPKI setup, synthetic-demo and OBv3
-wrappers are retired. Actual logging/certificate APIs, the synthetic generator
-and the compliance-profile seeder remain. Retained requirements are described in
+wrappers are retired. Actual logging/certificate APIs and the compliance-profile
+seeder remain. Retained requirements are described in
 [logging ownership](../docs/CENTRALIZED_LOGGING.md),
 [OpenXPKI integration](../docs/DEVELOPER_GUIDE.md#openxpki-integration-ownership),
 [demo qualification](../docs/features/demo-data-qualification.md) and
@@ -131,3 +131,10 @@ issuance or role provisioning. Preserve its data, storage and role journeys in
 service-owned Rust APIs and managed KMS. The separate
 `seed_marty_org_catalog.py` OpenBao registry seeder remains; its configuration
 and non-key secret references are unchanged.
+
+The unconsumed synthetic dataset generator and heuristic master-list reader
+are retired along with their own generator-mode tests. Existing passport
+fixtures, their loader and native verification tests remain. See
+[synthetic fixture requirements](../docs/features/demo-data-qualification.md#synthetic-generator-integration-follow-up)
+and [trust qualification](../docs/trust_service_testing.md) for preserved
+scenarios and current ownership. No replacement generator is claimed.

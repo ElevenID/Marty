@@ -1,5 +1,13 @@
 # Trust Services (trust-svc)
 
+This directory retains Python compatibility APIs, database models and source
+requirements. Deployment is owned by the current
+[Rust stack](https://github.com/ElevenID/marty-ui); the historical service,
+container and test commands below are not a supported deployment procedure.
+The unconsumed synthetic database-writing development job is retired. See
+[trust fixture qualification](../../../docs/features/demo-data-qualification.md#synthetic-trust-development-job)
+for its preserved requirements; real API/database/configuration code remains.
+
 A comprehensive microservice for managing trust relationships, certificate validation, and revocation checking in the Marty passport verification system.
 
 ## Overview
@@ -33,7 +41,6 @@ The Trust Services microservice provides centralized management of:
 - **RevocationProcessor**: CRL/OCSP validation and caching
 - **TrustMetrics**: Prometheus monitoring and alerting
 - **REST API**: FastAPI endpoints for trust queries and admin
-- **DevJobRunner**: Development utilities and synthetic data
 
 ## Database Schema
 
@@ -64,10 +71,12 @@ The trust_svc schema includes:
 - `GET /api/v1/admin/status` - Service health status
 - `GET /api/v1/admin/stats` - Trust statistics
 
-### Development
+### Development requirements
 
-- `POST /api/v1/dev/load-synthetic` - Load synthetic test data
-- `GET /api/v1/dev/stats` - Development statistics
+Synthetic loading and development statistics remain open requirements. The
+previously listed `/api/v1/dev/load-synthetic` and `/api/v1/dev/stats` routes
+are not implemented by `api.py`; removing the standalone writer delivers no
+replacement endpoint.
 
 ## Metrics
 
@@ -135,13 +144,11 @@ TRUST_SERVICE_LOG_LEVEL=INFO
    pip install -e ".[trust-svc]"
    ```
 
-3. **Run Development Job**:
+The former synthetic writer is retired. Future development seeding needs
+isolated records, truthful job status and native validation before trust flags
+can be assigned; see the linked qualification requirements.
 
-   ```bash
-   python -m src.trust_svc.dev_job --count 1000 --format table
-   ```
-
-4. **Start Service**:
+3. **Start Service (historical)**:
 
    ```bash
    uvicorn src.trust_svc.api:app --host 0.0.0.0 --port 8080 --reload
@@ -200,9 +207,6 @@ pytest tests/trust_svc/
 
 # Integration tests (requires running database)
 pytest tests/integration/trust_svc/
-
-# Load test with synthetic data
-python -m src.trust_svc.dev_job --count 10000 --countries 50
 ```
 
 ## Troubleshooting
