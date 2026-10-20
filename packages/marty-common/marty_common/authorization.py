@@ -3,7 +3,7 @@
 This module provides:
 - Cedar-backed policy engine (replaces YAML RBAC/ABAC)
 - Authorization guard decorators for gRPC service methods
-- Authentication context extraction from gRPC metadata
+- Request-local identity from the Rust/verified-TLS authentication interceptor
 
 Cedar policies are evaluated via cedarpy (PyO3 binding to the Rust
 cedar-policy crate, ~100μs per evaluation). Role definitions live in
@@ -335,38 +335,19 @@ def _find_grpc_context(args: tuple[Any, ...]) -> Any:
 
 
 def _extract_auth_context(grpc_context: Any) -> dict[str, Any]:
-    """Extract authentication context from gRPC metadata."""
-    metadata = dict(grpc_context.invocation_metadata())
+    """Consume only the trusted context scoped by the authentication interceptor."""
+    from marty_common.auth_interceptor import get_auth_context
 
-    identity = None
-    roles: list[str] = []
-    attributes: dict[str, Any] = {}
-
-    # Try JWT from Authorization header
-    auth_header = metadata.get("authorization", "")
-    if auth_header.startswith("Bearer "):
-        try:
-            import jwt  # type: ignore[import-untyped]
-
-            token = auth_header[7:]
-            claims = jwt.decode(token, options={"verify_signature": False})
-            identity = claims.get("sub") or claims.get("user_id")
-            roles = claims.get("roles", [])
-            attributes = {
-                k: v for k, v in claims.items() if k not in ("sub", "user_id", "roles")
-            }
-        except Exception:  # nosec B110 -- Unqualified legacy identity extraction; authentication-owner obligations in docs/SECURITY.md.
-            pass
-
-    # Fall back to client certificate subject
-    if not identity:
-        client_cert_subject = metadata.get("x-client-cert-subject", "")
-        if client_cert_subject:
-            identity = client_cert_subject
-            if "ou=" in client_cert_subject.lower():
-                roles = [client_cert_subject.split("ou=")[1].split(",")[0]]
-
-    return {"identity": identity, "roles": roles, "attributes": attributes}
+    del grpc_context  # Retain the helper signature without trusting metadata.
+    authenticated = get_auth_context()
+    if authenticated is None or not authenticated.authenticated or not authenticated.identity:
+        raise AuthorizationError("Authenticated request context is required")
+    return {
+        "identity": authenticated.identity,
+        "roles": list(authenticated.claims.get("roles", [])),
+        "attributes": {key: value for key, value in authenticated.claims.items()
+                       if key not in {"sub", "user_id", "roles"}},
+    }
 
 
 def _extract_resource_from_method(func: Callable[..., Any]) -> str:

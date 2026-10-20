@@ -1,293 +1,297 @@
-"""Authentication interceptor for gRPC services.
+"""gRPC authentication backed by Rust JWT validation and verified TLS identity.
 
-This module provides authentication interceptors that support:
-- JWT Bearer token validation (HS256/RS256)
-- mTLS client certificate identity extraction
-- Configurable authentication modes based on environment
+No caller metadata can create a trusted identity. Authorization consumes the
+request-local context installed while the authenticated RPC handler executes.
 """
 
 from __future__ import annotations
 
-import base64
+import inspect
 import json
 import logging
 import os
-from typing import Any
+from contextvars import ContextVar
+from pathlib import Path
 
 import grpc
-import jwt
 from grpc import aio as grpc_aio
 
-# Use Rust crypto_bridge for certificate operations
-from marty_common.crypto_bridge import Certificate
+from marty_common.native_backends import load_native_backend
 
 LOGGER = logging.getLogger(__name__)
 
 
 class AuthContext:
-    """Authentication context extracted from the request."""
+    """Authenticated request identity; claims come only from the trusted verifier."""
 
-    def __init__(
-        self,
-        authenticated: bool = False,
-        identity: str | None = None,
-        auth_method: str | None = None,
-        claims: dict[str, Any] | None = None,
-    ) -> None:
+    def __init__(self, authenticated=False, identity=None, auth_method=None, claims=None):
         self.authenticated = authenticated
         self.identity = identity
         self.auth_method = auth_method
         self.claims = claims or {}
 
 
-class AuthServerInterceptor(grpc_aio.ServerInterceptor):
-    """Authentication interceptor for gRPC servers.
+_REQUEST_AUTH: ContextVar[AuthContext | None] = ContextVar("marty_request_auth", default=None)
 
-    Supports multiple authentication methods:
-    - JWT Bearer tokens (Authorization header)
-    - mTLS client certificate DN extraction
-    - Optional authentication bypass for health checks
-    """
+
+def get_auth_context() -> AuthContext | None:
+    """Return the current handler's authenticated context, never invocation metadata."""
+    return _REQUEST_AUTH.get()
+
+
+class AuthServerInterceptor(grpc_aio.ServerInterceptor):
+    """Authenticate every RPC shape and scope its identity to handler execution."""
 
     def __init__(
         self,
         jwt_secret: str | None = None,
-        jwt_algorithm: str = "HS256",
+        jwt_algorithm: str = "RS256",
         jwt_public_key: str | None = None,
         require_auth: bool = True,
         bypass_health_checks: bool = True,
-    ) -> None:
-        """Initialize the authentication interceptor.
-
-        Args:
-            jwt_secret: Secret key for HS256 JWT validation
-            jwt_algorithm: JWT algorithm (HS256, RS256, etc.)
-            jwt_public_key: Public key for RS256 JWT validation
-            require_auth: Whether authentication is required
-            bypass_health_checks: Whether to bypass auth for health check endpoints
-        """
-        self.jwt_secret = jwt_secret
+        *,
+        jwt_jwks: dict | str | None = None,
+        jwt_issuer: str | None = None,
+        jwt_audience: str | None = None,
+        jwt_key_id: str | None = None,
+    ):
+        if not require_auth:
+            raise ValueError("Authentication cannot be disabled; expose standard health RPCs separately")
+        if jwt_secret is not None or jwt_algorithm.startswith("HS"):
+            raise ValueError("Use Rust-validated asymmetric JWTs with public JWKS; shared-secret auth is retired")
+        if jwt_public_key is not None and jwt_jwks is not None:
+            raise ValueError("Supply public JWKS or a public PEM, not both")
+        if jwt_public_key is not None:
+            if not jwt_key_id:
+                raise ValueError("Public PEM authentication requires a configured JWT key id")
+            native = load_native_backend("marty_verification", ("public_key_pem_to_jwk",))
+            public_jwk = json.loads(native.public_key_pem_to_jwk(jwt_public_key))
+            public_jwk["kid"] = jwt_key_id
+            jwt_jwks = {"keys": [public_jwk]}
+        if jwt_jwks is not None:
+            if not jwt_issuer or not jwt_audience:
+                raise ValueError("JWT authentication requires issuer and audience")
+            jwt_jwks = json.loads(jwt_jwks) if isinstance(jwt_jwks, str) else json.loads(json.dumps(jwt_jwks))
+            if not isinstance(jwt_jwks, dict) or not isinstance(jwt_jwks.get("keys"), list) or not jwt_jwks["keys"]:
+                raise ValueError("JWT authentication requires a nonempty public JWKS")
+            private_members = {"d", "p", "q", "dp", "dq", "qi", "oth", "k", "rsa_d"}
+            if any(not isinstance(key, dict) or private_members.intersection(key) for key in jwt_jwks["keys"]):
+                raise ValueError("Authentication JWKS must contain public keys only")
+        self.jwt_jwks = jwt_jwks
         self.jwt_algorithm = jwt_algorithm
-        self.jwt_public_key = jwt_public_key
-        self.require_auth = require_auth
+        self.jwt_issuer = jwt_issuer
+        self.jwt_audience = jwt_audience
+        self.require_auth = True
         self.bypass_health_checks = bypass_health_checks
 
-    async def intercept_service(
-        self,
-        continuation,
-        handler_call_details: grpc.HandlerCallDetails,
-    ) -> grpc.RpcMethodHandler:
-        """Intercept gRPC service calls to perform authentication."""
-
-        # Skip authentication for health checks if configured
-        if self.bypass_health_checks and self._is_health_check(handler_call_details):
-            return await continuation(handler_call_details)
-
-        auth_context = await self._authenticate_request(handler_call_details)
-
-        # If authentication is required but failed, reject the request
-        if self.require_auth and not auth_context.authenticated:
-            return self._create_unauthenticated_handler()
-
-        # Add auth context to invocation metadata for service access
-        self._add_auth_context_to_metadata(handler_call_details, auth_context)
-
-        return await continuation(handler_call_details)
-
-    async def _authenticate_request(
-        self, handler_call_details: grpc.HandlerCallDetails
-    ) -> AuthContext:
-        """Authenticate the incoming request using available methods."""
-
-        metadata = {
-            key: str(value.decode() if isinstance(value, bytes) else value)
-            for key, value in handler_call_details.invocation_metadata
-        }
-
-        # Try JWT authentication first
-        auth_context = await self._authenticate_jwt(metadata)
-        if auth_context.authenticated:
-            return auth_context
-
-        # Try mTLS authentication if JWT failed
-        auth_context = await self._authenticate_mtls(metadata)
-        if auth_context.authenticated:
-            return auth_context
-
-        # No authentication succeeded
-        return AuthContext(authenticated=False)
-
-    async def _authenticate_jwt(self, metadata: dict[str, str]) -> AuthContext:
-        """Authenticate using JWT Bearer token."""
-
-        authorization = metadata.get("authorization", "")
-        if not authorization.startswith("Bearer "):
-            return AuthContext(authenticated=False)
-
-        token = authorization[7:]  # Remove "Bearer " prefix
-
-        try:
-            # Determine the key to use for validation
-            key = self._get_jwt_validation_key()
-            if not key:
-                LOGGER.warning("JWT authentication configured but no validation key available")
-                return AuthContext(authenticated=False)
-
-            # Decode and validate the JWT
-            claims = jwt.decode(token, key, algorithms=[self.jwt_algorithm])
-
-            identity = claims.get("sub") or claims.get("user_id") or claims.get("email")
-            if not identity:
-                LOGGER.warning("JWT token missing identity claim")
-                return AuthContext(authenticated=False)
-
-            LOGGER.debug("Successfully authenticated JWT for identity: %s", identity)
-            return AuthContext(
-                authenticated=True,
-                identity=str(identity),
-                auth_method="jwt",
-                claims=claims,
-            )
-
-        except jwt.InvalidTokenError as e:
-            LOGGER.warning("JWT validation failed: %s", str(e))
-            return AuthContext(authenticated=False)
-        except Exception as e:
-            LOGGER.error("Unexpected error during JWT validation: %s", str(e))
-            return AuthContext(authenticated=False)
-
-    async def _authenticate_mtls(self, metadata: dict[str, str]) -> AuthContext:
-        """Authenticate using mTLS client certificate DN."""
-
-        # Look for client certificate information in metadata
-        # This would typically be populated by the gRPC TLS layer
-        client_cert_pem = metadata.get("x-client-cert", "")
-        client_cert_subject = metadata.get("x-client-cert-subject", "")
-
-        # If we have a direct subject, use it
-        if client_cert_subject:
-            LOGGER.debug("mTLS authentication using provided subject: %s", client_cert_subject)
-            return AuthContext(
-                authenticated=True,
-                identity=client_cert_subject,
-                auth_method="mtls",
-                claims={"cert_subject": client_cert_subject},
-            )
-
-        # If we have a PEM certificate, extract the subject
-        if client_cert_pem:
-            try:
-                # Decode base64 if necessary
-                if not client_cert_pem.startswith("-----BEGIN"):
-                    client_cert_pem = base64.b64decode(client_cert_pem).decode("utf-8")
-
-                # Use Rust crypto_bridge for certificate parsing
-                cert = Certificate.from_pem(client_cert_pem)
-                subject = cert.subject
-
-                LOGGER.debug("mTLS authentication using extracted subject: %s", subject)
-                return AuthContext(
-                    authenticated=True,
-                    identity=subject,
-                    auth_method="mtls",
-                    claims={"cert_subject": subject},
-                )
-
-            except Exception as e:
-                LOGGER.warning("Failed to parse client certificate: %s", str(e))
-                return AuthContext(authenticated=False)
-
-        return AuthContext(authenticated=False)
-
-    def _get_jwt_validation_key(self) -> str | None:
-        """Get the appropriate key for JWT validation based on algorithm."""
-
-        if self.jwt_algorithm.startswith("HS"):
-            return self.jwt_secret
-        elif self.jwt_algorithm.startswith("RS") or self.jwt_algorithm.startswith("ES"):
-            return self.jwt_public_key
-        else:
-            LOGGER.error("Unsupported JWT algorithm: %s", self.jwt_algorithm)
+    async def intercept_service(self, continuation, handler_call_details):
+        handler = await continuation(handler_call_details)
+        if handler is None:
             return None
 
-    def _is_health_check(self, handler_call_details: grpc.HandlerCallDetails) -> bool:
-        """Check if the request is a health check endpoint."""
-        method = handler_call_details.method
-        if not method:
-            return False
-        return any(
-            health_pattern in method
-            for health_pattern in ["/grpc.health.v1.Health/", "/health", "/status"]
+        async def authenticate(context):
+            if self.bypass_health_checks and self._is_health_check(handler_call_details):
+                return AuthContext()
+            auth = await self._authenticate_request(handler_call_details, context)
+            if not auth.authenticated:
+                await context.abort(grpc.StatusCode.UNAUTHENTICATED, "Authentication required")
+                return None
+            return auth
+
+        def authenticate_sync(context):
+            if self.bypass_health_checks and self._is_health_check(handler_call_details):
+                return AuthContext()
+            auth = self._authenticate_request_sync(handler_call_details, context)
+            if not auth.authenticated:
+                context.abort(grpc.StatusCode.UNAUTHENTICATED, "Authentication required")
+                return None
+            return auth
+
+        behavior = (
+            handler.stream_stream if handler.request_streaming and handler.response_streaming
+            else handler.stream_unary if handler.request_streaming
+            else handler.unary_stream if handler.response_streaming
+            else handler.unary_unary
         )
 
-    def _create_unauthenticated_handler(self) -> grpc.RpcMethodHandler:
-        """Create a handler that returns UNAUTHENTICATED status."""
+        async def unary(request, context):
+            auth = await authenticate(context)
+            if auth is None:
+                return None
+            token = _REQUEST_AUTH.set(auth)
+            try:
+                response = behavior(request, context)
+                return await response if inspect.isawaitable(response) else response
+            finally:
+                _REQUEST_AUTH.reset(token)
 
-        def unauthenticated_handler(_request, context):
-            context.abort(grpc.StatusCode.UNAUTHENTICATED, "Authentication required")
+        async def streaming(request, context):
+            auth = await authenticate(context)
+            if auth is None:
+                return
+            token = _REQUEST_AUTH.set(auth)
+            try:
+                response = behavior(request, context)
+                if inspect.isawaitable(response):
+                    response = await response
+                if response is None:  # A response-stream handler may use context.write().
+                    return
+                if hasattr(response, "__aiter__"):
+                    async for item in response:
+                        yield item
+                else:
+                    for item in response:
+                        yield item
+            finally:
+                _REQUEST_AUTH.reset(token)
 
-        return grpc.unary_unary_rpc_method_handler(unauthenticated_handler)
+        def sync_unary(request, context):
+            auth = authenticate_sync(context)
+            if auth is None:
+                return None
+            token = _REQUEST_AUTH.set(auth)
+            try:
+                return behavior(request, context)
+            finally:
+                _REQUEST_AUTH.reset(token)
 
-    def _add_auth_context_to_metadata(
-        self,
-        handler_call_details: grpc.HandlerCallDetails,
-        auth_context: AuthContext,
-    ) -> None:
-        """Add authentication context to request metadata for service access."""
+        def sync_streaming(request, context):
+            auth = authenticate_sync(context)
+            if auth is None:
+                return
+            token = _REQUEST_AUTH.set(auth)
+            try:
+                yield from behavior(request, context)
+            finally:
+                _REQUEST_AUTH.reset(token)
 
-        # Note: In practice, this would require a custom context mechanism
-        # since gRPC metadata is immutable once created. Services can access
-        # the auth context through context.invocation_metadata() and parse
-        # the authorization header or client cert metadata themselves.
-        # This is a placeholder for future context management enhancements.
-        del handler_call_details, auth_context  # Acknowledge unused parameters
+        factory = {
+            (False, False): grpc.unary_unary_rpc_method_handler,
+            (False, True): grpc.unary_stream_rpc_method_handler,
+            (True, False): grpc.stream_unary_rpc_method_handler,
+            (True, True): grpc.stream_stream_rpc_method_handler,
+        }[(handler.request_streaming, handler.response_streaming)]
+        asynchronous = inspect.iscoroutinefunction(behavior) or inspect.isasyncgenfunction(behavior)
+        wrapped = (streaming if handler.response_streaming else unary) if asynchronous else (
+            sync_streaming if handler.response_streaming else sync_unary
+        )
+        return factory(
+            wrapped,
+            request_deserializer=handler.request_deserializer,
+            response_serializer=handler.response_serializer,
+        )
+
+    async def _authenticate_request(self, handler_call_details, grpc_context=None):
+        return self._authenticate_request_sync(handler_call_details, grpc_context)
+
+    def _authenticate_request_sync(self, handler_call_details, grpc_context=None):
+        values = [
+            value for name, value in handler_call_details.invocation_metadata
+            if name.lower() == "authorization"
+        ]
+        if values:
+            if len(values) != 1:
+                return AuthContext()
+            value = values[0]
+            if isinstance(value, bytes):
+                try:
+                    value = value.decode("ascii")
+                except UnicodeDecodeError:
+                    return AuthContext()
+            # An invalid supplied credential never falls back to a different identity.
+            return self._authenticate_jwt_sync({"authorization": value})
+        return self._authenticate_mtls_sync(grpc_context)
+
+    async def _authenticate_jwt(self, metadata):
+        return self._authenticate_jwt_sync(metadata)
+
+    def _authenticate_jwt_sync(self, metadata):
+        authorization = metadata.get("authorization", "")
+        if not isinstance(authorization, str) or not authorization.startswith("Bearer ") or self.jwt_jwks is None:
+            return AuthContext()
+        try:
+            native = load_native_backend("_marty_rs", ("oidc_validate_id_token",))
+            claims = json.loads(native.oidc_validate_id_token(json.dumps({
+                "compact_jwt": authorization[7:],
+                "jwks": self.jwt_jwks,
+                "expected_issuer": self.jwt_issuer,
+                "expected_audience": self.jwt_audience,
+                "allowed_algorithms": [self.jwt_algorithm],
+                "leeway_seconds": 0,
+            })))
+            identity = claims.get("sub")
+            roles = claims.get("roles", [])
+            if not isinstance(identity, str) or not identity or not isinstance(roles, list) or any(
+                not isinstance(role, str) for role in roles
+            ):
+                return AuthContext()
+            return AuthContext(True, identity, "jwt", claims)
+        except Exception:
+            # Never log the bearer credential or unverified claims on a failure.
+            LOGGER.warning("Rust JWT authentication failed")
+            return AuthContext()
+
+    async def _authenticate_mtls(self, grpc_context):
+        return self._authenticate_mtls_sync(grpc_context)
+
+    def _authenticate_mtls_sync(self, grpc_context):
+        if grpc_context is None:
+            return AuthContext()
+        try:
+            transport = grpc_context.auth_context()
+            if b"ssl" not in transport.get("transport_security_type", []):
+                return AuthContext()
+            key = grpc_context.peer_identity_key()
+            if key not in {"x509_subject_alternative_name", "x509_common_name", "x509_subject"}:
+                return AuthContext()
+            identities = grpc_context.peer_identities()
+            if not identities or len(set(identities)) != 1:
+                return AuthContext()
+            identity = identities[0].decode("utf-8")
+            if not identity:
+                return AuthContext()
+            # Certificate attributes are identity, never automatically privileged roles.
+            return AuthContext(True, identity, "mtls", {"cert_subject": identity})
+        except Exception:
+            LOGGER.warning("Verified TLS identity extraction failed")
+            return AuthContext()
+
+    def _is_health_check(self, handler_call_details):
+        return handler_call_details.method in {
+            "/grpc.health.v1.Health/Check",
+            "/grpc.health.v1.Health/Watch",
+        }
 
 
 def create_auth_interceptor(
-    require_auth: bool | None = None,
-    jwt_secret: str | None = None,
-    jwt_algorithm: str | None = None,
-    jwt_public_key: str | None = None,
-) -> AuthServerInterceptor:
-    """Create an authentication interceptor with configuration from environment.
-
-    Args:
-        require_auth: ALWAYS True - no backward compatibility
-        jwt_secret: Override for JWT secret
-        jwt_algorithm: Override for JWT algorithm
-        jwt_public_key: Override for JWT public key
-
-    Returns:
-        Configured AuthServerInterceptor
-    """
-
-    # Authentication is ALWAYS required - no backward compatibility
-    require_auth = True
-
-    jwt_secret = jwt_secret or os.environ.get("MARTY_JWT_SECRET")
-    jwt_algorithm = jwt_algorithm or os.environ.get("MARTY_JWT_ALGORITHM", "HS256")
+    require_auth=None,
+    jwt_secret=None,
+    jwt_algorithm=None,
+    jwt_public_key=None,
+    *,
+    jwt_jwks=None,
+    jwt_issuer=None,
+    jwt_audience=None,
+    jwt_key_id=None,
+):
+    """Use configured public key material and policy; authentication is mandatory."""
+    if require_auth is False:
+        raise ValueError("Authentication cannot be disabled")
+    jwks_file = os.environ.get("MARTY_JWT_JWKS_FILE")
+    if jwt_jwks is None and jwks_file:
+        jwt_jwks = Path(jwks_file).read_text(encoding="utf-8")
     jwt_public_key = jwt_public_key or os.environ.get("MARTY_JWT_PUBLIC_KEY")
-
-    # Read JWT public key from file if path is provided
     if jwt_public_key and os.path.isfile(jwt_public_key):
-        try:
-            with open(jwt_public_key, encoding="utf-8") as f:
-                jwt_public_key = f.read()
-        except OSError as e:
-            LOGGER.warning("Failed to read JWT public key file: %s", str(e))
-            jwt_public_key = None
-
+        jwt_public_key = Path(jwt_public_key).read_text(encoding="utf-8")
     return AuthServerInterceptor(
-        jwt_secret=jwt_secret,
-        jwt_algorithm=jwt_algorithm,
+        jwt_secret=jwt_secret or os.environ.get("MARTY_JWT_SECRET"),
+        jwt_algorithm=jwt_algorithm or os.environ.get("MARTY_JWT_ALGORITHM", "RS256"),
         jwt_public_key=jwt_public_key,
-        require_auth=require_auth,
-        bypass_health_checks=True,
+        jwt_jwks=jwt_jwks,
+        jwt_issuer=jwt_issuer or os.environ.get("MARTY_JWT_ISSUER"),
+        jwt_audience=jwt_audience or os.environ.get("MARTY_JWT_AUDIENCE"),
+        jwt_key_id=jwt_key_id or os.environ.get("MARTY_JWT_KEY_ID"),
     )
 
 
-__all__ = [
-    "AuthContext",
-    "AuthServerInterceptor",
-    "create_auth_interceptor",
-]
+__all__ = ["AuthContext", "AuthServerInterceptor", "create_auth_interceptor", "get_auth_context"]

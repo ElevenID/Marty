@@ -79,30 +79,25 @@ these rules remain enabled and are exercised by negative probes.
 Some retained compatibility behavior is explicitly unqualified, rather than a
 false positive or a completed security feature:
 
-- Legacy authorization identity extraction is not authentication. The Rust
-  authentication/authorization owner must qualify verified JWT signatures,
-  issuer/audience/expiry and trusted transport-derived mTLS identity before
-  claims or roles reach authorization. Unverified decoded claims and caller
-  metadata do not satisfy that boundary. The local B110 exception preserves an
-  unresolved compatibility path, not an authentication assurance claim.
-- Metrics/trust-service all-interface listener defaults require the deployment
-  owner to qualify private-network exposure, access control and explicit bind
-  configuration. These annotations do not claim an authenticated public endpoint.
-- The explicit development configuration factory contains disposable development
-  credentials and a temporary trust-cache example. The production factory is an
-  unresolved template, not secret provisioning. Deployment must supply managed
-  credentials and an owned, access-controlled cache directory; neither factory
-  qualifies production operation.
-- The legacy PKD OpenXPKI configuration dictionary is not a qualified credential
-  or TLS policy. Its compatibility template remains pending reconciliation with
-  the maintained provider/deployment owner; do not deploy it as a security baseline.
-- The legacy Python mDoc signature-recording fallback remains pending the Rust
-  Signing Keys/issuance owner's qualification. That owner must reject absent or
-  invalid signatures and recording/provider failures before successful issuance
-  or an ACTIVE transition, and prove actual signature/key identity with negative
-  tests. The scoped B110 exception records this unresolved obligation; it does
-  not certify signing or managed custody. This scanner change does not alter that
-  other worker's runtime path.
+- Legacy gRPC authorization now consumes request-local identity from the
+  authentication interceptor. JWT signatures and issuer/audience/time claims
+  use Rust validation; mTLS identity comes from verified gRPC transport state.
+  Unverified decoded claims and forwarded certificate headers are rejected.
+  No tracked production server wires this compatibility interceptor today;
+  deployed enforcement still needs explicit service-owner qualification. See
+  [authentication configuration](features/compatibility-consolidation.md#grpc-authentication-and-authorization).
+- Metrics/trust-service listeners default to loopback; an explicit non-loopback
+  bind still requires private-network exposure and access-control qualification.
+  The uncalled example configuration factories and PKD dictionary adapter are
+  retired; their unique deployment/provider requirements remain in
+  [configuration ownership](features/compatibility-consolidation.md#configuration-and-listener-ownership).
+- The legacy Python mDoc adapter rejects missing, invalid or unrecordable
+  signatures before ACTIVE and verifies current document bytes with Rust.
+  It has no tracked production construction. Managed signer/profile provenance,
+  tenant isolation, key-version lifecycle, durable storage and ISO mDoc issuance
+  remain with the Rust owner. The injected public profiles are not evidence of
+  KMS custody; the unsigned signer timestamp is not trusted issuance time. See
+  [mDoc scope](features/compatibility-consolidation.md#mdoc-signing-compatibility).
 
 Bandit passing means the declared static-analysis policy completed. It does not
 resolve these runtime/deployment obligations, prove Rust parity, or establish

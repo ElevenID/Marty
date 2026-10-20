@@ -27,6 +27,7 @@ classifiers = [
 dependencies = [
     # Web framework (for error handlers)
     "fastapi>=0.104.0",
+    "uvicorn>=0.30.0", # Retained metrics/health HTTP listener
     "httpx>=0.25.0",
     "redis[hiredis]>=5.0.0",
     "aiokafka>=0.12.0",

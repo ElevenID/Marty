@@ -57,7 +57,7 @@ class PKDConfig:
 class ServiceConfig:
     """General service configuration."""
 
-    host: str = os.getenv("TRUST_SVC_HOST", "0.0.0.0")  # nosec B104 -- Compatibility listener default; deployment must qualify network exposure (docs/SECURITY.md).
+    host: str = os.getenv("TRUST_SVC_HOST", "127.0.0.1")
     port: int = int(os.getenv("TRUST_SVC_PORT", "8080"))
     workers: int = int(os.getenv("TRUST_SVC_WORKERS", "4"))
     log_level: str = os.getenv("LOG_LEVEL", "INFO")
