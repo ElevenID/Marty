@@ -76,8 +76,8 @@ them; deleting historical bootstraps implements none of them.
 ## Synthetic generator integration follow-up
 
 The unconsumed `scripts/generate_synthetic_data.py`, its self-tests and
-`examples/read_ml_file.py` are retired. Repository code, CI and deployed
-qualification did not consume their generated datasets. The separate
+`examples/read_ml_file.py` are retired. Only the removed generator-mode tests
+consumed its output; retained runtime and integration tests did not load it. The separate
 `tests.generators.passport_generator.PassportGenerator` and fixture loader
 remain for their existing consumers; neither is a signed-passport replacement.
 
@@ -106,8 +106,8 @@ Do not retain the old filenames or proprietary bytes as a protocol contract.
 The generator's duplicate database adapter was already retired: it used the
 wrong namespace/configuration and incompatible SQL columns, and could report
 success after skipping every write. Removing the remaining script does not
-restore its `--database-insert` mode. Actual retained trust-service APIs,
-database code and development jobs are unchanged. A future Rust-owned import
+restore its `--database-insert` mode. Actual retained trust-service APIs and
+database code are unchanged; the separate development writer is retired below. A future Rust-owned import
 must distinguish synthetic seeding from trusted ingestion, validate
 certificates/signatures and tenant/trust boundaries, and qualify idempotence,
 rollback, failure reporting and observed writes before claiming success.
@@ -120,3 +120,29 @@ non-key configuration and public fixture material still need their own
 provisioning and retention policy. Preserve genuine signed CMS inputs and
 reviewed minimal regression bytes with provenance and positive/negative
 assertions; random signatures and generated summaries are not such evidence.
+
+## Synthetic trust development job
+
+The unconsumed `marty_plugin.trust_svc.dev_job` standalone writer is also
+retired. Its documented commands targeted the old import namespace. Unlike the
+offline generator, it could mutate a configured database: it inserted synthetic
+CSCA/DSC/master-list/CRL bytes, asserted chain/signature validity without
+verification, and committed records separately. This was not qualified trusted
+ingestion or an isolated tenant-aware seeding path. No real trust API, model,
+database manager, schema, configuration field or revocation processor is removed.
+
+Preserve a bounded country/count selection and one linked CSCA ? DSC ?
+master-list ? CRL dataset, including good/bad/unknown revocation, expired and
+valid certificates, revocation reason/time and issuer/serial references.
+A replacement must separate synthetic from trusted records, validate actual
+cryptographic evidence before assigning trust flags, and use service-owned
+Rust APIs and isolated disposable tenant/database state. Do not accept the
+old fixed status strings or simulated expiry counts as observed outcomes.
+
+Job lifecycle and developer diagnostics remain requirements: record start,
+completion and failure, truthful processed/skipped/revoked counts, duration,
+JSON/table statistics, bounded load qualification and cleanup. Prove atomic
+rollback, idempotence, tenant isolation and failure propagation rather than
+counting attempted inserts or marking a partly committed run complete.
+This retirement does not implement that replacement or qualify the historical
+Python service deployment.

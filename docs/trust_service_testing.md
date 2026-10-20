@@ -29,7 +29,9 @@ Deployed interoperability qualification belongs to
 [marty-integration-tests](https://github.com/ElevenID/marty-integration-tests).
 Use current Rust service contracts and managed KMS for signing. This cleanup
 implements none of the remaining generator or import requirements and changes
-no retained trust-service database/development API.
+no retained trust-service API or database manager. The separate unconsumed
+synthetic database writer is retired too; its isolated seeding and job-lifecycle
+requirements are retained in the linked qualification guide.
 
 Seven unreferenced 2025 generator-run directories were previously removed from
 version control. Their repeated JSON, summaries, proprietary `ICAOML` and
