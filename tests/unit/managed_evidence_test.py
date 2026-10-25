@@ -62,7 +62,9 @@ def test_local_provider_options_are_removed(tmp_path):
     for name in ("SoftwareHSMProvider", "FileBasedProvider"):
         assert not hasattr(module, name)
     for provider in ("software_hsm", "file_based"):
-        with pytest.raises(NativeOperationError, match="explicit managed provider identity"):
+        with pytest.raises(
+            NativeOperationError, match="explicit managed provider identity"
+        ):
             create_kms_manager(provider, storage_path=str(tmp_path / "must-not-exist"))
     assert list(tmp_path.iterdir()) == []
 
@@ -144,7 +146,10 @@ async def test_invalid_append_and_truncation_cannot_report_an_intact_chain():
     second = await _append(signer)
     authenticated_head = signer.evidence_chain.head_hash
     assert authenticated_head == second.evidence_hash
-    assert json.loads(signer.export_evidence_chain())["chain_metadata"]["head_hash"] == authenticated_head
+    assert (
+        json.loads(signer.export_evidence_chain())["chain_metadata"]["head_hash"]
+        == authenticated_head
+    )
     invalid = copy.deepcopy(second)
     invalid.evidence.metadata.chain_hash = "wrong-predecessor"
     with pytest.raises(ValueError, match="predecessor"):
