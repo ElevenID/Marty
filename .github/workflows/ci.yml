@@ -22,7 +22,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e
       - name: Check all maintained Python sources and scripts
         run: uv run --no-project --python 3.11 python scripts/security_scan.py code --ephemeral
       - name: Prove findings and incomplete scans fail locally and in CI
@@ -46,7 +46,7 @@ jobs:
           ref: ${{ env.MARTY_CORE_REVISION }}
           path: marty-core
       - if: ${{ steps.native-wheel-cache.outputs.cache-hit != 'true' }}
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0
         with:
           python-version: "3.11"
       - if: ${{ steps.native-wheel-cache.outputs.cache-hit != 'true' }}
@@ -65,7 +65,7 @@ jobs:
           test "$(find native-wheels -maxdepth 1 -name 'marty_rs-*.whl' | wc -l)" -eq 1
           test "$(find native-wheels -maxdepth 1 -name 'marty_verification_py-*.whl' | wc -l)" -eq 1
           test "$(find native-wheels -maxdepth 1 -name 'marty_iso18013-*.whl' | wc -l)" -eq 1
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: marty-native-linux
           path: native-wheels/*.whl
@@ -77,13 +77,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0
         with:
           python-version: "3.12"
           cache: pip
       - name: Install smart-card build dependencies
         run: sudo apt-get update && sudo apt-get install --yes libpcsclite-dev
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         with:
           name: marty-native-linux
           path: native-wheels
