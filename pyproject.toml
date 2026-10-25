@@ -69,7 +69,7 @@ packages = [
 
 [project.optional-dependencies]
 # Checkout-only protocol generation; published bindings need no compiler.
-proto = ["grpcio-tools==1.76.0"]
+proto = ["grpcio-tools==1.84.0"]
 biometric = [
     "opencv-contrib-python>=4.8.1.78",
 ]
