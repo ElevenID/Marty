@@ -43,11 +43,11 @@ class AdvancedFailureInjectionConfig:
 
         # Check method-specific rate first
         failure_rate = self.method_specific_rates.get(method, self.base_failure_rate)
-        return random.random() < failure_rate  # noqa: S311
+        return random.random() < failure_rate  # noqa: S311  # nosec B311 -- Synthetic chaos selection or retry jitter; never key/token generation.
 
     def get_error_to_inject(self) -> Exception:
         """Get a random error from the configured error types."""
-        error_class = random.choice(self.error_types)  # noqa: S311
+        error_class = random.choice(self.error_types)  # noqa: S311  # nosec B311 -- Synthetic chaos selection or retry jitter; never key/token generation.
         if error_class == TransientBackendError:
             return TransientBackendError("Injected failure for resilience testing")
         return error_class("Injected failure for testing")

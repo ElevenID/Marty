@@ -82,7 +82,7 @@ class EventBusProvider:
         if not self._config.enabled:
             return
         await self._ensure_started()
-        assert self._producer is not None  # for mypy/static hints
+        assert self._producer is not None  # for mypy/static hints  # nosec B101 -- Type-narrowing invariant after _ensure_started, not an authorization decision.
         topic = (
             f"{self._config.topic_prefix}{message.topic}"
             if self._config.topic_prefix

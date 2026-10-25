@@ -343,7 +343,7 @@ class EnhancedResilienceServerInterceptor(grpc.ServerInterceptor):
         """Inject a failure into the request."""
         # Choose a random error type from the configured list
         if self.failure_config.error_types:
-            error_type = random.choice(self.failure_config.error_types)
+            error_type = random.choice(self.failure_config.error_types)  # nosec B311 -- Synthetic chaos selection or retry jitter; never key/token generation.
             error_msg = f"Injected failure for {method} (testing)"
 
             if issubclass(error_type, grpc.RpcError):

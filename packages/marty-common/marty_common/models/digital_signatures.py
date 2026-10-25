@@ -385,7 +385,7 @@ class EncapsulatedContent:
             try:
                 decoded = base64.b64decode(content)
                 content = decoded
-            except:
+            except:  # nosec B110 -- Representation detection only; non-base64 content remains unchanged, not verified.
                 pass  # Not base64, keep as string
 
         return cls(content_type=data["contentType"], content=content)

@@ -58,6 +58,14 @@ Any future bulk refactor needs an inventory of real callers, a dry-run diff,
 explicitly reviewed mappings and positive/negative document fixtures. It must
 not add a second parsing/validation kernel or silently rewrite callers.
 
+TD2 and visa generation remain separate compatibility owners. They share only
+legacy field sanitization and strict date formatting; their class methods,
+document layouts and Rust-backed check digits remain. The standardized utility
+keeps its different transliteration and missing-date behavior. Fixed output
+regressions establish compatibility, not ICAO conformance. Moving generation
+to Rust still needs an explicit format/wire contract and independent document
+fixtures before retiring these callers or correcting their legacy layouts.
+
 ## Retired status tools and inherited roadmap requirements
 
 The import/attribute-scoring scripts, score utilities, two `.py.legacy` backups,

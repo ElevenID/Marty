@@ -51,7 +51,7 @@ class FailureInjectionConfig:
             return False
         if force:
             return True
-        return random.random() < self.rate  # noqa: S311 (acceptable for testing)
+        return random.random() < self.rate  # noqa: S311 (acceptable for testing)  # nosec B311 -- Synthetic chaos selection or retry jitter; never key/token generation.
 
 
 _CIRCUIT_BREAKERS: dict[str, CircuitBreaker] = {}

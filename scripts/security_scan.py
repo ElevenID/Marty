@@ -4,13 +4,17 @@
 from __future__ import annotations
 
 import argparse
+import fnmatch
 import importlib.metadata
 import json
 import re
 import shutil
-import subprocess
+import subprocess  # nosec B404 -- Reviewed tool invocations below use argv without a shell.
 import sys
+import tempfile
+import tomllib
 import uuid
+from contextlib import ExitStack
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -30,14 +34,43 @@ OPTIONAL = {
 
 
 def bandit_command(root: Path, output: Path) -> list[str]:
-    """Use the maintained hook's exact version, source scope and rule selection."""
-    import yaml
+    """Use one pinned policy for pre-commit, manual scans and required CI."""
+    policy = bandit_policy(root)
+    bandit_inventory(root, policy)
+    return ["uv", "run", "--no-project", "--with", f"bandit[toml]=={policy['version']}",
+            "bandit", "-c", "pyproject.toml", "-r", *policy["targets"],
+            "-f", "json", "-o", str(output)]
 
-    config = yaml.safe_load((root / ".pre-commit-config.yaml").read_text(encoding="utf-8"))
-    repository = next(r for r in config["repos"] if r["repo"] == "https://github.com/PyCQA/bandit")
-    hook = next(h for h in repository["hooks"] if h["id"] == "bandit")
-    return ["uv", "run", "--no-project", "--with", f"bandit=={repository['rev']}",
-            "bandit", *hook["args"], "-f", "json", "-o", str(output)]
+
+def bandit_policy(root: Path) -> dict:
+    config = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))
+    policy = config["tool"]["security_scan"]["bandit"]
+    if not re.fullmatch(r"\d+\.\d+\.\d+", policy["version"]):
+        raise ValueError("Bandit requires an exact release version")
+    return {**policy, "exclude_dirs": config["tool"]["bandit"].get("exclude_dirs", [])}
+
+
+def bandit_inventory(root: Path, policy: dict) -> set[Path]:
+    """Reject absent/empty roots and require every in-scope Python file in the report."""
+    root = root.resolve()
+    targets = policy["targets"]
+    if not isinstance(targets, list) or not targets:
+        raise ValueError("Bandit requires nonempty source targets")
+    inventory = set()
+    for target in targets:
+        directory = (root / target).resolve()
+        if not directory.is_relative_to(root) or not directory.is_dir():
+            raise ValueError(f"Bandit source directory is missing or outside the repository: {target}")
+        files = {
+            path.resolve() for path in directory.rglob("*.py")
+            if not any(pattern in path.relative_to(root).as_posix()
+                       or fnmatch.fnmatch(path.relative_to(root).as_posix(), pattern)
+                       for pattern in policy["exclude_dirs"])
+        }
+        if not files:
+            raise ValueError(f"Bandit source directory contains no in-scope Python files: {target}")
+        inventory.update(files)
+    return inventory
 
 
 def command_for(tool: str, root: Path, output: Path, args) -> list[str]:
@@ -90,7 +123,7 @@ def _installed(name: str) -> bool:
         return False
 
 
-def classify(tool: str, returncode: int, stdout: str, report: Path) -> str:
+def classify(tool: str, returncode: int, stdout: str, report: Path, *, root: Path | None = None) -> str:
     """Require a recognizable result; malformed output and scan errors are incomplete."""
     if tool == "git-secrets":
         return "passed" if returncode == 0 else "error"
@@ -103,8 +136,17 @@ def classify(tool: str, returncode: int, stdout: str, report: Path) -> str:
         return "findings" if rows else "passed"
     data = json.loads(report.read_text(encoding="utf-8") if tool == "bandit" else stdout)
     if tool == "bandit":
-        if returncode not in (0, 1) or data["errors"] or not data["metrics"].get("_totals", {}).get("loc"):
+        loc = data["metrics"].get("_totals", {}).get("loc")
+        if (returncode not in (0, 1) or not isinstance(data["errors"], list)
+                or data["errors"] or not isinstance(data["results"], list)
+                or type(loc) is not int or loc <= 0):
             return "error"
+        if root is not None:
+            expected = bandit_inventory(root, bandit_policy(root))
+            scanned = {(root / name).resolve() for name in data["metrics"] if name != "_totals"}
+            missing = expected - scanned
+            if missing:
+                raise ValueError(f"Bandit report omitted {len(missing)} in-scope Python files")
         findings = data["results"]
     elif tool == "pip-audit":
         if returncode not in (0, 1) or not data["dependencies"] or any(d.get("skip_reason") for d in data["dependencies"]):
@@ -148,18 +190,18 @@ def run_check(tool: str, args, root: Path, directory: Path) -> dict:
             result.update(status="unavailable", reason=f"Required executable unavailable: {command[0]}")
             return result
         if tool == "git-secrets":
-            policy = subprocess.run(["git", "config", "--get-all", "secrets.patterns"],
+            policy = subprocess.run(["git", "config", "--get-all", "secrets.patterns"],  # nosec B603, B607 -- Fixed git subcommand resolved through the trusted developer/CI PATH. Validated compiler/scanner argv; shell is disabled.
                                     cwd=root, capture_output=True, text=True, encoding="utf-8",
                                     errors="replace", timeout=args.timeout, check=False)
             if policy.returncode != 0 or not policy.stdout.strip():
                 result["reason"] = "git-secrets requires configured prohibited patterns"
                 return result
-        completed = subprocess.run(command, cwd=root, capture_output=True, text=True,
+        completed = subprocess.run(command, cwd=root, capture_output=True, text=True,  # nosec B603 -- Validated compiler/scanner argv; shell is disabled.
                                    encoding="utf-8", errors="replace", timeout=args.timeout, check=False)
         (directory / f"{tool}.stdout").write_text(completed.stdout, encoding="utf-8")
         (directory / f"{tool}.stderr").write_text(completed.stderr, encoding="utf-8")
         result.update(returncode=completed.returncode,
-                      status=classify(tool, completed.returncode, completed.stdout, report))
+                      status=classify(tool, completed.returncode, completed.stdout, report, root=root))
     except (OSError, ValueError, KeyError, TypeError, AttributeError, StopIteration, ImportError, subprocess.TimeoutExpired) as exc:
         result["reason"] = f"{type(exc).__name__}: {exc}"
     return result
@@ -178,7 +220,9 @@ def main(argv=None, *, root: Path = ROOT) -> int:
     target.add_argument("--filesystem")
     parser.add_argument("--dockerfile", action="append")
     parser.add_argument("--timeout", type=float, default=600)
-    parser.add_argument("--output-dir", type=Path)
+    output = parser.add_mutually_exclusive_group()
+    output.add_argument("--output-dir", type=Path)
+    output.add_argument("--ephemeral", action="store_true", help="Remove reports after printing the result")
     args = parser.parse_args(argv)
     if args.timeout <= 0:
         parser.error("--timeout must be positive")
@@ -191,7 +235,13 @@ def main(argv=None, *, root: Path = ROOT) -> int:
     directory = args.output_dir or root / "reports/generated/security" / (
         datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ") + "-" + uuid.uuid4().hex[:8]
     )
-    directory = directory.resolve()
+    with ExitStack() as stack:
+        if args.ephemeral:
+            directory = Path(stack.enter_context(tempfile.TemporaryDirectory(prefix="marty-security-"))) / "scan"
+        return run_selected(tools, action, args, root, directory.resolve(), parser)
+
+
+def run_selected(tools, action, args, root, directory, parser) -> int:
     # A new directory prevents stale output from being interpreted as a new scan.
     try:
         directory.mkdir(parents=True, exist_ok=False)
@@ -209,7 +259,20 @@ def main(argv=None, *, root: Path = ROOT) -> int:
     }, indent=2) + "\n", encoding="utf-8")
     for result in results:
         print(f"{result['tool']}: {result['status']}")
-    print(f"Reports: {directory}")
+        if result.get("reason"):
+            print(result["reason"])
+        if args.ephemeral and result["tool"] == "bandit" and (directory / "bandit.json").is_file():
+            try:
+                data = json.loads((directory / "bandit.json").read_text(encoding="utf-8"))
+                for finding in data.get("results", []):
+                    # Rule names locate the problem without echoing secret literals/source.
+                    print(f"{finding['filename']}:{finding['line_number']}: {finding['test_id']} {finding.get('test_name', '')}")
+                for error in data.get("errors", []):
+                    print(f"{error['filename']}: {error['reason']}")
+            except (ValueError, KeyError, TypeError, AttributeError):
+                pass  # Malformed reports already produce an error result above.
+    if not args.ephemeral:
+        print(f"Reports: {directory}")
     return exit_code
 
 

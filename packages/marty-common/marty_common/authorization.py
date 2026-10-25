@@ -3,7 +3,7 @@
 This module provides:
 - Cedar-backed policy engine (replaces YAML RBAC/ABAC)
 - Authorization guard decorators for gRPC service methods
-- Authentication context extraction from gRPC metadata
+- Request-local identity from the Rust/verified-TLS authentication interceptor
 
 Cedar policies are evaluated via cedarpy (PyO3 binding to the Rust
 cedar-policy crate, ~100μs per evaluation). Role definitions live in
@@ -24,6 +24,8 @@ from pathlib import Path
 from typing import Any, TypeVar
 
 import cedarpy
+
+from marty_common.cedar_engine import _load_policy_files
 
 LOGGER = logging.getLogger(__name__)
 
@@ -93,16 +95,8 @@ class PolicyEngine:
         policy_paths: list[str | Path],
     ) -> PolicyEngine:
         """Load schema and policies from filesystem paths."""
-        schema = Path(schema_path).read_text()
-        policy_parts: list[str] = []
-        for p in policy_paths:
-            path = Path(p)
-            if path.is_dir():
-                for f in sorted(path.glob("*.cedar")):
-                    policy_parts.append(f.read_text())
-            elif path.exists():
-                policy_parts.append(path.read_text())
-        return cls(schema=schema, policies="\n\n".join(policy_parts))
+        schema, policies = _load_policy_files(schema_path, policy_paths)
+        return cls(schema=schema, policies=policies)
 
     @classmethod
     def with_defaults(cls) -> PolicyEngine:
@@ -138,7 +132,7 @@ class PolicyEngine:
             action = f'MIP::Action::"{context.action}"'
             resource = f'MIP::ServiceResource::"{context.resource or "default"}"'
             cedar_context = {
-                "ip_address": {"__extn": {"fn": "ip", "arg": context.attributes.get("ip_address", "0.0.0.0")}},
+                "ip_address": {"__extn": {"fn": "ip", "arg": context.attributes.get("ip_address", "0.0.0.0")}},  # nosec B104 -- Cedar IP sentinel, not a listening socket.
                 "timestamp": int(time.time()),
                 "mfa_authenticated": context.attributes.get("mfa_authenticated", False),
             }
@@ -341,38 +335,19 @@ def _find_grpc_context(args: tuple[Any, ...]) -> Any:
 
 
 def _extract_auth_context(grpc_context: Any) -> dict[str, Any]:
-    """Extract authentication context from gRPC metadata."""
-    metadata = dict(grpc_context.invocation_metadata())
+    """Consume only the trusted context scoped by the authentication interceptor."""
+    from marty_common.auth_interceptor import get_auth_context
 
-    identity = None
-    roles: list[str] = []
-    attributes: dict[str, Any] = {}
-
-    # Try JWT from Authorization header
-    auth_header = metadata.get("authorization", "")
-    if auth_header.startswith("Bearer "):
-        try:
-            import jwt  # type: ignore[import-untyped]
-
-            token = auth_header[7:]
-            claims = jwt.decode(token, options={"verify_signature": False})
-            identity = claims.get("sub") or claims.get("user_id")
-            roles = claims.get("roles", [])
-            attributes = {
-                k: v for k, v in claims.items() if k not in ("sub", "user_id", "roles")
-            }
-        except Exception:
-            pass
-
-    # Fall back to client certificate subject
-    if not identity:
-        client_cert_subject = metadata.get("x-client-cert-subject", "")
-        if client_cert_subject:
-            identity = client_cert_subject
-            if "ou=" in client_cert_subject.lower():
-                roles = [client_cert_subject.split("ou=")[1].split(",")[0]]
-
-    return {"identity": identity, "roles": roles, "attributes": attributes}
+    del grpc_context  # Retain the helper signature without trusting metadata.
+    authenticated = get_auth_context()
+    if authenticated is None or not authenticated.authenticated or not authenticated.identity:
+        raise AuthorizationError("Authenticated request context is required")
+    return {
+        "identity": authenticated.identity,
+        "roles": list(authenticated.claims.get("roles", [])),
+        "attributes": {key: value for key, value in authenticated.claims.items()
+                       if key not in {"sub", "user_id", "roles"}},
+    }
 
 
 def _extract_resource_from_method(func: Callable[..., Any]) -> str:

@@ -14,6 +14,8 @@ from typing import Any, Optional
 
 import grpc
 
+from marty_common.native_backends import load_native_backend
+
 from marty_plugin.proto import (
     document_signer_pb2,  # type: ignore
     mdoc_engine_pb2,  # type: ignore
@@ -39,7 +41,8 @@ class MDocEngineServicer(mdoc_engine_pb2_grpc.MDocEngineServicer):  # type: igno
     that can be stored on mobile devices and verified remotely.
     """
 
-    def __init__(self, channels: dict[str, Any] | None = None) -> None:
+    def __init__(self, channels: dict[str, Any] | None = None, *,
+                 verification_keys: dict[str, tuple[str, bytes]] | None = None) -> None:
         """
         Initialize the MDoc Engine service.
 
@@ -47,6 +50,12 @@ class MDocEngineServicer(mdoc_engine_pb2_grpc.MDocEngineServicer):  # type: igno
             channels: Optional dictionary of gRPC channels to other services.
         """
         self._mdoc_store: MDocStore = {}
+        self.verification_keys = dict(verification_keys or {})
+        if any(not isinstance(signer, str) or not signer or not isinstance(profile, tuple)
+               or len(profile) != 2 or not isinstance(profile[0], str)
+               or not isinstance(profile[1], bytes) or not profile[1]
+               for signer, profile in self.verification_keys.items()):
+            raise ValueError("mDoc verification requires signer-version ids and public SPKI profiles")
         self.channels = channels or {}
         self.document_signer_stub = self._document_signer_stub()
 
@@ -88,7 +97,7 @@ class MDocEngineServicer(mdoc_engine_pb2_grpc.MDocEngineServicer):  # type: igno
         self._mdoc_store[mdoc_id] = mdoc_resp
 
         return mdoc_engine_pb2.CreateMDocResponse(  # type: ignore
-            mdoc_id=mdoc_id, status="SUCCESS", error_message=""
+            mdoc_id=mdoc_id, status="SUCCESS"
         )
 
     async def GetMDoc(self, request: Any, context: grpc.ServicerContext) -> Any:
@@ -141,91 +150,65 @@ class MDocEngineServicer(mdoc_engine_pb2_grpc.MDocEngineServicer):  # type: igno
                 success=False, error_message="Document signing service not available"
             )
 
-        # Build the content the tests expect
-        doc_to_sign = (
-            f"MDocData:ID={mdoc.mdoc_id},"
-            f"Type={mdoc.document_type},"
-            f"Num={mdoc.document_number},"
-            f"IssueDate={mdoc.issue_date}"
-        )
+        if not self.verification_keys:
+            context.set_code(grpc.StatusCode.FAILED_PRECONDITION)
+            context.set_details("Public signer verification profiles are required")
+            return mdoc_engine_pb2.SignMDocResponse(success=False, error_message="Signer verification is not configured")
+
+        content = self._signed_content(mdoc)
+        try:
+            response = await self.document_signer_stub.SignDocument(
+                document_signer_pb2.SignRequest(document_id=mdoc.mdoc_id, document_content=content)
+            )
+        except grpc.RpcError as rpc_err:
+            await context.abort(rpc_err.code(), "Document signer unavailable")
+            return mdoc_engine_pb2.SignMDocResponse(success=False, error_message="Document signer unavailable")
 
         try:
-            sign_req = document_signer_pb2.SignRequest(  # type: ignore
-                document_id=mdoc.mdoc_id, document_content=doc_to_sign.encode("utf-8")
+            if (not isinstance(response, document_signer_pb2.SignResponse) or not response.success
+                    or not response.HasField("signature_info")
+                    or (response.HasField("error") and response.error.code != 0)):
+                raise ValueError("Invalid signer response")
+            signature = response.signature_info
+            if not signature.signature or not signature.signer_id or not signature.signature_date:
+                raise ValueError("Incomplete signer response")
+            if datetime.fromisoformat(signature.signature_date).tzinfo is None:
+                raise ValueError("Signer timestamp must include a timezone")
+            if not self._verify_signature(signature, content):
+                raise ValueError("Signature verification failed")
+            if self._signed_content(mdoc) != content or mdoc.status == "ACTIVE":
+                raise ValueError("Document changed during remote signing")
+            new_signature = mdoc_engine_pb2.SignatureInfo(
+                signature_date=signature.signature_date,
+                signer_id=signature.signer_id,
+                signature=signature.signature,
+                is_valid=True,
             )
-            sign_resp = await self.document_signer_stub.SignDocument(sign_req)
-        except grpc.RpcError as rpc_err:  # pragma: no cover - behavior covered by tests
-            await context.abort(rpc_err.code(), f"Signer service RPC error: {rpc_err.details()}")
-            return mdoc_engine_pb2.SignMDocResponse(  # type: ignore
-                success=False,
-                error_message=f"Signer service RPC error: {rpc_err.details()}",
-            )
-
-        # Some unit tests may not configure a fully-realistic response object; add
-        # defensive checks so tests that simply need the mDoc to transition to ACTIVE
-        # still succeed without raising type errors when MagicMocks are encountered.
-        success_flag = bool(getattr(sign_resp, "success", False))
-        if not success_flag:
-            context.set_code(grpc.StatusCode.INTERNAL)
-            context.set_details(getattr(sign_resp, "error_message", "Signing failed"))
-            return mdoc_engine_pb2.SignMDocResponse(
-                success=False, error_message=getattr(sign_resp, "error_message", "Signing failed")
-            )
-
-        # Extract signature info – tolerate either a proper SignResponse with
-        # a nested signature_info message or a MagicMock with top-level attributes.
-        sig_info = getattr(sign_resp, "signature_info", None)
-
-        # Helper accessors with graceful fallback
-        def _get(attr_name: str, default):  # local helper
-            if sig_info is not None and hasattr(sig_info, attr_name):
-                return getattr(sig_info, attr_name)
-            return getattr(sign_resp, attr_name, default)
-
-        raw_signature = _get("signature", b"")
-        try:
-            if isinstance(raw_signature, str):  # allow accidental str in mocks
-                raw_signature = raw_signature.encode("utf-8")
-            elif isinstance(raw_signature, (MemoryError,)):  # unlikely, defensive
-                raw_signature = b""
-        except Exception:  # pragma: no cover - extreme defensive
-            raw_signature = b""
-        if not isinstance(raw_signature, (bytes, bytearray)):
-            raw_signature = b""
-
-        # Avoid naive UTC now without tzinfo warnings by using ISO with Z suffix
-        signature_date = _get("signature_date", datetime.now().isoformat() + "Z")
-        signer_id = _get("signer_id", "unknown_signer")
-
-        # Some mocks may supply signature fields directly on sign_resp without proper
-        # nested message; construct safely via kwargs dict first to avoid TypeError.
-        # Ensure we always produce a non-empty deterministic signature if upstream mock
-        # didn't supply one so that verification tests that only assert is_valid pass.
-        if not raw_signature:
-            deterministic_payload = f"{mdoc.mdoc_id}:{mdoc.document_type}:{signature_date}".encode()
-            raw_signature = deterministic_payload
-        sig_kwargs: dict[str, Any] = {
-            "signature_date": signature_date,
-            "signer_id": signer_id,
-            "signature": raw_signature,
-            "is_valid": True,
-        }
-        try:
-            new_sig = mdoc_engine_pb2.SignatureInfo(**sig_kwargs)  # type: ignore[arg-type]
+            # Commit the transition only after recording a verified signature succeeds.
+            mdoc.signature_info.CopyFrom(new_signature)
         except Exception:
-            # Final fallback: build minimal then assign attributes where possible
-            new_sig = mdoc_engine_pb2.SignatureInfo()  # type: ignore
-            try:  # attribute assignment best-effort
-                new_sig.signature_date = signature_date  # type: ignore
-                new_sig.signer_id = signer_id  # type: ignore
-                new_sig.signature = raw_signature  # type: ignore
-                new_sig.is_valid = True  # type: ignore
-            except Exception:
-                pass
-        mdoc.signature_info.CopyFrom(new_sig)
+            context.set_code(grpc.StatusCode.INTERNAL)
+            context.set_details("Document signer response could not be verified or recorded")
+            return mdoc_engine_pb2.SignMDocResponse(success=False, error_message="Signature verification or recording failed")
         mdoc.status = "ACTIVE"
-
         return mdoc_engine_pb2.SignMDocResponse(success=True, signature_info=mdoc.signature_info)
+
+    @staticmethod
+    def _signed_content(mdoc) -> bytes:
+        """Bind every document field, excluding derived signature/lifecycle state."""
+        unsigned = mdoc_engine_pb2.MDocResponse()
+        unsigned.CopyFrom(mdoc)
+        unsigned.ClearField("signature_info")
+        unsigned.ClearField("status")
+        return unsigned.SerializeToString(deterministic=True)
+
+    def _verify_signature(self, signature, content: bytes) -> bool:
+        profile = self.verification_keys.get(signature.signer_id)
+        if profile is None or not signature.signature:
+            return False
+        algorithm, public_spki = profile
+        native = load_native_backend("marty_verification", ("verify_signature",))
+        return native.verify_signature(algorithm, public_spki, content, signature.signature) is True
 
     async def GenerateMDocQRCode(self, request, context):
         mdoc = self._mdoc_store.get(request.mdoc_id)
@@ -330,11 +313,17 @@ class MDocEngineServicer(mdoc_engine_pb2_grpc.MDocEngineServicer):  # type: igno
                 is_valid=False, error_message="MDoc is not signed/active"
             )
 
-        # Simulate verification logic
-        is_signature_valid = mdoc.signature_info and mdoc.signature_info.is_valid
+        # A stored flag never substitutes for verification of the current document.
+        try:
+            is_signature_valid = self._verify_signature(mdoc.signature_info, self._signed_content(mdoc))
+        except Exception:
+            is_signature_valid = False
 
+        verified_document = mdoc_engine_pb2.MDocResponse()
+        verified_document.CopyFrom(mdoc)
+        verified_document.signature_info.is_valid = is_signature_valid
         return mdoc_engine_pb2.VerifyMDocResponse(
-            is_valid=is_signature_valid, mdoc_data=mdoc, error_message=""
+            is_valid=is_signature_valid, mdoc_data=verified_document, error_message=""
         )
 
     async def CreateDocumentTypeTemplate(self, request, context):  # pragma: no cover

@@ -17,6 +17,22 @@ logger = logging.getLogger(__name__)
 _CEDAR_DIR = Path(__file__).parent / "cedar"
 
 
+def _load_policy_files(
+    schema_path: str | Path, policy_paths: list[str | Path]
+) -> tuple[str, str]:
+    """Load explicit policy sources in caller order, sorting directory entries."""
+    schema = Path(schema_path).read_text()
+    policy_parts: list[str] = []
+    for p in policy_paths:
+        path = Path(p)
+        if path.is_dir():
+            for f in sorted(path.glob("*.cedar")):
+                policy_parts.append(f.read_text())
+        elif path.exists():
+            policy_parts.append(path.read_text())
+    return schema, "\n\n".join(policy_parts)
+
+
 @dataclass(frozen=True)
 class AuthzDecision:
     """Result of a Cedar authorization evaluation."""
@@ -49,16 +65,8 @@ class CedarEngine:
             schema_path: Path to .cedarschema file.
             policy_paths: Paths to .cedar files or directories containing them.
         """
-        schema = Path(schema_path).read_text()
-        policy_parts: list[str] = []
-        for p in policy_paths:
-            path = Path(p)
-            if path.is_dir():
-                for f in sorted(path.glob("*.cedar")):
-                    policy_parts.append(f.read_text())
-            elif path.exists():
-                policy_parts.append(path.read_text())
-        return cls(schema=schema, policies="\n\n".join(policy_parts))
+        schema, policies = _load_policy_files(schema_path, policy_paths)
+        return cls(schema=schema, policies=policies)
 
     @classmethod
     def with_defaults(cls) -> "CedarEngine":

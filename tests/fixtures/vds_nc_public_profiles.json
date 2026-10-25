@@ -1,0 +1,16 @@
+{
+  "cmc_es256": {
+    "public_key_pem": "-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEy4BChDt0n7TpWBOq2fK0EKJHPunz\nBvCfmwOzJ+ige5nqefFAbmSpq7LVRidkipqzSSEDnPk+A8xxKMdqSK2KXg==\n-----END PUBLIC KEY-----\n",
+    "barcode_data": "DC03AUS~{\"_vds\":{\"version\":\"1.0\",\"documentType\":\"CMC\",\"issuerId\":\"TESTSGN\",\"keyId\":\"TESTCERT001\",\"certificateReference\":\"TESTCERT001\",\"algorithm\":\"ES256\"},\"dateOfBirth\":\"19900102\",\"dateOfExpiry\":\"20300101\",\"dateOfIssue\":\"20260101\",\"docType\":\"CMC\",\"documentNumber\":\"X123456\",\"gender\":\"F\",\"givenNames\":\"ADA\",\"issuingCountry\":\"AUS\",\"nationality\":\"AUS\",\"surname\":\"EXAMPLE\"}~MEYCIQCogfdOujai93U6q2ykABtQuijkB+pfiPhiVqsrh/FBlAIhAJoVM/fqCX+I2t8EKUyzkgv1XqaYLN+kGdH2dTYAb0fW",
+    "algorithm": "ES256"
+  },
+  "cmc_ps256": {
+    "public_key_pem": "-----BEGIN PUBLIC KEY-----\nMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAtHt7THDcm5FfJhj//Odo\nSJpZOCpdkXf4Xv8CzJT5SfIclSk3BMEhKG7N3MCDjse9kvL3dbBW48y8fZ1/pmRA\nC8KbiDEclhUARGbcSMb3Qymj7eqVbX3A8SKbo4Xie1pMetaza2yFE26H+b/fTPCm\noaZEbiWxSOCeFQmoj5hZMMX+cFkF2Hym/oC3BamJnLDFMSwX8am/BYeUNkQ9ZecN\nTXyD/EF1Hg6jlPCAvxNsdsd88Q8Kbwv/1QDiLSkaO3+chI4p208fJj8PTHmRd0ba\nP2qPGx8j3djKgjFOPWcKTZ5BxwMqyU6C+5xiCQ2e9agq5IPCUddrWsDXsA3QCcbB\ntQIDAQAB\n-----END PUBLIC KEY-----\n",
+    "barcode_data": "DC03AUS~{\"_vds\":{\"version\":\"1.0\",\"documentType\":\"CMC\",\"issuerId\":\"TESTSGN\",\"keyId\":\"TESTCERT001\",\"certificateReference\":\"TESTCERT001\",\"algorithm\":\"PS256\"},\"dateOfBirth\":\"19900102\",\"dateOfExpiry\":\"20300101\",\"dateOfIssue\":\"20260101\",\"docType\":\"CMC\",\"documentNumber\":\"X123456\",\"gender\":\"F\",\"givenNames\":\"ADA\",\"issuingCountry\":\"AUS\",\"nationality\":\"AUS\",\"surname\":\"EXAMPLE\"}~USW75XeGOpZJbDep7yceJ/T2dvxxg56cb8Gr0Amy989BZN6dmV0yjK8JNsvr/qoAoxu04p3sp/hUUxRs8PRQE50CPBWxux5Ws7ADz8VW/bgtGHuh1hMhw0Hl4gwVDHPQrSvAz/CvemQmGlK8Xze5GkL9xcHUFnAa3Vucxobm6F5v3tAy6bd0eD89NI4m3yfhFd7qs1SNyeQAHen4TRFabZnxeigs6LHxefYgPkVdT7KzFtsu4D1bcDW1eHwyds6EaeX7KqlpzMqG0FFG62E8cwIu25ZTolSY9ow9YdLdxGE+7/XCqoM43HN4nT4lhlbT87CZDplH2shHWIfDdSxOyw==",
+    "algorithm": "PS256"
+  },
+  "visa_es256": {
+    "public_key_pem": "-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAENRWvTggETgLke4DM0kGzuDKT2ryB\nqS02iYsKKutcJ97ryagbD3BZW0IYTBMiDCmFdGf+cUN8I8WGFQN7YQ9o4w==\n-----END PUBLIC KEY-----\n",
+    "barcode_data": "DC03AUS~{\"_vds\":{\"version\":\"1.0\",\"documentType\":\"EVISA\",\"issuerId\":\"VISASGN\",\"keyId\":\"VISAKEY\",\"certificateReference\":\"VISAKEY\",\"algorithm\":\"ES256\"},\"dateOfBirth\":\"19900102\",\"dateOfExpiry\":\"20300101\",\"dateOfIssue\":\"20260101\",\"docType\":\"EVISA\",\"documentNumber\":\"V123456\",\"gender\":\"F\",\"givenNames\":\"ADA\",\"issuedAt\":1792357698,\"issuingCountry\":\"AUS\",\"nationality\":\"AUS\",\"placeOfIssue\":\"CANBERRA\",\"policyConstraints\":{\"allowed_countries\":[\"AUS\",\"NZL\"],\"employment_authorized\":false,\"requires_online_check\":false,\"study_authorized\":false},\"surname\":\"EXAMPLE\",\"visaCategory\":\"B2\"}~MEYCIQDO/wgS4hMS48Zj1P/uwk4/TdekcE7LuDbS2vYG6St/ggIhAIIwI/DgZPYv2Gy0NvPlsHQRRLhpKboHuChz6Es2GWyP"
+  }
+}

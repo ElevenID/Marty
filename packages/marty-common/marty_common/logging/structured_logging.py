@@ -13,6 +13,7 @@ import os
 import socket
 import time
 from contextlib import contextmanager
+from contextvars import ContextVar
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -21,8 +22,27 @@ import structlog
 from opentelemetry import trace
 from pythonjsonlogger import jsonlogger
 
-# Global request context storage
-_request_context: dict[str, Any] = {}
+# Copy-on-write state isolates asyncio tasks and threads; child tasks inherit it.
+_request_context: ContextVar[dict[str, Any] | None] = ContextVar("marty_log_request", default=None)
+
+
+def _request_fields() -> dict[str, Any]:
+    context = _request_context.get()
+    if not context:
+        return {}
+    return {
+        name: context.get(name)
+        for name in ("request_id", "user_id", "session_id", "correlation_id")
+    }
+
+
+@contextmanager
+def _request_scope(**context):
+    token = _request_context.set({**(_request_context.get() or {}), **context})
+    try:
+        yield
+    finally:
+        _request_context.reset(token)
 
 
 class MartyStructuredLogger:
@@ -87,23 +107,13 @@ class MartyStructuredLogger:
 
         # Custom processor for request tracing
         def add_request_context(logger, method_name, event_dict):
-            # Add request context from global storage
-            global _request_context
-            if _request_context:
-                event_dict.update(
-                    {
-                        "request_id": _request_context.get("request_id"),
-                        "user_id": _request_context.get("user_id"),
-                        "session_id": _request_context.get("session_id"),
-                        "correlation_id": _request_context.get("correlation_id"),
-                    }
-                )
+            event_dict.update(_request_fields())
             return event_dict
 
         # Configure structlog
         structlog.configure(
             processors=[
-                structlog.threadlocal.merge_contextvars,
+                structlog.contextvars.merge_contextvars,
                 add_service_context,
                 add_request_context,
                 structlog.processors.TimeStamper(fmt="ISO"),
@@ -124,17 +134,21 @@ class MartyStructuredLogger:
     def _setup_standard_logging(self):
         """Configure standard Python logging with JSON formatting."""
 
+        service_fields = {
+            "service": self.service_name,
+            "version": self.version,
+            "environment": self.environment,
+            "hostname": self.hostname,
+            "pid": self.pid,
+        }
+
         # Create custom JSON formatter
         class MartyJSONFormatter(jsonlogger.JsonFormatter):
             def add_fields(self, log_record, record, message_dict):
                 super().add_fields(log_record, record, message_dict)
 
                 # Add service context
-                log_record["service"] = self.service_name
-                log_record["version"] = self.version
-                log_record["environment"] = self.environment
-                log_record["hostname"] = self.hostname
-                log_record["pid"] = self.pid
+                log_record.update(service_fields)
 
                 # Add timestamp in ISO format
                 if not log_record.get("timestamp"):
@@ -149,17 +163,7 @@ class MartyStructuredLogger:
                 log_record["line"] = record.lineno
                 log_record["function"] = record.funcName
 
-                # Add request context if available
-                global _request_context
-                if _request_context:
-                    log_record.update(
-                        {
-                            "request_id": _request_context.get("request_id"),
-                            "user_id": _request_context.get("user_id"),
-                            "session_id": _request_context.get("session_id"),
-                            "correlation_id": _request_context.get("correlation_id"),
-                        }
-                    )
+                log_record.update(_request_fields())
 
                 # Add OpenTelemetry trace context if available
                 current_span = trace.get_current_span()
@@ -219,22 +223,15 @@ class MartyStructuredLogger:
 
     def set_request_context(self, **context):
         """Set request context for logging."""
-        global _request_context
-        _request_context.update(context)
+        _request_context.set({**(_request_context.get() or {}), **context})
 
     def clear_request_context(self):
         """Clear request context."""
-        global _request_context
-        _request_context.clear()
+        _request_context.set(None)
 
-    @contextmanager
     def request_context(self, **context):
         """Context manager for request-scoped logging context."""
-        self.set_request_context(**context)
-        try:
-            yield
-        finally:
-            self.clear_request_context()
+        return _request_scope(**context)
 
 
 class PerformanceLogger:
@@ -448,88 +445,43 @@ class LoggingMiddleware:
         # Extract request info
         method = scope["method"]
         path = scope["path"]
-        client_ip = scope.get("client", ["unknown"])[0]
+        client = scope.get("client")
+        client_ip = client[0] if client else "unknown"
 
         # Generate request ID
         request_id = f"{int(time.time() * 1000)}-{id(scope)}"
 
-        # Set request context
-        logging_instance = setup_logging_for_service("middleware")
-        logging_instance.set_request_context(
+        with _request_scope(
             request_id=request_id, client_ip=client_ip, method=method, path=path
-        )
+        ):
+            start_time = time.time()
 
-        start_time = time.time()
+            # Intercept response
+            response_status = 500
+            response_size = 0
 
-        # Intercept response
-        response_status = 500
-        response_size = 0
+            async def send_wrapper(message):
+                nonlocal response_status, response_size
+                if message["type"] == "http.response.start":
+                    response_status = message["status"]
+                elif message["type"] == "http.response.body":
+                    if "body" in message:
+                        response_size += len(message["body"])
+                await send(message)
 
-        async def send_wrapper(message):
-            nonlocal response_status, response_size
-            if message["type"] == "http.response.start":
-                response_status = message["status"]
-            elif message["type"] == "http.response.body":
-                if "body" in message:
-                    response_size += len(message["body"])
-            await send(message)
-
-        try:
-            await self.app(scope, receive, send_wrapper)
-        except Exception as e:
-            self.logger.exception("request_error", error=str(e), error_type=type(e).__name__)
-            raise
-        finally:
-            # Log request performance
-            response_time = time.time() - start_time
-            self.performance_logger.log_request(
-                method=method,
-                endpoint=path,
-                status_code=response_status,
-                response_time=response_time,
-                response_size=response_size,
-                client_ip=client_ip,
-            )
-
-            # Clear request context
-            logging_instance.clear_request_context()
-
-
-# Example usage functions
-def example_usage():
-    """Example of how to use the centralized logging system."""
-
-    # Set up logging for a service
-    logging_config = setup_logging_for_service("example_service")
-    logger = logging_config.get_logger()
-
-    # Create specialized loggers
-    perf_logger = PerformanceLogger(logger)
-    security_logger = SecurityLogger(logger)
-    business_logger = BusinessLogger(logger)
-
-    # Basic logging
-    logger.info("Service started", port=8080, workers=4)
-    logger.warning("High memory usage detected", memory_usage="85%")
-    logger.error("Database connection failed", error="Connection timeout")
-
-    # Performance logging
-    perf_logger.log_request("GET", "/api/documents", 200, 0.145, response_size=1024)
-    perf_logger.log_database_query("SELECT", "documents", 0.025, rows_affected=10)
-
-    # Security logging
-    security_logger.log_authentication("user123", True, "password", "192.168.1.1")
-    security_logger.log_authorization("user123", "/api/admin", "read", False)
-
-    # Business logging
-    business_logger.log_document_processed("doc123", "passport", 2.5, True)
-    business_logger.log_verification_result("doc123", "mrz", "valid", 0.98)
-
-    # Using request context
-    with logging_config.request_context(request_id="req-123", user_id="user456"):
-        logger.info("Processing user request")
-        business_logger.log_document_processed("doc456", "id_card", 1.8, True)
-
-
-if __name__ == "__main__":
-    example_usage()
+            try:
+                await self.app(scope, receive, send_wrapper)
+            except Exception as e:
+                self.logger.exception("request_error", error=str(e), error_type=type(e).__name__)
+                raise
+            finally:
+                # Log request performance
+                response_time = time.time() - start_time
+                self.performance_logger.log_request(
+                    method=method,
+                    endpoint=path,
+                    status_code=response_status,
+                    response_time=response_time,
+                    response_size=response_size,
+                    client_ip=client_ip,
+                )

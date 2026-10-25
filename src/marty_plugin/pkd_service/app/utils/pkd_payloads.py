@@ -138,7 +138,7 @@ def _decode_raw_certificates(data: bytes) -> list[Certificate]:
 
     try:
         certs.append(decode_certificate(data))
-    except Exception:
+    except Exception:  # nosec B110 -- Non-certificate binary returns no certificates, never validated trust evidence.
         pass
 
     return certs

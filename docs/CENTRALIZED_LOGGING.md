@@ -115,3 +115,37 @@ monitoring APIs and their consumers; qualify real dependency readiness,
 request/interceptor metrics, alert callbacks, graceful startup/shutdown and
 degraded health with current-owner tests. Synthetic counter increments and
 source examples are not service acceptance.
+
+
+## Consolidated compatibility logging
+
+The [consolidated module](../packages/marty-common/marty_common/logging/consolidated_logging.py)
+also retains `ServiceLogger`, `PerformanceTimer`, and `LoggingMixin.init_logging`
+for existing Python consumers. For example:
+
+```python
+from marty_common.logging import ServiceLogger, PerformanceTimer
+
+logger = ServiceLogger("compatibility_worker", __name__)
+with PerformanceTimer(logger, "synthetic_operation"):
+    logger.log_request_start("synthetic-request", "synthetic_operation")
+    logger.log_request_end("synthetic-request", "synthetic_operation", success=True)
+```
+
+Existing services using the mixin can call `init_logging(service_name)` during
+initialization. These helpers provide local context and timing; they do not
+establish collector ingestion, production readiness, or complete event coverage.
+
+
+Request context in the retained structured logger is local to the current
+execution context. Updates copy the current values, nested scopes restore the
+outer context even after exceptions, and clearing one request does not clear
+another task or thread. Both structured and standard JSON outputs use the same
+request/user/session/correlation field projection, including absent values as
+`null` inside a nonempty context. Arbitrary context keys are not added to events.
+Child tasks inherit their parent's context snapshot; detached work must clear or
+replace it deliberately. `LoggingMiddleware` uses its injected logger without
+rebuilding process-wide handlers on each request. The shared context scope remains active through error
+and performance events and restores its parent even on cancellation or logging
+failure. This does not change explicit logger setup elsewhere, the separate
+`RequestLoggingMiddleware`, or qualify multi-service configuration and ingestion.

@@ -3,7 +3,7 @@
 
 import logging
 import re
-import subprocess
+import subprocess  # nosec B404 -- Reviewed tool invocations below use argv without a shell.
 import sys
 from pathlib import Path
 
@@ -55,7 +55,7 @@ def main() -> bool:
             logger.error("No protocol definitions found in %s", PROTO_DIR)
             return False
         OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-        subprocess.run(
+        subprocess.run(  # nosec B603 -- Validated compiler/scanner argv; shell is disabled.
             [
                 sys.executable, "-m", "grpc_tools.protoc",
                 f"--proto_path={PROTO_DIR}",

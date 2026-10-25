@@ -11,8 +11,6 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
 
-import pytest
-
 
 class ChaosType(str, Enum):
     """Types of chaos that can be injected."""
@@ -52,7 +50,7 @@ class ChaosInjector:
         if not config.enabled:
             return
 
-        if random.random() > config.probability:
+        if random.random() > config.probability:  # nosec B311 -- Synthetic chaos selection or retry jitter; never key/token generation.
             return
 
         self.active_chaos[target] = config
@@ -121,12 +119,12 @@ class ChaosInjector:
             AuthorizationError("Random authorization error"),
         ]
 
-        error = random.choice(errors)
+        error = random.choice(errors)  # nosec B311 -- Synthetic chaos selection or retry jitter; never key/token generation.
         raise error
 
     async def _inject_intermittent_failures(self, config: ChaosConfig) -> None:
         """Inject intermittent failures that come and go."""
-        if random.random() < config.intensity:
+        if random.random() < config.intensity:  # nosec B311 -- Synthetic chaos selection or retry jitter; never key/token generation.
             from marty_common.resilience.enhanced_errors import TransientError
 
             raise TransientError("Intermittent failure injection")
@@ -331,7 +329,7 @@ class ResilienceTestSuite:
                     results["fallback_used"] += 1
                 else:
                     results["primary_successes"] += 1
-            except Exception:
+            except Exception:  # nosec B110 -- Expected injected failure; request totals already include this failed trial.
                 pass
 
         # Trigger degradation by injecting failures
@@ -354,7 +352,7 @@ class ResilienceTestSuite:
                         results["fallback_used"] += 1
                     else:
                         results["primary_successes"] += 1
-            except Exception:
+            except Exception:  # nosec B110 -- Expected injected failure; request totals already include this failed trial.
                 pass
 
         self.test_results["graceful_degradation"] = results
@@ -470,121 +468,6 @@ class ResilienceTestSuite:
             "chaos_history": self.chaos_injector.get_chaos_history(),
             "total_tests_run": len(self.test_results),
         }
-
-
-# Pytest fixtures and test cases
-@pytest.fixture
-async def resilience_test_suite():
-    """Fixture providing a resilience test suite."""
-    return ResilienceTestSuite()
-
-
-@pytest.fixture
-async def simple_operation():
-    """Simple operation for testing."""
-
-    async def operation():
-        await asyncio.sleep(0.01)  # Simulate some work
-        return "success"
-
-    return operation
-
-
-@pytest.mark.asyncio
-async def test_circuit_breaker_resilience(resilience_test_suite, simple_operation):
-    """Test circuit breaker resilience patterns."""
-    results = await resilience_test_suite.test_circuit_breaker_resilience(simple_operation)
-
-    # Verify circuit breaker opened
-    assert results["circuit_opened"], "Circuit breaker should have opened"
-    assert results["circuit_breaker_rejections"] > 0, "Should have rejected requests when open"
-
-    # Verify some recovery
-    assert results["circuit_recovered"], "Circuit breaker should have recovered"
-
-
-@pytest.mark.asyncio
-async def test_retry_resilience(resilience_test_suite, simple_operation):
-    """Test retry mechanism resilience."""
-    results = await resilience_test_suite.test_retry_resilience(simple_operation)
-
-    # Verify retries occurred
-    assert results["total_retries"] > 0, "Should have retried failed operations"
-    assert results["successes"] > 0, "Should have eventually succeeded"
-
-
-@pytest.mark.asyncio
-async def test_graceful_degradation(resilience_test_suite, simple_operation):
-    """Test graceful degradation patterns."""
-
-    async def fallback_operation():
-        return "fallback_response"
-
-    results = await resilience_test_suite.test_graceful_degradation(
-        simple_operation, fallback_operation
-    )
-
-    # Verify degradation and fallback
-    assert results["degradation_triggered"], "Degradation should have been triggered"
-    assert results["fallback_used"] > 0, "Fallback should have been used"
-
-
-@pytest.mark.asyncio
-async def test_comprehensive_resilience(resilience_test_suite, simple_operation):
-    """Comprehensive end-to-end resilience test."""
-    results = await resilience_test_suite.test_end_to_end_resilience(simple_operation)
-
-    # Verify comprehensive resilience
-    assert len(results["scenarios_tested"]) >= 3, "Should test multiple scenarios"
-    assert (
-        results["successes"] + results["fallbacks_used"] > 0
-    ), "Should have some successful outcomes"
-
-    # Get test summary
-    summary = resilience_test_suite.get_test_summary()
-    assert summary["total_tests_run"] >= 1, "Should have run tests"
-
-
-if __name__ == "__main__":
-    # Example usage
-    async def main():
-        suite = ResilienceTestSuite()
-
-        async def test_operation():
-            await asyncio.sleep(0.01)
-            return {"status": "success", "data": "test_data"}
-
-        print("Running chaos engineering tests...")
-
-        # Test circuit breaker
-        print("\\nTesting Circuit Breaker...")
-        cb_results = await suite.test_circuit_breaker_resilience(test_operation)
-        print(f"Circuit Breaker Results: {cb_results}")
-
-        # Test retry mechanisms
-        print("\\nTesting Retry Mechanisms...")
-        retry_results = await suite.test_retry_resilience(test_operation)
-        print(f"Retry Results: {retry_results}")
-
-        # Test graceful degradation
-        print("\\nTesting Graceful Degradation...")
-
-        async def fallback_op():
-            return {"status": "degraded", "data": "fallback_data"}
-
-        degradation_results = await suite.test_graceful_degradation(test_operation, fallback_op)
-        print(f"Degradation Results: {degradation_results}")
-
-        # Comprehensive test
-        print("\\nRunning Comprehensive Test...")
-        e2e_results = await suite.test_end_to_end_resilience(test_operation)
-        print(f"End-to-End Results: {e2e_results}")
-
-        # Summary
-        summary = suite.get_test_summary()
-        print(f"\\nTest Summary: {summary}")
-
-    asyncio.run(main())
 
 
 __all__ = [

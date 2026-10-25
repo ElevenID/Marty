@@ -33,16 +33,17 @@ This security policy applies to:
 
 The compatibility repository retains these configured controls:
 
-- [Bandit pre-commit hook](../.pre-commit-config.yaml), pinned to
-  [1.9.4](https://github.com/PyCQA/bandit/releases/tag/1.9.4), recursively scans
-  current `src` and `packages/marty-common/marty_common` sources. Scanner
-  exclusions live in [pyproject.toml](../pyproject.toml); tests and both generated
-  protobuf namespaces are excluded. Existing rule selection remains explicit
-  in the hook, with narrow reviewed annotations for false positives.
+- [Bandit local hook](../.pre-commit-config.yaml), manual code scan and required
+  [CI lane](../.github/workflows/ci.yml) use one fail-closed runner. The exact
+  [1.9.4](https://github.com/PyCQA/bandit/releases/tag/1.9.4) pin and `src`,
+  `packages/marty-common/marty_common`, `scripts` targets live in
+  [pyproject.toml](../pyproject.toml). Tests and both generated protobuf
+  namespaces are excluded recursively. All plugins are enabled; exceptions
+  are specific reviewed source lines, not global skips or a report baseline.
 - The same pre-commit configuration retains detect-secrets, but its configured
   baseline is absent from this tree and needs explicit review/provisioning.
   The manual scanner can scan tracked files without approving a baseline.
-  Running or installing hooks is distinct from CI enforcement.
+  That separate hook is not established as a required CI control.
 - [CodeQL](../.github/workflows/codeql.yml) runs Python analysis through the
   organization workflow. [Organization quality](../.github/workflows/organization-quality.yml)
   configures workflow validation and dependency review.
@@ -61,7 +62,46 @@ uv run --no-project --with pre-commit==4.3.0 pre-commit run bandit --all-files
 
 See [check ownership](features/compatibility-check-ownership.md) for execution
 and coverage limits. A finding, failed scanner or skipped check is not a pass.
-Keep generated scan output in ignored directories or bounded CI artifacts.
+The local hook and CI remove temporary output with `--ephemeral`. Retained
+manual reports belong in ignored private directories with bounded retention.
+See the real scope/finding/syntax-error/hook probes in
+[bandit_gate_test.py](../tests/unit/bandit_gate_test.py).
+
+### Bandit exceptions and runtime qualification
+
+Each `nosec` annotation names its rule and rationale, so changes require normal
+source review. Public protocol/error identifiers, invalid test inputs, retry
+jitter, synthetic chaos, packaged pytest assertions, representation detection
+and validated shell-free tool invocations are distinguished from security
+credentials, trust decisions and executable shell input. New occurrences of
+these rules remain enabled and are exercised by negative probes.
+
+Some retained compatibility behavior is explicitly unqualified, rather than a
+false positive or a completed security feature:
+
+- Legacy gRPC authorization now consumes request-local identity from the
+  authentication interceptor. JWT signatures and issuer/audience/time claims
+  use Rust validation; mTLS identity comes from verified gRPC transport state.
+  Unverified decoded claims and forwarded certificate headers are rejected.
+  No tracked production server wires this compatibility interceptor today;
+  deployed enforcement still needs explicit service-owner qualification. See
+  [authentication configuration](features/compatibility-consolidation.md#grpc-authentication-and-authorization).
+- Metrics/trust-service listeners default to loopback; an explicit non-loopback
+  bind still requires private-network exposure and access-control qualification.
+  The uncalled example configuration factories and PKD dictionary adapter are
+  retired; their unique deployment/provider requirements remain in
+  [configuration ownership](features/compatibility-consolidation.md#configuration-and-listener-ownership).
+- The legacy Python mDoc adapter rejects missing, invalid or unrecordable
+  signatures before ACTIVE and verifies current document bytes with Rust.
+  It has no tracked production construction. Managed signer/profile provenance,
+  tenant isolation, key-version lifecycle, durable storage and ISO mDoc issuance
+  remain with the Rust owner. The injected public profiles are not evidence of
+  KMS custody; the unsigned signer timestamp is not trusted issuance time. See
+  [mDoc scope](features/compatibility-consolidation.md#mdoc-signing-compatibility).
+
+Bandit passing means the declared static-analysis policy completed. It does not
+resolve these runtime/deployment obligations, prove Rust parity, or establish
+managed KMS custody.
 
 The unconsumed security-automation and alternate Bandit YAML files are retired.
 Their enabled flags did not configure current hooks or workflows.
@@ -104,7 +144,7 @@ or qualified; keep remaining evidence and operational work open with its owner.
 The [manual security scanner](../scripts/security_scan.py) runs selected checks
 and returns 0 for recognized clean results, 1 for findings, and 2 for unavailable,
 failed, malformed or incomplete scans. The shell entry point forwards its exit
-status. It reads Bandit's version and arguments from the maintained hook,
+status. It reads Bandit's version, source scope and exclusions from `pyproject.toml`,
 requires explicit container/filesystem targets, and never builds the retired
 Compose stack or globally installs scanners. See
 [scanner usage and limits](features/compatibility-consolidation.md).

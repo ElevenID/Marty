@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from datetime import date
 from pathlib import Path
 
@@ -32,21 +33,12 @@ from marty_plugin.shared.vds_nc import (
 from marty_plugin.shared.vds_nc import native as native_adapter
 
 
-def _pem_pair(key: ec.EllipticCurvePrivateKey | rsa.RSAPrivateKey) -> tuple[str, str]:
-    private_pem = key.private_bytes(
-        serialization.Encoding.PEM,
-        serialization.PrivateFormat.PKCS8,
-        serialization.NoEncryption(),
-    ).decode()
-    public_pem = (
-        key.public_key()
-        .public_bytes(
-            serialization.Encoding.PEM,
-            serialization.PublicFormat.SubjectPublicKeyInfo,
+def _profile(name: str):
+    return json.loads(
+        (Path(__file__).parents[2] / "fixtures/vds_nc_public_profiles.json").read_text(
+            encoding="utf-8"
         )
-        .decode()
-    )
-    return private_pem, public_pem
+    )[name]
 
 
 def _cmc_claims() -> dict[str, object]:
@@ -89,34 +81,15 @@ def _visa() -> Visa:
 
 @pytest.mark.unit
 @pytest.mark.security
-@pytest.mark.parametrize(
-    ("key", "algorithm"),
-    [
-        (ec.generate_private_key(ec.SECP256R1()), SignatureAlgorithm.ES256),
-        (
-            rsa.generate_private_key(public_exponent=65537, key_size=2048),
-            SignatureAlgorithm.PS256,
-        ),
-    ],
-)
-def test_processor_round_trip_uses_native_signature_and_component_policy(
-    key: ec.EllipticCurvePrivateKey | rsa.RSAPrivateKey,
-    algorithm: SignatureAlgorithm,
-) -> None:
-    private_pem, public_pem = _pem_pair(key)
-    issuer = VDSNCProcessor(
-        private_key_pem=private_pem,
-        signer_id="TESTSGN",
-        certificate_reference="TESTCERT001",
-    )
-    document = issuer.create_vds_nc_document(
-        DocumentType.CMC,
-        "AUS",
-        _cmc_claims(),
-        algorithm,
-    )
+@pytest.mark.parametrize("profile_name", ["cmc_es256", "cmc_ps256"])
+def test_processor_verifies_public_signed_vector_and_component_policy(profile_name):
+
+    fixture = _profile(profile_name)
+    public_pem = fixture["public_key_pem"]
+    algorithm = SignatureAlgorithm(fixture["algorithm"])
+    barcode_data = fixture["barcode_data"]
     result = VDSNCProcessor(public_keys={"TESTSGN": public_pem}).verify_vds_nc_document(
-        document.barcode_data,
+        barcode_data,
         {"surname": "example"},
     )
 
@@ -129,6 +102,7 @@ def test_processor_round_trip_uses_native_signature_and_component_policy(
         "native_backend": "_marty_rs",
         "algorithm": algorithm.value,
     }
+    document = result.document
     assert document.verify_signature(public_pem)
     assert document.validate_field_consistency({"surname": "changed"}) == [
         "VDS_NC.FIELD_MISMATCH: surname"
@@ -142,13 +116,9 @@ def test_malformed_and_missing_key_inputs_fail_closed() -> None:
     assert not malformed.is_valid
     assert malformed.errors
 
-    private_pem, _ = _pem_pair(ec.generate_private_key(ec.SECP256R1()))
-    document = VDSNCProcessor(
-        private_key_pem=private_pem,
-        signer_id="UNKNOWN",
-        certificate_reference="TESTCERT001",
-    ).create_vds_nc_document(DocumentType.CMC, "AUS", _cmc_claims())
-    result = VDSNCProcessor().verify_vds_nc_document(document.barcode_data)
+    result = VDSNCProcessor().verify_vds_nc_document(
+        _profile("cmc_es256")["barcode_data"]
+    )
     assert not result.is_valid
     assert not result.signature_valid
     assert any("Public key not found" in error for error in result.errors)
@@ -170,11 +140,10 @@ def test_missing_native_backend_never_invokes_a_python_fallback(
 @pytest.mark.unit
 @pytest.mark.security
 def test_visa_compatibility_view_retains_signed_policy_constraints() -> None:
-    private_pem, public_pem = _pem_pair(ec.generate_private_key(ec.SECP256R1()))
+    fixture = _profile("visa_es256")
     visa = _visa()
-    encoded = VDSNCEncoder.encode_vds_nc(visa, "VISASGN", private_pem)
     decoded, signature_valid = VDSNCDecoder.decode_vds_nc(
-        encoded.barcode_data, public_pem
+        fixture["barcode_data"], fixture["public_key_pem"]
     )
 
     assert signature_valid
