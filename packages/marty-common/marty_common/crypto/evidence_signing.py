@@ -15,6 +15,7 @@ Key Features:
 
 from __future__ import annotations
 
+import asyncio
 import json
 import uuid
 from dataclasses import dataclass
@@ -164,31 +165,37 @@ class EvidenceChain:
 
     def add_evidence(self, evidence: SignedEvidence) -> None:
         """Add evidence to the chain."""
-        # Update chain hash in metadata if needed
-        if self._last_hash and evidence.evidence.metadata.chain_hash is None:
-            evidence.evidence.metadata.chain_hash = self._last_hash
+        if evidence.evidence.metadata.chain_hash != self._last_hash:
+            raise ValueError("Evidence chain predecessor does not match the current head")
+        if self._compute_evidence_hash(evidence.evidence) != evidence.evidence_hash:
+            raise ValueError("Evidence content does not match its signed hash")
 
         self.entries.append(evidence)
         self._last_hash = evidence.evidence_hash
 
+    @property
+    def head_hash(self) -> str | None:
+        """Return the predecessor to bind before hashing and signing an entry."""
+        return self._last_hash
+
     def verify_chain_integrity(self) -> bool:
         """Verify the integrity of the evidence chain."""
         if not self.entries:
-            return True
+            return self._last_hash is None
 
-        for i, entry in enumerate(self.entries):
+        previous_hash = None
+        for entry in self.entries:
             # Verify evidence hash
             computed_hash = self._compute_evidence_hash(entry.evidence)
             if computed_hash != entry.evidence_hash:
                 return False
 
             # Verify chain linkage
-            if i > 0:
-                expected_chain_hash = self.entries[i - 1].evidence_hash
-                if entry.evidence.metadata.chain_hash != expected_chain_hash:
-                    return False
+            if entry.evidence.metadata.chain_hash != previous_hash:
+                return False
+            previous_hash = entry.evidence_hash
 
-        return True
+        return self._last_hash == previous_hash
 
     def _compute_evidence_hash(self, evidence: VerificationEvidence) -> str:
         """Compute SHA-256 hash of evidence data."""
@@ -214,6 +221,7 @@ class EvidenceSigner:
         self.kms_manager = kms_manager
         self.service_id = service_id
         self.evidence_chain = EvidenceChain()
+        self._signing_lock = asyncio.Lock()
 
         # Create evidence signing key identity
         self.evidence_key_identity = create_evidence_key_identity(service_id)
@@ -243,59 +251,63 @@ class EvidenceSigner:
     ) -> SignedEvidence:
         """Sign a verification outcome to create tamper-evident evidence."""
 
-        # Create evidence metadata
-        evidence_id = str(uuid.uuid4())
-        timestamp = datetime.now(UTC)
+        async with self._signing_lock:
+            # Create evidence metadata
+            evidence_id = str(uuid.uuid4())
+            timestamp = datetime.now(UTC)
 
-        metadata = EvidenceMetadata(
-            evidence_id=evidence_id,
-            evidence_type=evidence_type,
-            timestamp=timestamp,
-            signer_id=self.service_id,
-            correlation_id=correlation_id,
-        )
+            metadata = EvidenceMetadata(
+                evidence_id=evidence_id,
+                evidence_type=evidence_type,
+                timestamp=timestamp,
+                signer_id=self.service_id,
+                correlation_id=correlation_id,
+                chain_hash=self.evidence_chain.head_hash,
+            )
 
-        # Create verification evidence
-        evidence = VerificationEvidence(
-            metadata=metadata,
-            subject=subject,
-            verification_method=verification_method,
-            outcome=outcome,
-            details=details,
-            errors=errors or [],
-            warnings=warnings or [],
-            context=context,
-        )
+            # Create verification evidence
+            evidence = VerificationEvidence(
+                metadata=metadata,
+                subject=subject,
+                verification_method=verification_method,
+                outcome=outcome,
+                details=details,
+                errors=errors or [],
+                warnings=warnings or [],
+                context=context,
+            )
 
-        # Compute evidence hash
-        evidence_hash = crypto_bridge.sha256(evidence.to_json().encode("utf-8")).hex()
+            # Compute evidence hash
+            evidence_hash = crypto_bridge.sha256(evidence.to_json().encode("utf-8")).hex()
 
-        # Sign the evidence hash
-        signature = await self.kms_manager.sign_with_role_validation(
-            key_identity=self.evidence_key_identity,
-            data=evidence_hash.encode("utf-8"),
-            requesting_role=CryptoRole.EVIDENCE,
-            algorithm="SHA256",
-        )
+            # Sign the evidence hash
+            signature = await self.kms_manager.sign_with_role_validation(
+                key_identity=self.evidence_key_identity,
+                data=evidence_hash.encode("utf-8"),
+                requesting_role=CryptoRole.EVIDENCE,
+                algorithm="SHA256",
+            )
 
-        # Create signed evidence
-        signed_evidence = SignedEvidence(
-            evidence=evidence,
-            signature=signature,
-            signature_algorithm="ES256",
-            signer_key_id=self.evidence_key_identity.full_key_id,
-            signature_timestamp=timestamp,
-            evidence_hash=evidence_hash,
-        )
+            # Create signed evidence
+            signed_evidence = SignedEvidence(
+                evidence=evidence,
+                signature=signature,
+                signature_algorithm="ES256",
+                signer_key_id=self.evidence_key_identity.full_key_id,
+                signature_timestamp=timestamp,
+                evidence_hash=evidence_hash,
+            )
 
-        # Add to evidence chain
-        self.evidence_chain.add_evidence(signed_evidence)
+            # Add to evidence chain
+            self.evidence_chain.add_evidence(signed_evidence)
 
-        return signed_evidence
+            return signed_evidence
 
     async def verify_evidence_signature(self, signed_evidence: SignedEvidence) -> bool:
         """Verify the signature on a piece of evidence."""
         try:
+            if self.evidence_chain._compute_evidence_hash(signed_evidence.evidence) != signed_evidence.evidence_hash:
+                return False
             # Get the public key for verification
             public_key_pem = await self.kms_manager.get_public_key_for_verification(
                 key_identity=self.evidence_key_identity, requesting_role=CryptoRole.VERIFIER
@@ -344,11 +356,16 @@ class EvidenceSigner:
         return self.evidence_chain
 
     def export_evidence_chain(self, format: EvidenceFormat = EvidenceFormat.JSON) -> str:
-        """Export the evidence chain in the specified format."""
+        """Export entries and head; pin the head independently before archive verification.
+
+        The export is not self-authenticating: a truncated export can also alter
+        its included head. Verifiers must use a trusted external head checkpoint.
+        """
         if format == EvidenceFormat.JSON:
             chain_data = {
                 "chain_metadata": {
                     "total_entries": len(self.evidence_chain.entries),
+                    "head_hash": self.evidence_chain.head_hash,
                     "export_timestamp": datetime.now(UTC).isoformat(),
                     "signer_service": self.service_id,
                 },
@@ -397,8 +414,12 @@ class EvidenceVerifier:
         except Exception:
             return False
 
-    async def verify_evidence_chain(self, evidence_chain: EvidenceChain) -> bool:
-        """Verify an entire evidence chain."""
+    async def verify_evidence_chain(
+        self, evidence_chain: EvidenceChain, *, expected_head_hash: str | None
+    ) -> bool:
+        """Verify a chain against a head authenticated outside the chain export."""
+        if evidence_chain.head_hash != expected_head_hash:
+            return False
         # Verify chain integrity
         if not evidence_chain.verify_chain_integrity():
             return False
@@ -479,33 +500,3 @@ async def example_audit_trail_creation(evidence_signer: EvidenceSigner):
     print(f"Created audit trail with {len(related_evidence)} evidence entries")
 
     return related_evidence
-
-
-if __name__ == "__main__":
-    import asyncio
-
-    from .kms_provider import KMSProvider, create_kms_manager
-
-    async def main():
-        # Create KMS manager
-        kms = create_kms_manager(KMSProvider.SOFTWARE_HSM)
-
-        # Create evidence signer
-        evidence_signer = EvidenceSigner(kms, "verification_service_001")
-        await evidence_signer.initialize()
-
-        # Example usage
-        await example_document_verification_evidence(evidence_signer)
-        await example_audit_trail_creation(evidence_signer)
-
-        # Export evidence chain
-        chain_export = evidence_signer.export_evidence_chain()
-        print("Evidence chain exported:")
-        print(chain_export[:500] + "..." if len(chain_export) > 500 else chain_export)
-
-        # Verify evidence chain
-        verifier = EvidenceVerifier(kms)
-        is_valid = await verifier.verify_evidence_chain(evidence_signer.get_evidence_chain())
-        print(f"Evidence chain verification: {'VALID' if is_valid else 'INVALID'}")
-
-    asyncio.run(main())
