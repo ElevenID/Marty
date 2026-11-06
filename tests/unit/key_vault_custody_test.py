@@ -7,7 +7,7 @@ from unittest.mock import Mock
 import pytest
 
 from marty_common.infrastructure import key_vault
-from marty_common.native_backends import NativeOperationError
+from marty_common.infrastructure.key_vault import KeyVaultOperationError
 
 
 @pytest.mark.parametrize("provider", [None, "", "  ", "file", "FILE"])
@@ -22,7 +22,7 @@ def test_missing_or_file_provider_rejects_before_directory_or_client_access(
     with monkeypatch.context() as context:
         context.setattr(key_vault.Path, "mkdir", forbidden)
         error = (
-            NativeOperationError
+            KeyVaultOperationError
             if provider and provider.strip().lower() == "file"
             else ValueError
         )
@@ -36,7 +36,7 @@ def test_missing_or_file_provider_rejects_before_directory_or_client_access(
 def test_retired_file_constructor_does_not_touch_existing_key_data(tmp_path):
     (tmp_path / "old.pem").write_bytes(b"private-data-remains-untouched")
     before = {p.name: p.read_bytes() for p in tmp_path.iterdir()}
-    with pytest.raises(NativeOperationError, match="custody is retired"):
+    with pytest.raises(KeyVaultOperationError, match="custody is retired"):
         key_vault.FileKeyVaultClient(str(tmp_path))
     assert before == {p.name: p.read_bytes() for p in tmp_path.iterdir()}
 

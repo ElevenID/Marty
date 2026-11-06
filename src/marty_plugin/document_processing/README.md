@@ -1,5 +1,9 @@
 # Document Processing compatibility API
 
+> **Historical record:** this Python implementation is retired. Retained schemas,
+> migrations and data do not provide a running service. Use the repository README
+> and `docs/features/python-identity-retirement.md` for current ownership.
+
 `POST /api/process` uses `DocumentProcessingCoordinator` for image decoding,
 optional OpenCV deskew and region estimation, Tesseract OCR, and Rust MRZ parsing
 and checksum validation. TD1, TD2 and TD3 parsing are delegated to the native

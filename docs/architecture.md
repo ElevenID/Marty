@@ -1,4 +1,4 @@
-# Marty Compatibility Architecture
+# Marty infrastructure and Rust ownership
 
 > **Current boundary:** this repository is not a deployable Python
 > microservice stack. Do not use the historical service ports, YAML service
@@ -8,30 +8,20 @@
 
 ## Repository role
 
-This repository has two supported purposes:
+This repository publishes `marty-common` shared infrastructure and retains
+source schemas, migration/data records and capability requirements. The audited
+Python identity runtime and root `marty-identity-compat` distribution are removed;
+there is no Python plugin, service image, Helm chart or Kubernetes deployment.
 
-1. publish the independently versioned `marty-common` Python compatibility
-   package; and
-2. retain language bindings, schemas, and compatibility adapters until a
-   consumer audit and language-neutral parity tests prove that they can be
-   removed.
-
-The root `marty-identity-compat` project is a packaging and test harness. It has
-no supported root service launcher, Python plugin entry point, container image,
-Helm chart, or Kubernetes deployment.
+Billing and commerce still use service setup, database sessions, domain events
+and Cedar decisions. Their transitive infrastructure dependencies remain, with
+no Core wheel requirement. Current Core 0.2 native bindings belong to Core's
+SDK/conformance consumers and are unaffected. See the
+[consumer audit and retirement boundary](features/python-identity-retirement.md).
 
 ## Canonical Rust ownership
 
-```mermaid
-flowchart LR
-    C[Consumers] --> U[marty-ui Rust services]
-    U --> F[marty-microservices-framework crates]
-    U --> R[marty-credentials crates]
-    F --> K[marty-core kernels]
-    R --> K
-    P[Marty Python compatibility] -->|released native bindings| K
-    P -->|schemas and fail-closed adapters| C
-```
+
 
 | Capability | Canonical owner | Current implementation boundary |
 | --- | --- | --- |
@@ -42,7 +32,7 @@ flowchart LR
 | Document and presentation verification | `marty-ui` `verification` and `presentation-policy`, `marty-core` | Rust services and native verification bindings |
 | Reusable service runtime, policy, storage, telemetry, and transport behavior | `marty-microservices-framework` | Shared Rust crates and language-neutral behavior contracts |
 | Production deployment composition | `marty-ui` | Versioned Rust service images and deployment manifests |
-| Python compatibility package | this repository | Thin native bindings, retained DTOs/schemas, and fail-closed adapters |
+| Shared Python infrastructure | this repository | Billing/commerce infrastructure, DTOs, source schemas and migration records; no identity runtime |
 
 ## Legacy capability disposition
 
@@ -52,20 +42,18 @@ this repository does not imply that a server with that name is deployed.
 
 | Historical family | Disposition | What remains here |
 | --- | --- | --- |
-| `csca_service` | Executable Python service retired after Rust parity gates | Generated protobuf compatibility types only; certificate lifecycle behavior is Rust-owned |
-| `document_signer` | Executable Python service retired | Generated client types and adapters that delegate canonical signing input; no local signing fallback |
-| `passport_engine` | Executable Python service retired | Generated protobuf compatibility types; issuance and verification kernels are Rust-owned |
-| `inspection_system` | Executable Python service retired | Generated protobuf compatibility types; verification kernels are Rust-owned |
-| `dtc_engine` | Compatibility adapter retained pending consumer removal proof | Python orchestration delegates DTC canonicalization, assembly, and verification to Rust and fails closed |
-| `mdl_engine` / `mdoc_engine` | Compatibility DTO/service adapters retained pending audited replacement | Security-sensitive ISO 18013 behavior is required from the released Rust native backend |
-| `document_processing` | Compatibility coordinator retained pending audited replacement | MRZ/verification paths use native kernels; unavailable dependencies and mock backends fail closed |
-| `pkd_service` / trust adapters | Compatibility API and data orchestration retained pending audited replacement | ASN.1, CMS, certificate, master-list, CRL, and chain validation are Rust-owned and fail closed without the native backend |
-| `src/proto` and `src/marty_plugin/proto` | Retained language bindings | Generated wire schemas for compatibility consumers, not runtime ownership or endpoint availability |
+| `csca_service`, `document_signer`, `passport_engine`, `inspection_system` | Executable Python implementation retired | Generated schemas and historical qualification records |
+| `dtc_engine`, `mdl_engine`, `mdoc_engine`, `document_processing` | Unconsumed Python runtime/adapters retired | Source protocol types, records and explicit Rust-owner requirements; no claim of complete lifecycle parity |
+| `pkd_service` and trust adapters | Executable Python implementation retired | Certificate/CRL snapshots, SQL/migration records, schemas and trust requirements |
+| `src/proto` and `src/marty_plugin/proto` | Retained source-only schema namespaces | Generated wire types, not runtime ownership or endpoint availability |
 
-The retained adapters are not permission to reintroduce Python cryptographic
-or protocol kernels. They may translate DTOs, coordinate calls, or expose
-compatibility interfaces, but synthetic success and silent fallback are
-prohibited.
+## Historical qualification and retained requirements
+
+The following audit records describe the former compatibility implementation
+and preserve unfinished lifecycle/security requirements. Statements about a
+"retained adapter" below describe that earlier audit, not a supported Python
+runtime after retirement. The current disposition and live callers are recorded
+above and in [the retirement decision](features/python-identity-retirement.md).
 
 ## KMS-only compatibility refactoring
 

@@ -1,5 +1,12 @@
 # Managed key-vault migration
 
+> **Retirement update:** the Core 0.1 identity/crypto adapters and nondeployable
+> root runtime are removed. Shared infrastructure, managed-provider client
+> behavior, TLS/mTLS, DTOs and data records remain. This page preserves earlier
+> qualification evidence; use the [current retirement boundary](python-identity-retirement.md)
+> for supported APIs and Rust ownership. No automatic-issuance or JWT fallback
+> is introduced.
+
 File-backed private-key custody is retired in all environments. Selecting
 `provider=file` rejects before directory creation or key-file access. The old
 `FileKeyVaultClient` import remains as a constructor that rejects immediately;

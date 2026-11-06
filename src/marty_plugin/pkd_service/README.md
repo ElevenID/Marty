@@ -1,5 +1,9 @@
 # ICAO Public Key Directory (PKD) Service
 
+> **Historical record:** this Python implementation is retired. Retained schemas,
+> migrations and data do not provide a running service. Use the repository README
+> and `docs/features/python-identity-retirement.md` for current ownership.
+
 This service implements a RESTful API that mimics the functionality of the ICAO PKD (Public Key Directory),
 allowing for the management and distribution of certificates and other components needed for ePassport verification.
 

@@ -104,11 +104,6 @@ class MRZDataModel(BaseModel):
 
         return v
 
-    def generate_mrz_string(self) -> str:
-        """Generate TD3 MRZ string compliant with ICAO Doc 9303."""
-        from marty_common.utils.mrz_utils import MRZFormatter
-
-        return MRZFormatter.generate_td3_mrz(self)  # type: ignore[arg-type]
 
 
 class DataGroupModel(BaseModel):

@@ -1,4 +1,4 @@
-"""gRPC authentication backed by Rust JWT validation and verified TLS identity.
+"""gRPC authentication backed by verified TLS identity.
 
 No caller metadata can create a trusted identity. Authorization consumes the
 request-local context installed while the authenticated RPC handler executes.
@@ -7,16 +7,13 @@ request-local context installed while the authenticated RPC handler executes.
 from __future__ import annotations
 
 import inspect
-import json
 import logging
 import os
 from contextvars import ContextVar
-from pathlib import Path
 
 import grpc
 from grpc import aio as grpc_aio
 
-from marty_common.native_backends import load_native_backend
 
 LOGGER = logging.getLogger(__name__)
 
@@ -57,30 +54,12 @@ class AuthServerInterceptor(grpc_aio.ServerInterceptor):
     ):
         if not require_auth:
             raise ValueError("Authentication cannot be disabled; expose standard health RPCs separately")
-        if jwt_secret is not None or jwt_algorithm.startswith("HS"):
-            raise ValueError("Use Rust-validated asymmetric JWTs with public JWKS; shared-secret auth is retired")
-        if jwt_public_key is not None and jwt_jwks is not None:
-            raise ValueError("Supply public JWKS or a public PEM, not both")
-        if jwt_public_key is not None:
-            if not jwt_key_id:
-                raise ValueError("Public PEM authentication requires a configured JWT key id")
-            native = load_native_backend("marty_verification", ("public_key_pem_to_jwk",))
-            public_jwk = json.loads(native.public_key_pem_to_jwk(jwt_public_key))
-            public_jwk["kid"] = jwt_key_id
-            jwt_jwks = {"keys": [public_jwk]}
-        if jwt_jwks is not None:
-            if not jwt_issuer or not jwt_audience:
-                raise ValueError("JWT authentication requires issuer and audience")
-            jwt_jwks = json.loads(jwt_jwks) if isinstance(jwt_jwks, str) else json.loads(json.dumps(jwt_jwks))
-            if not isinstance(jwt_jwks, dict) or not isinstance(jwt_jwks.get("keys"), list) or not jwt_jwks["keys"]:
-                raise ValueError("JWT authentication requires a nonempty public JWKS")
-            private_members = {"d", "p", "q", "dp", "dq", "qi", "oth", "k", "rsa_d"}
-            if any(not isinstance(key, dict) or private_members.intersection(key) for key in jwt_jwks["keys"]):
-                raise ValueError("Authentication JWKS must contain public keys only")
-        self.jwt_jwks = jwt_jwks
-        self.jwt_algorithm = jwt_algorithm
-        self.jwt_issuer = jwt_issuer
-        self.jwt_audience = jwt_audience
+        if any(value is not None for value in (
+            jwt_secret, jwt_public_key, jwt_jwks, jwt_issuer, jwt_audience, jwt_key_id
+        )) or jwt_algorithm != "RS256":
+            raise ValueError(
+                "Python JWT authentication is retired; use the Rust service authentication owner"
+            )
         self.require_auth = True
         self.bypass_health_checks = bypass_health_checks
 
@@ -190,46 +169,12 @@ class AuthServerInterceptor(grpc_aio.ServerInterceptor):
             if name.lower() == "authorization"
         ]
         if values:
-            if len(values) != 1:
-                return AuthContext()
-            value = values[0]
-            if isinstance(value, bytes):
-                try:
-                    value = value.decode("ascii")
-                except UnicodeDecodeError:
-                    return AuthContext()
-            # An invalid supplied credential never falls back to a different identity.
-            return self._authenticate_jwt_sync({"authorization": value})
+            # Supplying any removed bearer/JWT credential is an authentication
+            # failure, even if a valid client certificate is also present.
+            return AuthContext()
         return self._authenticate_mtls_sync(grpc_context)
 
-    async def _authenticate_jwt(self, metadata):
-        return self._authenticate_jwt_sync(metadata)
 
-    def _authenticate_jwt_sync(self, metadata):
-        authorization = metadata.get("authorization", "")
-        if not isinstance(authorization, str) or not authorization.startswith("Bearer ") or self.jwt_jwks is None:
-            return AuthContext()
-        try:
-            native = load_native_backend("_marty_rs", ("oidc_validate_id_token",))
-            claims = json.loads(native.oidc_validate_id_token(json.dumps({
-                "compact_jwt": authorization[7:],
-                "jwks": self.jwt_jwks,
-                "expected_issuer": self.jwt_issuer,
-                "expected_audience": self.jwt_audience,
-                "allowed_algorithms": [self.jwt_algorithm],
-                "leeway_seconds": 0,
-            })))
-            identity = claims.get("sub")
-            roles = claims.get("roles", [])
-            if not isinstance(identity, str) or not identity or not isinstance(roles, list) or any(
-                not isinstance(role, str) for role in roles
-            ):
-                return AuthContext()
-            return AuthContext(True, identity, "jwt", claims)
-        except Exception:
-            # Never log the bearer credential or unverified claims on a failure.
-            LOGGER.warning("Rust JWT authentication failed")
-            return AuthContext()
 
     async def _authenticate_mtls(self, grpc_context):
         return self._authenticate_mtls_sync(grpc_context)
@@ -274,15 +219,13 @@ def create_auth_interceptor(
     jwt_audience=None,
     jwt_key_id=None,
 ):
-    """Use configured public key material and policy; authentication is mandatory."""
+    """Create mandatory mTLS authentication; reject retired JWT configuration."""
     if require_auth is False:
         raise ValueError("Authentication cannot be disabled")
-    jwks_file = os.environ.get("MARTY_JWT_JWKS_FILE")
-    if jwt_jwks is None and jwks_file:
-        jwt_jwks = Path(jwks_file).read_text(encoding="utf-8")
+    # Reject retired mode selection without reading any configured key/JWKS file.
+    if jwt_jwks is None:
+        jwt_jwks = os.environ.get("MARTY_JWT_JWKS_FILE")
     jwt_public_key = jwt_public_key or os.environ.get("MARTY_JWT_PUBLIC_KEY")
-    if jwt_public_key and os.path.isfile(jwt_public_key):
-        jwt_public_key = Path(jwt_public_key).read_text(encoding="utf-8")
     return AuthServerInterceptor(
         jwt_secret=jwt_secret or os.environ.get("MARTY_JWT_SECRET"),
         jwt_algorithm=jwt_algorithm or os.environ.get("MARTY_JWT_ALGORITHM", "RS256"),

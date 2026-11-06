@@ -1,5 +1,9 @@
 # Synthetic passport fixtures
 
+> **Historical record:** this Python implementation is retired. Retained schemas,
+> migrations and data do not provide a running service. Use the repository README
+> and `docs/features/python-identity-retirement.md` for current ownership.
+
 `PassportGenerator` remains a compatibility utility for
 `tests.fixtures.data_loader.TestDataLoader` and a local debug consumer. Its
 output is synthetic development data. It does not establish ICAO 9303

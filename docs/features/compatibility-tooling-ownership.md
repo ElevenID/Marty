@@ -42,17 +42,16 @@ claim those features have migrated or approve the old defaults for production.
 ## Protocol generation
 
 Protobuf Python implementations are generated once into `marty_plugin.proto.v1`
-from `proto/v1`. Both installed `proto.v1` and checkout `src.proto.v1` imports
-remain module aliases. Run `python src/compile_protos.py` with
+from `proto/v1`. Checkout `proto.v1` and `src.proto.v1` imports remain source aliases.
+The root identity wheel is retired; these are not separately installed service APIs. Run `python src/compile_protos.py` with
 `grpcio-tools==1.76.0`; generation requires both message and RPC outputs and
 fails if either cannot be generated. The former system-protoc fallback could
 report success with missing RPC bindings and is retired.
-Generation is a checkout development command: the wheel does not ship protocol
-sources or `src.compile_protos`. Its broken `compile-protos` console entry point
+Generation is a checkout development command; no root wheel is built. Its broken `compile-protos` console entry point
 is removed; it never provided an installed generation command.
 
-The pinned compiler belongs to the root checkout's `proto` extra, installed by
-`make install` (or `python -m pip install -e ".[proto]"`). This also supplies the
+The pinned compiler belongs to source-test tooling, installed by `make install`
+(or `python -m pip install -e "./packages/marty-common[test]"`). This also supplies the
 system-language protobuf pre-commit hook. Ordinary `marty-common` installations
 no longer install a compiler; gRPC, protobuf messages, reflection and health
 checking remain runtime dependencies. Protocol CI keeps its explicit pinned

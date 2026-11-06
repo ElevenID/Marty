@@ -183,14 +183,14 @@ class GRPCServiceFactory:
         - Proto module: {service_name}_pb2_grpc
 
         Args:
-            service_module_path: Python module path (e.g., 'src.services.mdoc_engine')
+            service_module_path: Python module path (e.g., 'application.services.document')
             service_name: Service name (auto-detected from module if not provided)
 
         Returns:
             Self for method chaining
 
         Example:
-            factory.auto_register_service('src.services.mdoc_engine')
+            factory.auto_register_service('application.services.document')
             # Automatically finds MDocEngineServicer and add_MDocEngineServicer_to_server
         """
         try:
@@ -253,25 +253,19 @@ class GRPCServiceFactory:
 
         Args:
             services_config: Dict mapping service names to module paths
-                            If None, attempts to auto-detect based on service name
+                            Explicit paths are required; retired runtime defaults are not inferred
 
         Returns:
             Self for method chaining
 
         Example:
             factory.auto_register_from_config({
-                'mdoc_engine': 'src.services.mdoc_engine',
-                'mdl_engine': 'src.services.mdl_engine'
+                'mdoc_engine': 'application.services.document',
+                'mdl_engine': 'application.services.license'
             })
         """
         if services_config is None:
-            # Try to auto-detect based on config service name
-            service_name = getattr(self.config, "service_name", "").replace("-", "_")
-            if service_name:
-                services_config = {service_name: f"src.services.{service_name}"}
-            else:
-                self.logger.warning("No services config provided and cannot auto-detect")
-                return self
+            raise ValueError("Explicit service module paths are required; the Python identity runtime is retired")
 
         for service_name, module_path in services_config.items():
             self.auto_register_service(module_path, service_name)
@@ -573,7 +567,7 @@ def create_auto_service_factory(
 
     Args:
         service_name: Name of the service
-        service_module_path: Module path for service (auto-detected if None)
+        service_module_path: Module path for service (explicit module path required)
         **config_kwargs: Configuration parameters
 
     Returns:
@@ -581,7 +575,7 @@ def create_auto_service_factory(
 
     Example:
         # Auto-detects MDocEngineServicer and registration function
-        factory = create_auto_service_factory("mdoc-engine")
+        factory = create_auto_service_factory("document", "application.services.document")
         factory.serve()  # Ready to go!
     """
     # Create the base factory
@@ -592,9 +586,7 @@ def create_auto_service_factory(
 
     # Auto-register the main service
     if service_module_path is None:
-        # Auto-detect module path from service name
-        service_module_name = service_name.replace("-", "_")
-        service_module_path = f"src.services.{service_module_name}"
+        raise ValueError("An explicit service module path is required; the Python identity runtime is retired")
 
     factory.auto_register_service(service_module_path, service_name.replace("-", "_"))
 
@@ -611,12 +603,12 @@ def serve_auto_service(
 
     Args:
         service_name: Name of the service
-        service_module_path: Module path for service (auto-detected if None)
+        service_module_path: Module path for service (explicit module path required)
         **config_kwargs: Configuration parameters
 
     Example:
         # Single line to start a gRPC service!
-        serve_auto_service("mdoc-engine")
+        serve_auto_service("document", "application.services.document")
     """
     factory = create_auto_service_factory(service_name, service_module_path, **config_kwargs)
     factory.serve()

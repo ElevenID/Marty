@@ -3,7 +3,7 @@
 This module provides:
 - Cedar-backed policy engine (replaces YAML RBAC/ABAC)
 - Authorization guard decorators for gRPC service methods
-- Request-local identity from the Rust/verified-TLS authentication interceptor
+- Request-local identity from the verified-TLS authentication interceptor
 
 Cedar policies are evaluated via cedarpy (PyO3 binding to the Rust
 cedar-policy crate, ~100μs per evaluation). Role definitions live in

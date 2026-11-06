@@ -78,8 +78,8 @@ def command_for(tool: str, root: Path, output: Path, args) -> list[str]:
         return bandit_command(root, output)
     if tool == "pip-audit":
         # Audit the installed project environment, not a freshly created tool-only venv.
-        if not any(_installed(name) for name in ("marty-identity-compat", "marty-common")):
-            raise ValueError("Install the current project in this interpreter before dependency auditing")
+        if not _installed("marty-common"):
+            raise ValueError("Install marty-common in this interpreter before dependency auditing")
         return [sys.executable, "-m", "pip_audit", "--format=json"]
     if tool == "safety":
         return ["safety", "check", "--json"]

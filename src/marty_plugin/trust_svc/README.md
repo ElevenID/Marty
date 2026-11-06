@@ -1,5 +1,9 @@
 # Trust Services (trust-svc)
 
+> **Historical record:** this Python implementation is retired. Retained schemas,
+> migrations and data do not provide a running service. Use the repository README
+> and `docs/features/python-identity-retirement.md` for current ownership.
+
 This directory retains Python compatibility APIs, database models and source
 requirements. Deployment is owned by the current
 [Rust stack](https://github.com/ElevenID/marty-ui); the historical service,

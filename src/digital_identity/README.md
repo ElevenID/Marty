@@ -1,5 +1,9 @@
 # Digital Identity compatibility package
 
+> **Historical record:** this Python implementation is retired. Retained schemas,
+> migrations and data do not provide a running service. Use the repository README
+> and `docs/features/python-identity-retirement.md` for current ownership.
+
 This directory contains a retained Python compatibility implementation of the
 Digital Identity domain and a FastAPI registration adapter. It is not an MMF
 plugin and is not a production deployment owner.

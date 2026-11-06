@@ -1,1 +1,1 @@
-# Initializes the 'src' directory as a Python package
+"""Source-only protocol schemas and historical migration records."""

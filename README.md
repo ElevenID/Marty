@@ -1,52 +1,55 @@
-# Marty compatibility source
+# Marty shared Python infrastructure
 
-This repository owns the released `marty-common` Python package and retained
-identity compatibility modules that are still being audited for Rust ownership.
-It no longer publishes or deploys the retired Python Marty MMF plugin.
+This repository releases `marty-common` infrastructure utilities and retains
+source protocol schemas, migration records and historical capability evidence.
+The old Python identity implementation, its `marty-identity-compat` distribution,
+and its Core 0.1 compatibility adapters are retired.
 
-## Canonical runtime ownership
+The supported identity stack is owned by
+[`marty-core`](https://github.com/ElevenID/marty-core),
+[`marty-credentials`](https://github.com/ElevenID/marty-credentials),
+[`marty-microservices-framework`](https://github.com/ElevenID/marty-microservices-framework),
+and the Rust services and deployment composition in
+[`marty-ui`](https://github.com/ElevenID/marty-ui).
 
-- [`marty-core`](https://github.com/ElevenID/marty-core) owns shared Rust
-  security, credential, protocol, and verification primitives.
-- [`marty-microservices-framework`](https://github.com/ElevenID/marty-microservices-framework)
-  owns the reusable Rust microservice crates and language-neutral behavior
-  contracts.
-- [`marty-ui`](https://github.com/ElevenID/marty-ui) owns the Rust production
-  service binaries and deployment composition.
+## Maintained scope
 
-The old `mmf.plugins` entry point, health-only container, Helm chart,
-Kubernetes manifests, and `ghcr.io/elevenid/marty` release workflow were
-retired after an organization-wide consumer audit. The container never mounted
-the four services advertised by the Python plugin metadata. Their supported
-behavior is owned by the Rust trust-profile, signing-keys, and related platform
-services.
+`packages/marty-common` supplies shared service setup, middleware, database,
+messaging, Cedar authorization, TLS/mTLS, configuration, monitoring, logging,
+resilience, DTO and source tooling utilities. Billing and commerce still use
+these APIs. It does not supply credential issuance, identity verification,
+chip cryptography, Python JWT authentication, or automatic ACME issuance.
+Current Core 0.2 native SDK/conformance bindings remain owned by Core.
 
-## Released package
+The former MMF plugin entry point, service image, chart, Kubernetes manifests
+and image release workflow were already removed. There is no root identity
+wheel or deployable Python service stack. Protocol types under `src/` remain
+source-only schemas, not running endpoints. Migration/data records are retained
+without executing or changing them.
 
-`packages/marty-common` is versioned and released independently with
-`marty-common-v*` tags. Its release workflow builds distributions, an SBOM,
-checksums, and provenance attestations.
-
-See [release and container ownership](docs/guides/DOCKER.md) for the package
-tag convention, current service-image owners and registry authentication.
-
-The root project is a compatibility test and packaging harness. A root build is
-not a deployable service.
+See the [retirement boundary and consumer evidence](docs/features/python-identity-retirement.md)
+for retained callers, Rust owners and unfinished DTC/ACME/chip requirements.
+Deletion of the old implementation does not assert native product parity.
 
 ## Development
 
-```shell
-python -m pip install -e ".[proto]" pytest ruff build
-python -m pytest tests/unit packages/marty-common/tests -q
-python -m ruff check src tests
-python -m build
+```sh
+make install
+make test
+make package
 ```
 
-Native Python extensions are built from pinned `marty-core` revisions in CI.
-Compatibility code must not be deleted until consumer evidence and
-language-neutral Rust parity tests demonstrate that its supported behavior has
-moved. Production deployment changes are intentionally outside this
-repository.
+Run `python src/compile_protos.py` to regenerate the retained schemas using the
+pinned compiler installed by `make install`. CI validates source aliases and
+public definitions, tests the common package without Core wheels, scans all
+maintained Python sources, and checks wheel/sdist metadata.
+
+## Releases
+
+Only `marty-common` is released, under `marty-common-v*` tags. Its pipeline
+publishes distributions, checksums, SBOM and provenance under the repository's
+existing registry controls. Version 0.3 removes the obsolete identity/native
+API surface; consumers pinned to 0.2 are not silently upgraded.
 
 ## License
 

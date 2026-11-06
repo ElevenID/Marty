@@ -27,23 +27,6 @@ jobs:
           python src/compile_protos.py
           git diff --exit-code -- src/marty_plugin/proto/v1 src/proto/v1
           python -m pytest --noconftest tests/unit/test_proto_compatibility.py -q
-      - name: Verify wheel compatibility namespaces
-        shell: bash
-        run: |
-          python -m pip wheel --no-deps --wheel-dir /tmp/marty-wheel .
-          cd /tmp
-          python - <<'PY'
-          import glob
-          import importlib
-          import pickle
-          import sys
-          sys.path.insert(0, glob.glob('/tmp/marty-wheel/*.whl')[0])
-          old = importlib.import_module('proto.v1.dtc_engine_pb2')
-          current = importlib.import_module('marty_plugin.proto.v1.dtc_engine_pb2')
-          assert old is current
-          message = old.CreateDTCRequest(passport_number='wheel')
-          assert pickle.loads(pickle.dumps(message)) == message
-          PY
       - name: Compile all public protocol definitions
         shell: bash
         run: |

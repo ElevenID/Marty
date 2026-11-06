@@ -1,4 +1,4 @@
-"""Exercise actual gRPC dispatch, trusted transport identity and native verifiers."""
+"""Exercise actual gRPC dispatch, trusted transport identity and request-scoped authorization."""
 
 import asyncio
 import importlib
@@ -42,32 +42,32 @@ def modules():
         sys.modules.update(previous)
 
 
-def jwt_interceptor(module, monkeypatch):
-    requests = []
-
-    def validate(value):
-        request = json.loads(value)
-        requests.append(request)
-        if request["compact_jwt"] not in {"alice", "bob"}:
-            raise ValueError("bad signature")
-        return json.dumps({"sub": request["compact_jwt"], "roles": ["reader"]})
-
-    monkeypatch.setattr(module, "load_native_backend", lambda *args: SimpleNamespace(oidc_validate_id_token=validate))
-    interceptor = module.AuthServerInterceptor(jwt_jwks={"keys": [{"kty": "RSA", "kid": "test"}]},
-                                               jwt_issuer="https://issuer.test", jwt_audience="grpc")
-    return interceptor, requests
+def transport_credentials():
+    ca_key, ca = certificate_pair(name="test-ca", is_ca=True)
+    server_key, server_cert = certificate_pair(ca_key, ca)
+    pem = lambda cert: cert.public_bytes(serialization.Encoding.PEM)
+    private = lambda key: key.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8,
+                                            serialization.NoEncryption())
+    server = grpc.ssl_server_credentials([(private(server_key), pem(server_cert))],
+                                         root_certificates=pem(ca), require_client_auth=True)
+    clients = {}
+    for name in ("alice", "bob"):
+        key, cert = certificate_pair(ca_key, ca, name)
+        clients[name] = grpc.ssl_channel_credentials(pem(ca), private(key), pem(cert))
+    return server, clients
 
 
 @pytest.mark.parametrize("kind", ["unary_unary", "unary_stream", "stream_unary", "stream_stream"])
-def test_real_rpc_shapes_scope_authorization_and_reject_forged_credentials(modules, monkeypatch, kind):
+def test_real_rpc_shapes_scope_authorization_and_reject_forged_credentials(modules, kind):
     module = modules("marty_common.auth_interceptor")
     authorization = modules("marty_common.authorization")
-    interceptor, validations = jwt_interceptor(module, monkeypatch)
+    interceptor = module.AuthServerInterceptor()
+    server_credentials, clients = transport_credentials()
     observed = []
 
     def evaluate(context):
         observed.append((context.identity, context.roles))
-        return context.roles == ["reader"]
+        return context.identity in clients and context.roles == []
 
     engine = SimpleNamespace(evaluate=evaluate)
     request_streaming, response_streaming = kind.startswith("stream_"), kind.endswith("_stream")
@@ -91,21 +91,21 @@ def test_real_rpc_shapes_scope_authorization_and_reject_forged_credentials(modul
         server = grpc.aio.server(interceptors=[interceptor])
         handler = getattr(grpc, kind + "_rpc_method_handler")(stream if response_streaming else authorized)
         server.add_generic_rpc_handlers((grpc.method_handlers_generic_handler("probe", {"call": handler}),))
-        port = server.add_insecure_port("127.0.0.1:0")
+        port = server.add_secure_port("127.0.0.1:0", server_credentials)
         await server.start()
         try:
-            async with grpc.aio.insecure_channel(f"127.0.0.1:{port}") as channel:
-                async def invoke(identity):
+            async def invoke(identity):
+                async with grpc.aio.secure_channel(f"localhost:{port}", clients[identity]) as channel:
                     call = getattr(channel, kind)("/probe/call")
                     response = call(iter([b"ok"]) if request_streaming else b"ok",
-                                    metadata=(("authorization", "Bearer " + identity),), timeout=5)
+                                    metadata=(("x-client-cert-subject", "admin"),), timeout=5)
                     return [value async for value in response] if response_streaming else await response
 
-                results = await asyncio.gather(invoke("alice"), invoke("bob"))
-                expected = [b"alice:ok", b"bob:ok"]
-                assert results == ([[value, value] for value in expected] if response_streaming else expected)
-                for metadata in ((), (("x-client-cert-subject", "admin"),),
-                                 (("authorization", "Bearer forged"),),
+            results = await asyncio.gather(invoke("alice"), invoke("bob"))
+            expected = [b"alice:ok", b"bob:ok"]
+            assert results == ([[value, value] for value in expected] if response_streaming else expected)
+            async with grpc.aio.secure_channel(f"localhost:{port}", clients["alice"]) as channel:
+                for metadata in ((("authorization", "Bearer forged"),),
                                  (("authorization", "Bearer alice"), ("authorization", "Bearer bob"))):
                     call = getattr(channel, kind)("/probe/call")
                     with pytest.raises(grpc.aio.AioRpcError) as error:
@@ -120,12 +120,9 @@ def test_real_rpc_shapes_scope_authorization_and_reject_forged_credentials(modul
         assert module.get_auth_context() is None
 
     asyncio.run(run())
-    assert sorted(observed) == [("alice", ["reader"]), ("bob", ["reader"])]
-    assert all(request["expected_issuer"] == "https://issuer.test" and request["expected_audience"] == "grpc"
-               and request["leeway_seconds"] == 0 for request in validations)
-    # Merely constructing an interceptor does not make raw metadata trusted.
+    assert sorted(observed) == [("alice", []), ("bob", [])]
     with pytest.raises(authorization.AuthorizationError):
-        asyncio.run(authorized(b"ok", SimpleNamespace(invocation_metadata=lambda: (("authorization", "Bearer alice"),))))
+        asyncio.run(authorized(b"ok", SimpleNamespace(invocation_metadata=lambda: (("x-client-cert-subject", "alice"),))))
 
 
 def certificate_pair(ca_key=None, ca_cert=None, name="localhost", *, is_ca=False):
@@ -177,29 +174,15 @@ def test_real_mutual_tls_uses_certificate_identity_never_forwarded_headers(modul
     asyncio.run(run())
 
 
-def test_native_jwt_enforces_signature_issuer_audience_and_expiry(modules):
-    if os.environ.get("CI") == "true":
-        importlib.import_module("_marty_rs")
-    else:
-        pytest.importorskip("_marty_rs", reason="Pinned native wheel required; installed in mandatory CI test lane")
-    import jwt
-
+@pytest.mark.parametrize("setting", [
+    {"jwt_public_key": "public-pem"}, {"jwt_jwks": {"keys": [{}]}},
+    {"jwt_issuer": "https://issuer.test"}, {"jwt_audience": "grpc"},
+    {"jwt_key_id": "key"}, {"jwt_algorithm": "ES256"},
+])
+def test_removed_jwt_configuration_fails_before_server_start(modules, setting):
     module = modules("marty_common.auth_interceptor")
-    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-    public = json.loads(jwt.algorithms.RSAAlgorithm.to_jwk(key.public_key())) | {"kid": "test"}
-    interceptor = module.AuthServerInterceptor(jwt_jwks={"keys": [public]}, jwt_issuer="https://issuer.test", jwt_audience="grpc")
-    claims = {"sub": "alice", "roles": ["reader"], "iss": "https://issuer.test", "aud": "grpc",
-              "iat": int(time.time()), "exp": int(time.time()) + 300}
-
-    async def validate(payload, signing_key=key):
-        token = jwt.encode(payload, signing_key, algorithm="RS256", headers={"kid": "test"})
-        return await interceptor._authenticate_jwt({"authorization": "Bearer " + token})
-
-    assert asyncio.run(validate(claims)).identity == "alice"
-    for change in ({"iss": "https://evil.test"}, {"aud": "other"}, {"exp": 1}, {"iat": int(time.time()) + 600}):
-        assert not asyncio.run(validate(claims | change)).authenticated
-    assert not asyncio.run(validate({k: v for k, v in claims.items() if k != "exp"})).authenticated
-    assert not asyncio.run(validate(claims, rsa.generate_private_key(public_exponent=65537, key_size=2048))).authenticated
+    with pytest.raises(ValueError, match="JWT authentication is retired"):
+        module.AuthServerInterceptor(**setting)
 
 
 def test_health_bypass_is_exact_and_authentication_cannot_be_disabled(modules):
@@ -217,7 +200,7 @@ def test_health_bypass_is_exact_and_authentication_cannot_be_disabled(modules):
 @pytest.mark.parametrize("failure", [RuntimeError, asyncio.CancelledError])
 def test_handler_context_is_reset_after_exception_or_cancellation(modules, monkeypatch, streaming, failure):
     module = modules("marty_common.auth_interceptor")
-    interceptor, _ = jwt_interceptor(module, monkeypatch)
+    interceptor = module.AuthServerInterceptor()
 
     async def behavior(request, context):
         assert module.get_auth_context().identity == "alice"
@@ -234,27 +217,33 @@ def test_handler_context_is_reset_after_exception_or_cancellation(modules, monke
         async def continuation(details):
             return original
 
-        details = SimpleNamespace(method="/probe/call", invocation_metadata=(("authorization", "Bearer alice"),))
+        details = SimpleNamespace(method="/probe/call", invocation_metadata=())
+        context = SimpleNamespace(
+            auth_context=lambda: {"transport_security_type": [b"ssl"]},
+            peer_identity_key=lambda: "x509_common_name",
+            peer_identities=lambda: [b"alice"],
+        )
         handler = await interceptor.intercept_service(continuation, details)
         with pytest.raises(failure):
             if streaming:
-                [value async for value in handler.unary_stream(b"ok", SimpleNamespace())]
+                [value async for value in handler.unary_stream(b"ok", context)]
             else:
-                await handler.unary_unary(b"ok", SimpleNamespace())
+                await handler.unary_unary(b"ok", context)
         assert module.get_auth_context() is None
 
     asyncio.run(run())
 
 
 @pytest.mark.parametrize("kind", ["unary_unary", "unary_stream", "stream_unary", "stream_stream"])
-def test_synchronous_handlers_keep_executor_and_request_iterator_semantics(modules, monkeypatch, kind):
+def test_synchronous_handlers_keep_executor_and_request_iterator_semantics(modules, kind):
     module = modules("marty_common.auth_interceptor")
     authorization = modules("marty_common.authorization")
-    interceptor, _ = jwt_interceptor(module, monkeypatch)
+    interceptor = module.AuthServerInterceptor()
+    server_credentials, clients = transport_credentials()
     main_thread = threading.get_ident()
     request_streaming, response_streaming = kind.startswith("stream_"), kind.endswith("_stream")
 
-    @authorization.require("document:read", policy_engine=SimpleNamespace(evaluate=lambda context: context.roles == ["reader"]))
+    @authorization.require("document:read", policy_engine=SimpleNamespace(evaluate=lambda context: context.identity in clients and context.roles == []))
     def behavior(request, context):
         assert threading.get_ident() != main_thread
         identity = module.get_auth_context().identity
@@ -267,19 +256,18 @@ def test_synchronous_handlers_keep_executor_and_request_iterator_semantics(modul
         server = grpc.aio.server(migration_thread_pool=pool, interceptors=[interceptor])
         handler = getattr(grpc, kind + "_rpc_method_handler")(behavior)
         server.add_generic_rpc_handlers((grpc.method_handlers_generic_handler("probe", {"call": handler}),))
-        port = server.add_insecure_port("127.0.0.1:0")
+        port = server.add_secure_port("127.0.0.1:0", server_credentials)
         await server.start()
         try:
-            async with grpc.aio.insecure_channel(f"127.0.0.1:{port}") as channel:
-                async def invoke(identity):
+            async def invoke(identity):
+                async with grpc.aio.secure_channel(f"localhost:{port}", clients[identity]) as channel:
                     response = getattr(channel, kind)("/probe/call")(
-                        iter([b"ok"]) if request_streaming else b"ok",
-                        metadata=(("authorization", "Bearer " + identity),), timeout=5)
+                        iter([b"ok"]) if request_streaming else b"ok", timeout=5)
                     return [value async for value in response] if response_streaming else await response
 
-                result = await asyncio.gather(invoke("alice"), invoke("bob"))
-                expected = [b"alice:ok", b"bob:ok"]
-                assert result == ([[value, value] for value in expected] if response_streaming else expected)
+            result = await asyncio.gather(invoke("alice"), invoke("bob"))
+            expected = [b"alice:ok", b"bob:ok"]
+            assert result == ([[value, value] for value in expected] if response_streaming else expected)
         finally:
             await server.stop(0)
         assert module.get_auth_context() is None
