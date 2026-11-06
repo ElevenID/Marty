@@ -13,7 +13,7 @@ permissions:
   contents: read
 
 env:
-  MARTY_CORE_REVISION: 359df1d20f152e21783fe43078d753fa1b494ce4
+  MARTY_CORE_REVISION: f116ceb9b62d68a5f87f645faa0560ec4cbedd0c
 
 jobs:
   bandit:
@@ -34,30 +34,45 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - name: Restore exact pinned native wheels
-        id: native-wheel-cache
+        id: core-wheel-cache
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: native-wheels
           key: native-wheels-v1-${{ runner.os }}-${{ runner.arch }}-py311-rust1971-maturin1141-${{ env.MARTY_CORE_REVISION }}-${{ hashFiles('scripts/build-native-wheels.sh') }}
-      - if: ${{ steps.native-wheel-cache.outputs.cache-hit != 'true' }}
+      - if: ${{ steps.core-wheel-cache.outputs.cache-hit != 'true' }}
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: ElevenID/marty-core
           ref: ${{ env.MARTY_CORE_REVISION }}
           path: marty-core
-      - if: ${{ steps.native-wheel-cache.outputs.cache-hit != 'true' }}
+      - if: ${{ steps.core-wheel-cache.outputs.cache-hit != 'true' }}
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
         with:
           python-version: "3.11"
-      - if: ${{ steps.native-wheel-cache.outputs.cache-hit != 'true' }}
+      - if: ${{ steps.core-wheel-cache.outputs.cache-hit != 'true' }}
         uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
         with:
           toolchain: 1.97.1
       - name: Install native transport build dependencies
-        if: ${{ steps.native-wheel-cache.outputs.cache-hit != 'true' }}
+        if: ${{ steps.core-wheel-cache.outputs.cache-hit != 'true' }}
         run: sudo apt-get update && sudo apt-get install --yes libpcsclite-dev libdbus-1-dev pkg-config
+      - name: Test private dependency access boundaries
+        if: ${{ steps.core-wheel-cache.outputs.cache-hit != 'true' }}
+        run: python .github/scripts/test_private_forks.py
+      - name: Require trusted private fork access
+        if: vars.PRIVATE_FORKS_ENABLED == 'true' && steps.core-wheel-cache.outputs.cache-hit != 'true'
+        shell: bash
+        working-directory: ${{ github.workspace }}
+        run: python .github/scripts/private-forks.py check
+      - name: Fetch locked private fork dependencies
+        if: vars.PRIVATE_FORKS_ENABLED == 'true' && steps.core-wheel-cache.outputs.cache-hit != 'true'
+        shell: bash
+        working-directory: ${{ github.workspace }}
+        env:
+          PRIVATE_FORKS_READ_TOKEN: ${{ secrets.PRIVATE_FORKS_READ_TOKEN }}
+        run: python .github/scripts/private-forks.py fetch --manifest-path marty-core/Cargo.toml
       - name: Build exact pinned native wheels
-        if: ${{ steps.native-wheel-cache.outputs.cache-hit != 'true' }}
+        if: ${{ steps.core-wheel-cache.outputs.cache-hit != 'true' }}
         run: bash scripts/build-native-wheels.sh
       - name: Require exact pinned native wheel set
         shell: bash

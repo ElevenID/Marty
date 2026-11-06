@@ -25,7 +25,7 @@ def test_native_wheel_downloads_are_versioned_and_digest_verified() -> None:
         encoding="utf-8"
     )
 
-    assert "MARTY_CORE_NATIVE_TAG:-v0.1.56" in script
+    assert "MARTY_CORE_NATIVE_TAG:-v0.2.2" in script
     assert "MARTY_CREDENTIALS_NATIVE_TAG" not in script
     assert "marty_iso18013" in script
     assert "marty_verification_py" in script
@@ -38,8 +38,8 @@ def test_native_wheel_downloads_are_versioned_and_digest_verified() -> None:
     package_metadata = (
         ROOT / "packages" / "marty-common" / "pyproject.toml"
     ).read_text(encoding="utf-8")
-    assert '"marty-rs==0.1.56"' in package_metadata
-    assert '"marty-verification-py==0.1.56"' in package_metadata
+    assert '"marty-rs==0.2.2"' in package_metadata
+    assert '"marty-verification-py==0.2.2"' in package_metadata
 
 
 def test_ci_builds_all_native_wheels_from_an_immutable_core_revision() -> None:
@@ -57,7 +57,7 @@ def test_ci_builds_all_native_wheels_from_an_immutable_core_revision() -> None:
         assert f"require_one_wheel {distribution}" in build_script
     assert "pyo3/extension-module,python,csca,eudi,cert-builder" in build_script
 
-    assert "MARTY_CORE_REVISION: 359df1d20f152e21783fe43078d753fa1b494ce4" in workflows
+    assert "MARTY_CORE_REVISION: f116ceb9b62d68a5f87f645faa0560ec4cbedd0c" in workflows
     assert "repository: ElevenID/marty-core" in workflows
     assert "ref: ${{ env.MARTY_CORE_REVISION }}" in workflows
     assert "bash scripts/build-native-wheels.sh" in workflows
