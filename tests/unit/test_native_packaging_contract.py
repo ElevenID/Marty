@@ -55,7 +55,12 @@ def test_ci_builds_all_native_wheels_from_an_immutable_core_revision() -> None:
         assert f'{package}/Cargo.toml"' in build_script
     for distribution in ("marty_rs", "marty_verification_py", "marty_iso18013"):
         assert f"require_one_wheel {distribution}" in build_script
-    assert "pyo3/extension-module,python,csca,eudi,cert-builder" in build_script
+    # Feature ownership stays with the pinned Core packages: overriding it can
+    # request removed APIs or omit the managed-signing profile.
+    assert "--features" not in build_script
+    assert "--all-features" not in build_script
+    assert "cert-builder" not in build_script
+    assert build_script.count("maturin build --locked") == 3
 
     assert "MARTY_CORE_REVISION: c14639792bf2a37387fd56a0eb336b6afac04dfe" in workflows
     assert "repository: ElevenID/marty-core" in workflows
