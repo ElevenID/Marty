@@ -41,6 +41,12 @@ verification adapters have been removed, including the legacy native exports.
 Request a newly issued OB3 credential from the issuer; changing an OB2 type or
 context does not migrate its signed contents. Existing OB3 verification continues
 through `verify_open_badge_ob3`; issuance uses the Rust managed-KMS issuer.
+Both native credential and verification modules must declare
+`OPEN_BADGES_SUPPORTED_VERSIONS = ("3.0",)`. The adapter rejects older wheels
+before exposing any operation, including generic VC verification. Build the
+matching wheels from the exact Core revision pinned in CI, or use a subsequent
+release containing that revision. A version number alone does not establish
+this capability; historical release assets are unchanged.
 
 The shared runtime does not install `grpcio-tools`. When changing the owning
 checkout's protobuf schemas, use the root `proto` extra or `make install`; see

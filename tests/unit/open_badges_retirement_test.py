@@ -35,6 +35,8 @@ def adapters(monkeypatch):
             native = ModuleType(module_name)
             for name in names:
                 setattr(native, name, forbidden)
+            if module_name in {"_marty_rs", "marty_verification"}:
+                native.OPEN_BADGES_SUPPORTED_VERSIONS = ("3.0",)
             monkeypatch.setitem(sys.modules, module_name, native)
         yield policy, importlib.import_module("marty_common.native_backends"), forbidden
     finally:
@@ -44,10 +46,10 @@ def adapters(monkeypatch):
         sys.modules.update(previous)
 
 
-@pytest.mark.parametrize("legacy_wheel", [False, True])
-def test_ob2_is_neither_required_nor_exported_even_from_legacy_wheels(adapters, legacy_wheel, monkeypatch):
+@pytest.mark.parametrize("legacy_symbols", [False, True])
+def test_ob2_is_neither_required_nor_exported_from_declared_ob3_wheels(adapters, legacy_symbols, monkeypatch):
     policy, backends, forbidden = adapters
-    if legacy_wheel:
+    if legacy_symbols:
         for name in policy.RETIRED_OB2_OPERATIONS:
             setattr(sys.modules["marty_verification"], name, forbidden)
     bridge = importlib.import_module("marty_common.crypto_bridge")
@@ -84,3 +86,18 @@ def test_ob3_adapter_keeps_request_and_response_unchanged(adapters):
     bridge = importlib.import_module("marty_common.crypto_bridge")
     assert bridge.verify_open_badge_ob3(request) == response
     assert calls == [request]
+
+
+@pytest.mark.parametrize("module_name", ["_marty_rs", "marty_verification"])
+@pytest.mark.parametrize("versions", [None, (), ("2.0", "3.0"), "3.0"])
+def test_historical_or_incompatible_wheels_fail_before_public_adapter_use(adapters, module_name, versions):
+    _, backends, _ = adapters
+    native = sys.modules[module_name]
+    if versions is None:
+        del native.OPEN_BADGES_SUPPORTED_VERSIONS
+    else:
+        native.OPEN_BADGES_SUPPORTED_VERSIONS = versions
+    with pytest.raises(backends.NativeBackendUnavailable, match="Core revision with OB2 retired"):
+        backends.load_native_backend(module_name)
+    with pytest.raises(backends.NativeBackendUnavailable, match="Core revision with OB2 retired"):
+        importlib.import_module("marty_common.crypto_bridge")

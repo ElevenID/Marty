@@ -34,6 +34,15 @@ def _public_backend(module_name: str, native: ModuleType) -> ModuleType:
         "_marty_verification": "marty_verification",
         "marty_rs": "_marty_rs",
     }.get(module_name, module_name)
+    if canonical_name in {"_marty_rs", "marty_verification"}:
+        versions = getattr(native, "OPEN_BADGES_SUPPORTED_VERSIONS", None)
+        if not isinstance(versions, (list, tuple)) or tuple(versions) != ("3.0",):
+            raise NativeBackendUnavailable(
+                f"Required native backend {module_name!r} is incompatible; missing "
+                "the required Open Badges 3.0-only profile declaration. Build or install "
+                "matching wheels from the pinned Core revision with OB2 retired, or "
+                "a release containing that revision. Historical releases are unchanged."
+            )
     if canonical_name not in PUBLIC_NATIVE_EXPORTS:
         return native
     allowed = set(PUBLIC_NATIVE_EXPORTS[canonical_name]) | {"__version__", "version"}

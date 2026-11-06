@@ -13,7 +13,7 @@ permissions:
   contents: read
 
 env:
-  MARTY_CORE_REVISION: f116ceb9b62d68a5f87f645faa0560ec4cbedd0c
+  MARTY_CORE_REVISION: c14639792bf2a37387fd56a0eb336b6afac04dfe
 
 jobs:
   bandit:
