@@ -43,6 +43,13 @@ jobs:
         run: |
           python -m build packages/marty-common
           python -m twine check packages/marty-common/dist/*
+      - name: Exercise installed common wheel outside checkout
+        shell: bash
+        run: |
+          python -m venv "$RUNNER_TEMP/marty-common-wheel"
+          "$RUNNER_TEMP/marty-common-wheel/bin/python" -m pip install packages/marty-common/dist/*.whl
+          cd "$RUNNER_TEMP"
+          "$RUNNER_TEMP/marty-common-wheel/bin/python" -I "$GITHUB_WORKSPACE/tests/probes/common_wheel_smoke.py" --installed-wheel
 
   ci-gate:
     name: CI Gate

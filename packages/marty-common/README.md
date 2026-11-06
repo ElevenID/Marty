@@ -38,4 +38,5 @@ for consumers, current owners and remaining product requirements.
 
 ## License
 
-MIT
+AGPL-3.0-only, as declared in this package's metadata and the repository's
+[existing license](../../LICENSE). This retirement does not change the terms.

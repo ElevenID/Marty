@@ -95,12 +95,12 @@ jobs:
       - name: Install project dependencies
         run: |
           uv venv --python 3.11
-          uv pip install ./packages/marty-common
+          uv pip install --python .venv/bin/python "./packages/marty-common[biometric]"
 
       - name: Generate dependency license inventory
         run: |
-          uv pip install pip-licenses
-          uv run --no-project pip-licenses --format=json > dependency-licenses.json
+          uv pip install --python .venv/bin/python pip-licenses
+          .venv/bin/pip-licenses --format=json > dependency-licenses.json
 
       - name: Upload license inventory
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
@@ -124,13 +124,13 @@ jobs:
       - name: Install project dependencies
         run: |
           uv venv --python 3.11
-          uv pip install ./packages/marty-common
+          uv pip install --python .venv/bin/python "./packages/marty-common[biometric]"
 
       - name: Install cyclonedx-bom
-        run: uv pip install cyclonedx-bom
+        run: uv pip install --python .venv/bin/python cyclonedx-bom
 
       - name: Generate CycloneDX SBOM
-        run: uv run --no-project cyclonedx-py environment .venv/bin/python --of json --output-file sbom.cdx.json
+        run: .venv/bin/cyclonedx-py environment .venv/bin/python --of json --output-file sbom.cdx.json
 
       - name: Upload SBOM artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
