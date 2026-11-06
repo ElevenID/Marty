@@ -33,6 +33,7 @@ def _public_backend(module_name: str, native: ModuleType) -> ModuleType:
         "marty_verification_py._marty_verification": "marty_verification",
         "_marty_verification": "marty_verification",
         "marty_rs": "_marty_rs",
+        "marty_rs._marty_rs": "_marty_rs",
     }.get(module_name, module_name)
     if canonical_name in {"_marty_rs", "marty_verification"}:
         versions = getattr(native, "OPEN_BADGES_SUPPORTED_VERSIONS", None)

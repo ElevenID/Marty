@@ -101,3 +101,19 @@ def test_historical_or_incompatible_wheels_fail_before_public_adapter_use(adapte
         backends.load_native_backend(module_name)
     with pytest.raises(backends.NativeBackendUnavailable, match="Core revision with OB2 retired"):
         importlib.import_module("marty_common.crypto_bridge")
+
+
+@pytest.mark.parametrize(
+    ("canonical", "alias"),
+    [
+        ("_marty_rs", "marty_rs._marty_rs"),
+        ("marty_verification", "marty_verification_py._marty_verification"),
+    ],
+)
+def test_packaged_native_aliases_cannot_bypass_the_profile_gate(adapters, monkeypatch, canonical, alias):
+    _, backends, _ = adapters
+    native = sys.modules[canonical]
+    del native.OPEN_BADGES_SUPPORTED_VERSIONS
+    monkeypatch.setitem(sys.modules, alias, native)
+    with pytest.raises(backends.NativeBackendUnavailable, match="Core revision with OB2 retired"):
+        backends.load_native_backend(alias)
