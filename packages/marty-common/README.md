@@ -36,6 +36,12 @@ pip install -e .
 
 ## Usage
 
+Open Badges support is limited to **Open Badges 3.0**. The OB2 issuance and
+verification adapters have been removed, including the legacy native exports.
+Request a newly issued OB3 credential from the issuer; changing an OB2 type or
+context does not migrate its signed contents. Existing OB3 verification continues
+through `verify_open_badge_ob3`; issuance uses the Rust managed-KMS issuer.
+
 The shared runtime does not install `grpcio-tools`. When changing the owning
 checkout's protobuf schemas, use the root `proto` extra or `make install`; see
 [tooling ownership](../../docs/features/compatibility-tooling-ownership.md).

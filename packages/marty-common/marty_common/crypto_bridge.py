@@ -288,16 +288,8 @@ for _name in OPTIONAL_VERIFICATION_OPERATIONS:
     globals().setdefault(_name, _optional_native_operation("marty_verification", _name))
 
 
-def verify_open_badge_ob2(payload: dict[str, Any]) -> dict[str, Any]:
-    return json.loads(_marty_verification.open_badge_ob2_verify(json.dumps(payload)))
-
-
 def verify_open_badge_ob3(payload: dict[str, Any]) -> dict[str, Any]:
     return json.loads(_marty_verification.open_badge_ob3_verify(json.dumps(payload)))
-
-
-def issue_open_badge_ob2(request: dict[str, Any]) -> dict[str, Any]:
-    raise NativeOperationError("Open Badge issuance requires the Rust managed-KMS issuer")
 
 
 def issue_open_badge_ob3(request: dict[str, Any]) -> dict[str, Any]:
@@ -342,13 +334,11 @@ __all__ = sorted(
         "build_self_signed_certificate_with_key",
         "get_available_functions",
         "get_module_status",
-        "issue_open_badge_ob2",
         "issue_open_badge_ob3",
         "load_pem_x509_certificate",
         "sha256",
         "sha384",
         "sha512",
-        "verify_open_badge_ob2",
         "verify_open_badge_ob3",
     }
 )

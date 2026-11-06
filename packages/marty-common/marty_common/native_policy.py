@@ -75,7 +75,6 @@ REQUIRED_NATIVE_BACKENDS = {
         "load_certificate_pem",
         "load_public_key_der",
         "load_public_key_pem",
-        "open_badge_ob2_verify",
         "open_badge_ob3_verify",
         "parse_crl",
         "parse_master_list",
@@ -126,6 +125,13 @@ OPTIONAL_VERIFICATION_OPERATIONS = (
     "pbkdf2_sha256",
 )
 
+# Keep the legacy names denied even if an older native wheel still exposes them.
+# They are not compatibility exports and must never be redirected to OB3.
+RETIRED_OB2_OPERATIONS = (
+    "open_badge_ob2_issue",
+    "open_badge_ob2_verify",
+)
+
 RETIRED_PRIVATE_OPERATIONS = (
     "build_self_signed_certificate",
     "build_self_signed_certificate_with_key",
@@ -158,7 +164,6 @@ RETIRED_PRIVATE_OPERATIONS = (
     "load_private_key_pem",
     "oid4vci_create_proof_jwt",
     "oid4vci_sign_credential",
-    "open_badge_ob2_issue",
     "open_badge_ob3_issue",
     "pkcs12_parse",
     "pkcs8_to_raw_private_key",

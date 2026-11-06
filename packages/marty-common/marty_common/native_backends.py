@@ -6,7 +6,11 @@ from collections.abc import Iterable
 from importlib import import_module
 from types import ModuleType
 
-from marty_common.native_policy import OPTIONAL_VERIFICATION_OPERATIONS, RETIRED_PRIVATE_OPERATIONS
+from marty_common.native_policy import (
+    OPTIONAL_VERIFICATION_OPERATIONS,
+    RETIRED_OB2_OPERATIONS,
+    RETIRED_PRIVATE_OPERATIONS,
+)
 from marty_common.native_public_exports import PUBLIC_NATIVE_EXPORTS
 
 
@@ -38,6 +42,10 @@ def _public_backend(module_name: str, native: ModuleType) -> ModuleType:
     view = ModuleType(module_name)
 
     def public_attribute(name: str):
+        if name in RETIRED_OB2_OPERATIONS:
+            raise NativeOperationError(
+                f"{name} is retired; request a newly issued Open Badges 3.0 credential"
+            )
         if name in RETIRED_PRIVATE_OPERATIONS:
             raise NativeOperationError(
                 f"{name} is retired from Python compatibility; "

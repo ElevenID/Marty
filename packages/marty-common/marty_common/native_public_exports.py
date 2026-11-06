@@ -197,7 +197,6 @@ PUBLIC_NATIVE_EXPORTS = {
         "load_certificate_pem",
         "load_public_key_der",
         "load_public_key_pem",
-        "open_badge_ob2_verify",
         "open_badge_ob3_verify",
         "p256_public_jwk_to_pem",
         "parse_crl",
