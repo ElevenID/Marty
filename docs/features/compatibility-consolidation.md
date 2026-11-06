@@ -1,5 +1,12 @@
 # Compatibility consolidation and manual scanning
 
+> **Retirement update:** the Core 0.1 identity/crypto adapters and nondeployable
+> root runtime are removed. Shared infrastructure, managed-provider client
+> behavior, TLS/mTLS, DTOs and data records remain. This page preserves earlier
+> qualification evidence; use the [current retirement boundary](python-identity-retirement.md)
+> for supported APIs and Rust ownership. No automatic-issuance or JWT fallback
+> is introduced.
+
 ## Manual security scanner
 
 Python 3.11 or newer and uv are sufficient for the Bandit code scan; it reads

@@ -11,7 +11,8 @@ from typing import Any, Protocol
 import hvac
 from hvac.exceptions import VaultError
 
-from marty_common.native_backends import NativeOperationError
+class KeyVaultOperationError(RuntimeError):
+    """A managed-provider operation cannot be performed safely."""
 
 
 class KeyVaultClient(Protocol):
@@ -53,7 +54,7 @@ class FileKeyVaultClient:
     """Import-compatible rejection of retired file-backed private custody."""
 
     def __init__(self, base_path: str) -> None:
-        raise NativeOperationError(
+        raise KeyVaultOperationError(
             "File-backed private-key custody is retired; use an explicit managed provider"
         )
 
@@ -216,7 +217,7 @@ def build_key_vault_client(config: KeyVaultConfig) -> KeyVaultClient:
         raise ValueError("An explicit managed key-vault provider is required")
     provider = config.provider.strip().lower()
     if provider == "file":
-        raise NativeOperationError(
+        raise KeyVaultOperationError(
             "File-backed private-key custody is retired; use an explicit managed provider"
         )
     if provider in ("hashicorp", "vault"):

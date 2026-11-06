@@ -120,11 +120,6 @@ class MRZData(BaseModel):
             raise ValueError(msg)
         return v
 
-    def generate_mrz_string(self) -> str:
-        """Generate TD3 MRZ string compliant with ICAO Doc 9303."""
-        from marty_common.utils.mrz_utils import MRZFormatter
-
-        return MRZFormatter.generate_td3_mrz(self)
 
     def to_dict(self):
         """Convert to dictionary with camelCase keys."""
@@ -475,47 +470,6 @@ class Passport(BaseModel):
         logger.warning("SOD trust validation requires explicit CSCA trust anchors; failing closed")
         return False
 
-    def verify_data_group_integrity(self) -> bool:
-        """
-        Verify the integrity of data groups using the SOD.
-
-        This method checks that the hash values in the SOD match
-        the computed hashes of the data groups.
-
-        Returns:
-            bool: True if all data group hashes are valid, False otherwise
-        """
-        try:
-            if not self.security_object or not self.data_groups:
-                logger.warning("Missing SOD or data groups for integrity verification")
-                return False
-
-            # Import the new data group hash verification service
-            from marty_common.crypto.data_group_hasher import verify_passport_data_groups
-
-            if not isinstance(self.security_object, (str, bytes)):
-                logger.warning("SOD must be encoded as bytes, hexadecimal, or base64")
-                return False
-
-            dg_dict = {str(dg_key): dg_obj.data for dg_key, dg_obj in self.data_groups.items()}
-
-            # Perform verification using the new service
-            success, errors, details = verify_passport_data_groups(self.security_object, dg_dict)
-
-            if not success:
-                logger.warning(f"Data group integrity verification failed: {'; '.join(errors)}")
-                return False
-
-            logger.info(
-                f"Data group integrity verified successfully. "
-                f"Verified {details.get('data_groups_verified', 0)} data groups "
-                f"using {details.get('hash_algorithm', 'unknown')} algorithm."
-            )
-        except Exception:
-            logger.exception("Data group integrity verification failed")
-            return False
-        else:
-            return True
 
     def perform_active_authentication(self) -> bool:
         """
@@ -648,11 +602,6 @@ class CMCTD1MRZData(BaseModel):
             raise ValueError(msg)
         return v
 
-    def generate_td1_mrz_string(self) -> str:
-        """Generate TD-1 MRZ string compliant with ICAO Doc 9303."""
-        from marty_common.utils.mrz_utils import MRZFormatter
-
-        return MRZFormatter.generate_td1_mrz(self)
 
     def to_dict(self):
         """Convert to dictionary with camelCase keys."""
@@ -836,24 +785,6 @@ class VDSNCBarcode(BaseModel):
 
         return base64.b64encode(json.dumps(self.model_dump()).encode()).decode()
 
-    def verify_signature(self, public_key: bytes) -> bool:
-        """Verify the VDS-NC signature."""
-        # This would implement actual signature verification
-        # using the provided public key
-        try:
-            from marty_common.crypto import verify_signature
-
-            canonical_data = self._get_canonical_data()
-            return verify_signature(
-                canonical_data.encode(),
-                base64.b64decode(self.signature),
-                public_key,
-                self.signature_algorithm,
-            )
-        except ImportError as exc:
-            from marty_common.native_backends import NativeBackendUnavailable
-
-            raise NativeBackendUnavailable("Native VDS-NC signature verification is unavailable") from exc
 
     def _get_canonical_data(self) -> str:
         """Get canonical representation of the data for signature verification."""

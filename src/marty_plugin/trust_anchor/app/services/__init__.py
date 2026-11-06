@@ -1,3 +1,0 @@
-"""
-Trust Anchor services package
-"""

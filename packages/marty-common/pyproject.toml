@@ -4,15 +4,15 @@ build-backend = "hatchling.build"
 
 [project]
 name = "marty-common"
-version = "0.2.16"
-description = "Marty Common - Shared infrastructure for Marty digital identity services"
+version = "0.3.0"
+description = "Marty Common - Shared Python infrastructure and source utilities"
 authors = [
     {name = "Marty Team"}
 ]
 readme = "README.md"
 license = {text = "AGPL-3.0-only"}
 requires-python = ">=3.11"
-keywords = ["marty", "digital-identity", "infrastructure", "crypto", "grpc"]
+keywords = ["marty", "digital-identity", "infrastructure", "grpc"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
@@ -20,10 +20,9 @@ classifiers = [
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Topic :: Software Development :: Libraries",
-    "Topic :: Security :: Cryptography",
 ]
 
-# Core dependencies for infrastructure, crypto, gRPC, database, monitoring
+# Dependencies for the retained infrastructure and source utilities
 dependencies = [
     # Web framework (for error handlers)
     "fastapi>=0.104.0",
@@ -36,7 +35,6 @@ dependencies = [
     
     # Cryptography
     "cryptography>=41.0.0",
-    "pycryptodome>=3.19.0",
     
     # gRPC
     "grpcio>=1.59.0",
@@ -61,6 +59,7 @@ dependencies = [
     
     # Monitoring & Observability
     "prometheus-client>=0.19.0",
+    "psutil>=7.1.0", # Retained service monitoring
     "opentelemetry-api>=1.21.0",
     "opentelemetry-sdk>=1.21.0",
     "opentelemetry-instrumentation>=0.42b0",
@@ -74,17 +73,11 @@ dependencies = [
     "python-dateutil>=2.8.2",
     "pytz>=2023.3",
     
-    # ACME/Certificate management
-    "acme>=2.7.0",
-    "certbot>=2.7.0",
 ]
 
 [project.optional-dependencies]
-# Rust FFI bindings (for crypto_bridge functionality)
-ffi = [
-    "marty-rs==0.1.56",               # Provides the canonical _marty_rs module
-    "marty-verification-py==0.1.56",  # Provides marty_verification
-]
+# Optional image-quality tooling, independent of the retired identity runtime.
+biometric = ["numpy>=1.24.0", "pillow>=10.1.0", "opencv-contrib-python>=4.8.1.78"]
 
 # Development dependencies
 dev = [
@@ -101,6 +94,8 @@ test = [
     "pytest>=7.4.0",
     "pytest-asyncio>=0.21.0",
     "pytest-mock>=3.12.0",
+    "pre-commit==4.3.0",
+    "grpcio-tools==1.76.0",
     "factory-boy>=3.3.0",
 ]
 

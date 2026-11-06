@@ -1,78 +1,4 @@
-# Updated for hatchling
-[build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
-
-[project]
-name = "marty-identity-compat"
-version = "1.0.0"
-description = "Retained Marty identity compatibility modules pending audited Rust ownership"
-readme = "README.md"
-requires-python = ">=3.11"
-license = {text = "AGPL-3.0-only"}
-dependencies = [
-    # Core plugin dependencies
-    "marty-common==0.2.16",
-    "pydantic>=2.4.2",
-    "pydantic-settings>=2.0.0",
-    # Mandatory native security and protocol kernels
-    "marty-iso18013==0.1.56",
-    "marty-verification-py==0.1.56",
-    "marty-rs==0.1.56",
-    # Cryptography and PKI
-    "cryptography>=41.0.7",
-    # Protocol support
-    "protobuf>=6.31.1",
-    # JWT support retained by compatibility code and test fixtures
-    "jwcrypto>=1.5.0",
-    "pyjwt[crypto]>=2.9.0",
-    # ISO 18013-5 mDL and document support
-    "pillow>=10.1.0",
-    "pytesseract>=0.3.13", # Retained document-processing service imports the OCR adapter
-    "numpy>=1.24.0", # Retained biometric image quality uses NumPy directly
-    "qrcode>=7.4.2",
-    # Transport and connectivity
-    "pyscard>=2.0.7", # Smart card/NFC support
-    "aiohttp>=3.9.0", # HTTP client for ISO 18013-7 online flows
-    "requests>=2.32.5",
-    # Utilities
-    "loguru>=0.7.2",
-    "tenacity>=8.3.0",
-    "psutil>=7.1.0",
-    "hvac>=2.0.0",  # HashiCorp Vault client
-    # Testing framework for plugin validation
-    "pytest>=7.4.3",
-    "pytest-asyncio>=0.21.1",
-    "grpcio>=1.76.0",
-]
-
-# Rust FFI modules are published together from the canonical marty-core release.
-# Install marty-common[ffi] to get the shared credential and verification surface.
-
-[tool.hatch.metadata]
-allow-direct-references = true
-
-[tool.uv.sources]
-marty-common = { path = "packages/marty-common" }
-
-[tool.hatch.build.targets.wheel]
-packages = [
-    "src/digital_identity",
-    "src/entitlements",
-    "src/events",
-    "src/marty_plugin",
-    "src/proto",
-    "src/revocation",
-    "src/trust_registry",
-    "src/wallet",
-]
-
-[project.optional-dependencies]
-# Checkout-only protocol generation; published bindings need no compiler.
-proto = ["grpcio-tools==1.76.0"]
-biometric = [
-    "opencv-contrib-python>=4.8.1.78",
-]
+# Source tooling only. The released distribution is packages/marty-common.
 
 [tool.pytest.ini_options]
 minversion = "7.0"
@@ -86,7 +12,8 @@ addopts = [
     "--maxfail=5",  # Stop after 5 failures
     "--disable-warnings",
 ]
-testpaths = ["tests"]
+testpaths = ["tests/unit", "packages/marty-common/tests"]
+pythonpath = ["src", "packages/marty-common"]
 python_files = ["test_*.py", "*_test.py"]
 python_classes = ["Test*", "*Tests"]
 python_functions = ["test_*"]
@@ -135,8 +62,6 @@ log_cli = true
 log_cli_level = "INFO"
 log_cli_format = "%(asctime)s [%(levelname)8s] %(name)s: %(message)s"
 log_cli_date_format = "%Y-%m-%d %H:%M:%S"
-
-[project.scripts]
 
 [tool.ruff.lint]
 # Start with basic essential checks only

@@ -405,7 +405,7 @@ def create_service_database_tables(service_name: str, base_metadata: Any, engine
 
     Example:
         from marty_common.database.utilities import create_service_database_tables
-        from marty_plugin.shared.database import Base, engine
+        from application.database import Base, engine
 
         create_service_database_tables("my-service", Base.metadata, engine)
     """

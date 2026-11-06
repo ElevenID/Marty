@@ -1,74 +1,42 @@
 # Marty Common
 
-Shared infrastructure library for Marty digital identity services.
+`marty-common` is the retained Python infrastructure package used by Marty
+billing and commerce and by source tooling. Version 0.3 removes the obsolete
+Core 0.1 identity compatibility layer. No Core wheel is required to install or
+use the retained package.
 
-## Overview
+## Retained APIs
 
-`marty-common` provides core infrastructure components used across the Marty ecosystem:
-
-- **Cryptography Bridge** (`crypto_bridge.py`) - Python wrapper for Rust crypto operations
-- **gRPC Infrastructure** - Server, client, interceptors, metrics, and TLS configuration
-- **Database Infrastructure** - SQLAlchemy helpers, connection pooling, and migrations
-- **Configuration Management** - Centralized config with validation
-- **Observability** - Prometheus metrics, OpenTelemetry tracing, structured logging
-- **Security** - Authorization, authentication interceptors
-- **Validation** - Data validation utilities
-- **Utilities** - Common helpers for Marty services
-
-## Installation
-
-### From GitHub Packages (production)
-
-```bash
-pip install marty-common --extra-index-url https://USERNAME:TOKEN@ghcr.io/ORG/
-```
-
-### Local Development
-
-```bash
-# Clone the Marty repository
-git clone https://github.com/ElevenID/Marty.git
-cd Marty/packages/marty-common
-
-# Install in editable mode
-pip install -e .
-```
-
-## Usage
-
-The shared runtime does not install `grpcio-tools`. When changing the owning
-checkout's protobuf schemas, use the root `proto` extra or `make install`; see
-[tooling ownership](../../docs/features/compatibility-tooling-ownership.md).
-The runtime declares protobuf, gRPC reflection and gRPC health checking directly.
+- FastAPI service setup, request/security middleware and health helpers.
+- Database configuration, sessions, models, repositories, outbox and messaging.
+- Cedar policy evaluation and organization authorization.
+- Configuration, telemetry, logging and resilience utilities.
+- Externally provisioned TLS/mTLS and managed-provider client abstractions.
+- DTOs, enum values, migration profiles, public metadata and pairwise IDs.
 
 ```python
-from marty_common.crypto_bridge import verify_certificate_chain
-from marty_common.grpc_server import create_grpc_server
-from marty_common.infrastructure.database import get_database_engine
-from marty_common.monitoring import create_default_monitor, create_service_monitor
+from marty_common.service_setup import create_service_app
+from marty_common.database import DatabaseConfig, DatabaseManager
+from marty_common.events import DomainEvent
+from marty_common.cedar_engine import CedarEngine, AuthzDecision
 
-# Use shared infrastructure components
+app = create_service_app(title="Billing", service_name="billing")
 ```
 
-See [compatibility consolidation](../../docs/features/compatibility-consolidation.md)
-for the two monitoring object models, stable import paths and retry behavior.
+Credential issuance, verification, eMRTD/chip operations, and managed signing
+belong to the current Rust platform. The old `ffi` extra, crypto bridge and
+identity adapters are removed. Requesting the removed Python JWT or automatic
+ACME mode fails closed; mTLS and externally provisioned certificates remain.
 
-## Development
+The root repository retains protocol schemas and migration evidence as source
+records. Older gRPC helpers that refer to those checkout schemas are source
+tooling, not an installed identity service. No stored data, keys, migration
+records or enum wire values are removed.
 
-```bash
-# Install with dev dependencies
-pip install -e ".[dev]"
-
-# Run tests
-pytest
-
-# Type checking
-mypy marty_common
-
-# Linting
-ruff check marty_common
-```
+See [the audited retirement boundary](../../docs/features/python-identity-retirement.md)
+for consumers, current owners and remaining product requirements.
 
 ## License
 
-MIT
+AGPL-3.0-only, as declared in this package's metadata and the repository's
+[existing license](../../LICENSE). This retirement does not change the terms.

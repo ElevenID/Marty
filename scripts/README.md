@@ -1,6 +1,6 @@
-# Compatibility repository scripts
+# Shared infrastructure and source scripts
 
-This repository retains identity compatibility code. Current deployment and
+This repository retains shared Python infrastructure, schemas and migration records. Current deployment and
 service startup procedures belong to
 [the UI stack](https://github.com/ElevenID/marty-ui/blob/main/DEVELOPMENT_SETUP.md),
 native kernel releases belong to
@@ -12,7 +12,7 @@ Use the owning repository's current workflow rather than a parallel local stack.
 The Microsoft demo launchers and their old setup tutorial referenced retired
 Compose/Kubernetes resources. Their removal leaves
 [wallet interoperability requirements](../docs/demos/microsoft_authenticator.md)
-open. The remaining source-level, native-wheel and maintenance scripts are not
+open. The remaining source-level security and maintenance scripts are not
 a claim that a retired Python service deployment is supported.
 
 The orphan Python service generator and retired development/database/image
@@ -64,14 +64,14 @@ its fixed ports, images and credentials are not defaults to restore.
 
 The former uncalled environment bootstrap is retired. With Python 3.11 or
 newer and uv installed, create an isolated environment and install the
-compatibility checkout:
+retained infrastructure and source-test tooling:
 
 ```sh
 uv venv
-uv pip install -e .
+uv pip install -e "./packages/marty-common[test]"
 ```
 
-Use `uv run --no-sync` to execute in that environment, or activate
+Use `uv run --no-project` to execute in that environment, or activate
 `.venv/bin/activate` on POSIX / `.venv\Scripts\Activate.ps1` in PowerShell.
 For repository test/build tools, run the root `make install` inside the
 activated environment. Service data directories are provisioned by their owning
@@ -82,7 +82,7 @@ schemas, install the pinned compiler into the same environment:
 
 ```sh
 uv pip install grpcio-tools==1.76.0
-uv run --no-sync python src/compile_protos.py
+uv run --no-project python src/compile_protos.py
 ```
 
 See [check ownership](../docs/features/compatibility-check-ownership.md) for

@@ -10,7 +10,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[2]
 
 
-@pytest.mark.parametrize("order", ["certificate", "public", "direct"])
+@pytest.mark.parametrize("order", ["public", "direct"])
 def test_service_import_orders_preserve_identity_without_eager_frameworks(order):
     script = """
 import sys
@@ -18,11 +18,7 @@ import marty_common.services as services
 assert not any(name in sys.modules for name in (
     'marty_common.services.base_grpc_service', 'marty_common.services.base_openxpki_service'
 ))
-if ORDER == 'certificate':
-    from marty_common.services.certificate_validation import CertificateValidationService
-    assert 'marty_common.services.base_grpc_service' not in sys.modules
-    assert 'marty_common.services.base_openxpki_service' not in sys.modules
-elif ORDER == 'direct':
+if ORDER == 'direct':
     from marty_common.services.base_grpc_service import BaseGrpcService
 from marty_common.services import BaseService, BaseGrpcService, BaseOpenXPKIService
 from marty_common.services.base_service import BaseService as DirectService

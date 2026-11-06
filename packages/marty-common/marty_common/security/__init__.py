@@ -12,14 +12,8 @@ from .key_rotation import (
     RotationPolicy,
     create_default_rotation_manager,
 )
-from .passport_chip_session import (
-    ActiveAuthenticationOutcome,
-    PassportChipSession,
-    PassportChipTransport,
-)
 
 __all__ = [
-    "ActiveAuthenticationOutcome",
     "DatabaseKeyStore",
     "HSMInterface",
     "HSMKeyType",
@@ -31,8 +25,6 @@ __all__ = [
     "KeyStore",
     "KeyType",
     "MockHSMService",
-    "PassportChipSession",
-    "PassportChipTransport",
     "RotationPolicy",
     "create_default_rotation_manager",
     "create_hsm_service",

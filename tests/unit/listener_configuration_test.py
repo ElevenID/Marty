@@ -32,18 +32,3 @@ def test_metrics_listener_passes_selected_bind_to_uvicorn(modules, monkeypatch, 
     asyncio.run(run())
     assert configurations[0].host == (host or "127.0.0.1")
     assert "/health" in {route.path for route in instance.app.routes}
-
-
-@pytest.mark.parametrize("host", [None, "192.0.2.11"])
-def test_trust_service_configuration_keeps_explicit_environment_bind(monkeypatch, host):
-    monkeypatch.delenv("TRUST_SVC_HOST", raising=False)
-    if host:
-        monkeypatch.setenv("TRUST_SVC_HOST", host)
-    name = "trust_listener_configuration_test_module"
-    spec = importlib.util.spec_from_file_location(name, ROOT / "src/marty_plugin/trust_svc/config.py")
-    module = importlib.util.module_from_spec(spec)
-    monkeypatch.setitem(sys.modules, name, module)
-    spec.loader.exec_module(module)
-    configuration = module.TrustServiceConfig.from_env()
-    assert configuration.service.host == (host or "127.0.0.1")
-    assert configuration.to_dict()["service"]["host"] == configuration.service.host
