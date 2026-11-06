@@ -15,6 +15,9 @@ For released dependencies use
 [download-native-wheels.sh](../../scripts/download-native-wheels.sh), which
 checks release asset digests. Follow the current Core owner for toolchain,
 platform prerequisites, features, local development, Rust tests and publishing.
+The OB3-only `0.1.62` profile must be built from the pinned maintenance revision
+until a release containing that revision exists. Older release assets do not
+provide the required native capability declaration.
 
 The former `tests/test_iso18013_bridge.py` is absent. Use the current root
 `make test` selection and actual Core tests; the

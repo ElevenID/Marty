@@ -25,7 +25,7 @@ def test_native_wheel_downloads_are_versioned_and_digest_verified() -> None:
         encoding="utf-8"
     )
 
-    assert "MARTY_CORE_NATIVE_TAG:-v0.2.2" in script
+    assert "MARTY_CORE_NATIVE_TAG:-v0.1.62" in script
     assert "MARTY_CREDENTIALS_NATIVE_TAG" not in script
     assert "marty_iso18013" in script
     assert "marty_verification_py" in script
@@ -38,18 +38,18 @@ def test_native_wheel_downloads_are_versioned_and_digest_verified() -> None:
     package_metadata = (
         ROOT / "packages" / "marty-common" / "pyproject.toml"
     ).read_text(encoding="utf-8")
-    assert '"marty-rs==0.2.2"' in package_metadata
-    assert '"marty-verification-py==0.2.2"' in package_metadata
+    assert '"marty-rs==0.1.62"' in package_metadata
+    assert '"marty-verification-py==0.1.62"' in package_metadata
 
 
 def test_ci_builds_all_native_wheels_from_an_immutable_core_revision() -> None:
     build_script = (ROOT / "scripts" / "build-native-wheels.sh").read_text(
         encoding="utf-8"
     )
-    workflows = "\n".join(
+    workflow_sources = [
         (ROOT / ".github" / "workflows" / name).read_text(encoding="utf-8")
         for name in ("ci.yml", "license-compliance.yml")
-    )
+    ]
 
     for package in ("marty-bindings", "marty-verification", "marty-iso18013"):
         assert f'{package}/Cargo.toml"' in build_script
@@ -62,10 +62,12 @@ def test_ci_builds_all_native_wheels_from_an_immutable_core_revision() -> None:
     assert "cert-builder" not in build_script
     assert build_script.count("maturin build --locked") == 3
 
-    assert "MARTY_CORE_REVISION: c14639792bf2a37387fd56a0eb336b6afac04dfe" in workflows
-    assert "repository: ElevenID/marty-core" in workflows
-    assert "ref: ${{ env.MARTY_CORE_REVISION }}" in workflows
-    assert "bash scripts/build-native-wheels.sh" in workflows
+    for workflow in workflow_sources:
+        assert "MARTY_CORE_REVISION: ce5abb2b91aad091a612ba36af39bc90c3a6fc8c" in workflow
+        assert "repository: ElevenID/marty-core" in workflow
+        assert "ref: ${{ env.MARTY_CORE_REVISION }}" in workflow
+        assert "bash scripts/build-native-wheels.sh" in workflow
+        assert "private-forks.py fetch --manifest-path marty-core/Cargo.toml" in workflow
 
 
 def test_legacy_iso_modules_contain_no_python_protocol_or_transport_kernel() -> None:

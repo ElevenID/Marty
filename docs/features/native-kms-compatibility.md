@@ -34,14 +34,18 @@ test double returning an opaque handle does not prove managed-KMS acceptance.
 
 ## Remaining migration work
 
-This adapter change does not update the existing `0.1.56` wheel pins or claim
-that all Python services can deploy with Core's `0.2.2` production profile.
+OB2 retirement builds the exact reviewed Core `maintenance/0.1.x` revision
+pinned in CI, with `0.1.62` package metadata and the OB3-only native capability
+declaration. This preserves the maintained password and access-key APIs while
+removing OB2. It does not migrate all Python services to Core's `0.2.2`
+production profile. Historical release assets are unchanged; build the pinned
+source until a release containing these changes is available.
 Tests against genuine `0.2.2` wheels establish public startup, public signature
 verification, DTC remote-signature verification and private-operation rejection.
 The complete existing unit/common suite is checked with the pinned profile.
 
-Core intentionally excludes generic random-secret/KDF helpers and chip-session
-classes from its production Python profile. The existing Python password and
+Core's `0.2` production profile intentionally excludes generic random-secret/KDF
+helpers and chip-session classes. The existing Python password and
 DTC access-key helpers, BAC/PACE/EAC journeys and opaque session ownership need
 their Rust product contracts before upgrading their callers. Missing native
 operations fail explicitly; compatibility must not recreate generic secret-byte

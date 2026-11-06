@@ -13,7 +13,7 @@ permissions:
   contents: read
 
 env:
-  MARTY_CORE_REVISION: c14639792bf2a37387fd56a0eb336b6afac04dfe
+  MARTY_CORE_REVISION: ce5abb2b91aad091a612ba36af39bc90c3a6fc8c
 
 jobs:
   bandit:
@@ -102,7 +102,7 @@ jobs:
         with:
           name: marty-native-linux
           path: native-wheels
-      - name: Install from released dependencies
+      - name: Install from pinned dependencies
         run: |
           python -m pip install native-wheels/*.whl
           python -m pip install --find-links native-wheels packages/marty-common .

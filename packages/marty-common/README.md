@@ -48,6 +48,11 @@ matching wheels from the exact Core revision pinned in CI, or use a subsequent
 release containing that revision. A version number alone does not establish
 this capability; historical release assets are unchanged.
 
+The Python stack uses the maintained `0.1.62` Core package profile so existing
+password and access-key APIs remain available during this OB3 cutover. It does
+not yet adopt the separate `0.2` production-profile migration. Build the pinned
+source while the release containing these changes is pending.
+
 The shared runtime does not install `grpcio-tools`. When changing the owning
 checkout's protobuf schemas, use the root `proto` extra or `make install`; see
 [tooling ownership](../../docs/features/compatibility-tooling-ownership.md).
