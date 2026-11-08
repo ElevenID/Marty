@@ -297,7 +297,7 @@ dev = [
     "safety>=3.0.0",
     "radon>=6.0.1",
     # Type stubs
-    "types-requests>=2.31.0",
+    "types-requests>=2.33.0.20261030",
     "types-PyYAML>=6.0.0",
     "grpcio-testing>=1.75.0",
     "ruff>=0.13.2",
