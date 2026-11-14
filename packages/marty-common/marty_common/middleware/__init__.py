@@ -1,14 +1,5 @@
 """Initialize middleware package."""
 
-from .rate_limiter import (
-    MemoryRateLimitBackend,
-    RateLimiter,
-    RateLimitMiddleware,
-    RateLimitRule,
-    RateLimitStatus,
-    RedisRateLimitBackend,
-    create_default_rate_limiter,
-)
 from ..web_middleware import (
     ETagMiddleware,
     IdempotencyMiddleware,
@@ -21,9 +12,20 @@ from ..web_middleware import (
     require_authenticated,
     require_organization,
 )
+from .rate_limiter import (
+    MemoryRateLimitBackend,
+    RateLimitBackendError,
+    RateLimiter,
+    RateLimitMiddleware,
+    RateLimitRule,
+    RateLimitStatus,
+    RedisRateLimitBackend,
+    create_default_rate_limiter,
+)
 
 __all__ = [
     "MemoryRateLimitBackend",
+    "RateLimitBackendError",
     "RateLimitMiddleware",
     "RateLimitRule",
     "RateLimitStatus",
