@@ -91,6 +91,9 @@ dev = [
 
 # Testing dependencies
 test = [
+    # Exercise retained optional biometric metadata helpers without OpenCV.
+    "numpy>=1.24.0",
+    "pillow>=10.1.0",
     "pytest>=7.4.0",
     "pytest-asyncio>=0.21.0",
     "pytest-mock>=3.12.0",

@@ -1,22 +1,10 @@
-"""
-Enhanced Biometric Processing for Passport Data Groups
-Implements advanced processing for DG2, DG3, DG4, and DG5 biometric data
+"""Optional biometric image-quality and source-template utilities.
 
-This module provides comprehensive biometric template parsing, quality assessment,
-and security validation for ICAO Doc 9303 compliant passport chips:
-
-- DG2: Encoded Face (JPEG/JPEG2000 facial images)
-- DG3: Encoded Finger(s) (WSQ compressed fingerprint templates)
-- DG4: Encoded Iris(es) (ISO/IEC 19794-6 iris templates)
-- DG5: Displayed Portrait (uncompressed facial image for display)
-
-Key Features:
-- ISO/IEC 19794 biometric template parsing
-- CBEFF (Common Biometric Exchange Formats Framework) support
-- Biometric quality assessment and scoring
-- Template validation and integrity verification
-- Multi-modal biometric fusion support
-- Privacy-preserving biometric matching
+These helpers retain simplified DG2/DG3/DG4/DG5 parsing and heuristic quality
+scores. They do not perform biometric matching, authenticate chip data, or
+establish ICAO/ISO conformance; the supported identity stack is Rust-owned.
+WSQ minutiae extraction requires a real decoder/extractor and is unavailable
+here. Unknown capture-device identity remains explicitly unknown.
 """
 
 from __future__ import annotations
@@ -24,7 +12,6 @@ from __future__ import annotations
 import hashlib
 import io
 import logging
-import secrets
 import struct
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
@@ -306,25 +293,11 @@ class FingerprintTemplate:
             return result
 
     def _extract_wsq_minutiae(self) -> list[dict[str, Any]]:
-        """Extract minutiae from WSQ compressed fingerprint"""
-        # WSQ decompression would require specialized library
-        # This is a placeholder implementation
-        minutiae = []
-
-        # Mock minutiae extraction for testing
-        for i in range(min(self.minutiae_count, 50)):  # Limit to 50 minutiae
-            minutia = {
-                "id": i + 1,
-                "x": secrets.randbelow(self.image_width),
-                "y": secrets.randbelow(self.image_height),
-                "angle": secrets.randbelow(360),
-                "type": "ridge_ending" if i % 2 == 0 else "ridge_bifurcation",
-                "quality": secrets.randbelow(100) + 1,
-            }
-            minutiae.append(minutia)
-
-        self.minutiae_points = minutiae
-        return minutiae
+        """Reject unsupported WSQ extraction instead of inventing minutiae."""
+        self.minutiae_points = []
+        self.minutiae_count = 0
+        self.quality_score = None
+        raise BiometricTemplateError("WSQ minutiae extraction is not available")
 
     def _extract_iso_minutiae(self) -> list[dict[str, Any]]:
         """Extract minutiae from ISO/IEC 19794-2 template"""
@@ -959,7 +932,8 @@ class PassportBiometricProcessor:
                     if len(template_data) >= 16
                     else 0.0
                 )
-                device_id = f"IRIS_DEV_{secrets.randbelow(1000):03d}"
+                # This parser does not extract a capture-device identifier.
+                # Keep UNKNOWN rather than manufacturing provenance.
         except Exception as e:
             logger.warning(f"Failed to extract iris metadata: {e}")
 
