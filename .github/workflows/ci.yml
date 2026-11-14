@@ -29,7 +29,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       redis:
-        image: redis:8.0.6
+        image: redis:8.0.6@sha256:ae471bdc20de180beed36e347d170ec0bdf8faa327959ea1f24692f22b05b955
         ports:
           - 6379:6379
         options: >-
