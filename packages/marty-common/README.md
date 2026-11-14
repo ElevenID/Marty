@@ -40,3 +40,13 @@ for consumers, current owners and remaining product requirements.
 
 AGPL-3.0-only, as declared in this package's metadata and the repository's
 [existing license](../../LICENSE). This retirement does not change the terms.
+
+### Optional biometric quality tooling
+
+`marty_common.security.enhanced_biometric_processing` retains simplified source
+parsers and heuristic image/template quality scores. These helpers do not
+perform biometric matching, authenticate chip data, or establish standards
+conformance. WSQ fingerprint extraction raises `BiometricTemplateError` until
+a real decoder/extractor is provided; it never synthesizes minutiae. Iris
+capture-device identity is `UNKNOWN` when the parser cannot obtain it from the
+input. The supported identity verification stack remains Rust-owned.
