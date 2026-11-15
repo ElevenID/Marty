@@ -80,6 +80,30 @@ injected exceptions and cleanup, breaker recovery with controlled time, and a
 bounded retry/breaker/fallback sequence through the real Python primitives.
 These checks qualify retained compatibility behavior, not the Rust runtime.
 
+## Python request admission and transport checks
+
+The public `CircuitBreaker.allow_request()` remains a reservation-free admission
+check for callers that manage their own outcomes. Its sync and async decorators
+reserve their concurrency slots atomically. Completion, failure and cancellation
+release those slots; cancellation and other `BaseException` interruptions propagate
+without counting as dependency failures or recovery successes.
+
+`CircuitBreaker(..., enabled=False)` keeps outcome accounting while bypassing
+admission limits and failure-driven state transitions. The retained gRPC
+`ResilienceServerInterceptor` uses this mode when
+`MARTY_CIRCUIT_BREAKER_ENABLED` is disabled. Such requests leave the cached enabled
+breaker's history untouched. Re-enabling resumes that history and its existing
+recovery timeout. Successful outbound helper calls record recovery probes for
+both direct and awaitable results.
+
+`grpc_interceptors_test.py` runs real async gRPC client/server calls for all four
+RPC cardinalities, checking application errors, unexpected errors and serialized
+success responses. `circuit_breaker_admission_test.py` checks slot ownership and
+interruption, while `resilience_outbound_test.py` checks disabled configuration
+and outbound recovery. The existing CI test lane collects these cases without
+optional transport skips. This coverage does not establish service deployment
+or equivalence to the Rust resilience owner.
+
 The synthetic suite's aggregate counters are not integration qualification:
 `chaos_context` starts a background task whose exceptions do not reach the
 protected operation, and retry policy factories do not populate the suite's
