@@ -63,13 +63,13 @@ async def async_call_with_resilience(
         try:
             result = call_factory()
             if hasattr(result, "__await__"):
-                return await result  # type: ignore[return-value]
-            return result  # type: ignore[return-value]
+                result = await result
         except Exception:  # noqa: BLE001
             breaker.record_failure()
             raise
-        else:  # pragma: no cover - success path trivial
+        else:
             breaker.record_success()
+            return result  # type: ignore[return-value]
 
     return await _attempt()
 

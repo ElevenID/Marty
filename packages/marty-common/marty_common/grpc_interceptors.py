@@ -122,28 +122,28 @@ class AsyncExceptionToStatusInterceptor(grpc_aio.ServerInterceptor):
             return None
 
         if handler.unary_unary:
-            return grpc_aio.unary_unary_rpc_method_handler(
+            return grpc.unary_unary_rpc_method_handler(
                 self._wrap_unary_unary(handler.unary_unary),
                 request_deserializer=handler.request_deserializer,
                 response_serializer=handler.response_serializer,
             )
 
         if handler.unary_stream:
-            return grpc_aio.unary_stream_rpc_method_handler(
+            return grpc.unary_stream_rpc_method_handler(
                 self._wrap_unary_stream(handler.unary_stream),
                 request_deserializer=handler.request_deserializer,
                 response_serializer=handler.response_serializer,
             )
 
         if handler.stream_unary:
-            return grpc_aio.stream_unary_rpc_method_handler(
+            return grpc.stream_unary_rpc_method_handler(
                 self._wrap_stream_unary(handler.stream_unary),
                 request_deserializer=handler.request_deserializer,
                 response_serializer=handler.response_serializer,
             )
 
         if handler.stream_stream:
-            return grpc_aio.stream_stream_rpc_method_handler(
+            return grpc.stream_stream_rpc_method_handler(
                 self._wrap_stream_stream(handler.stream_stream),
                 request_deserializer=handler.request_deserializer,
                 response_serializer=handler.response_serializer,

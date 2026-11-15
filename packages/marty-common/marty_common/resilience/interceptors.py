@@ -19,14 +19,12 @@ from __future__ import annotations
 import logging
 import os
 import random
-from collections import defaultdict
 from collections.abc import Callable
-from typing import Dict
 
 import grpc
 from grpc import aio as grpc_aio
 
-from .circuit_breaker import CircuitBreaker, CircuitBreakerConfig
+from .circuit_breaker import CircuitBreaker
 from .error_codes import TransientBackendError, map_exception_to_status
 
 LOGGER = logging.getLogger(__name__)
@@ -64,12 +62,8 @@ def get_circuit_breaker(method_name: str) -> CircuitBreaker:
         "yes",
     }
     if not enabled:
-        # return a no-op breaker
-        if method_name not in _CIRCUIT_BREAKERS:
-            _CIRCUIT_BREAKERS[method_name] = CircuitBreaker(
-                method_name, CircuitBreakerConfig(failure_threshold=10, recovery_timeout=5)
-            )
-        return _CIRCUIT_BREAKERS[method_name]
+        # Disabled requests must neither reuse nor mutate an active method's state.
+        return CircuitBreaker(method_name, enabled=False)
     if method_name not in _CIRCUIT_BREAKERS:
         _CIRCUIT_BREAKERS[method_name] = CircuitBreaker(method_name)
     return _CIRCUIT_BREAKERS[method_name]
@@ -120,10 +114,6 @@ class ResilienceServerInterceptor(grpc_aio.ServerInterceptor):
         if self.failure_injection.should_fail(force=force):
             raise TransientBackendError("Injected failure for resilience testing")
 
-    def _is_retryable(self, exc: Exception) -> bool:
-        # transient backend errors should be recorded as failure (retryable at client side)
-        return isinstance(exc, TransientBackendError)
-
     def _wrap_unary_unary(self, func: Callable, breaker: CircuitBreaker, method: str):
         async def _wrapper(request, context):
             if not breaker.allow_request():
@@ -137,10 +127,7 @@ class ResilienceServerInterceptor(grpc_aio.ServerInterceptor):
                 raise
             except Exception as exc:  # noqa: BLE001
                 status, message = map_exception_to_status(exc)
-                if self._is_retryable(exc):
-                    breaker.record_failure()
-                else:
-                    breaker.record_failure()
+                breaker.record_failure()
                 await context.abort(status, message)
             else:
                 breaker.record_success()

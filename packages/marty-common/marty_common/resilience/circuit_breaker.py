@@ -60,11 +60,15 @@ class CircuitBreakerConfig:
 class CircuitBreaker:
     """Enhanced circuit breaker with monitoring and flexible configuration."""
 
-    def __init__(self, name: str, config: CircuitBreakerConfig | None = None) -> None:
+    def __init__(
+        self, name: str, config: CircuitBreakerConfig | None = None, *, enabled: bool = True
+    ) -> None:
+        """Set enabled=False to collect outcomes without rejecting or opening the circuit."""
         self.name = name
         self.config = config or CircuitBreakerConfig()
+        self._enabled = enabled
         self._state: CircuitBreakerState = CircuitBreakerState.CLOSED
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
         self._failure_count = 0
         self._success_count = 0
         self._opened_at = 0.0
@@ -89,7 +93,10 @@ class CircuitBreaker:
         return self._state
 
     def allow_request(self) -> bool:
+        """Check admission without reserving a slot for an external caller."""
         with self._lock:
+            if not self._enabled:
+                return True
             now = time.time()
 
             # Check for state transitions
@@ -113,6 +120,21 @@ class CircuitBreaker:
                 self._failure_count = 0
 
             return self._can_make_request()
+
+    def _acquire_request(self) -> bool:
+        """Reserve a decorated call's slot in the same lock as its admission check."""
+        with self._lock:
+            # Reentrant locking retains the public admission hook for subclasses.
+            if not self.allow_request():
+                return False
+            self._total_requests += 1
+            self._concurrent_requests += 1
+            return True
+
+    def _release_interrupted_request(self) -> None:
+        """Release ownership without treating cancellation as dependency health."""
+        with self._lock:
+            self._concurrent_requests = max(0, self._concurrent_requests - 1)
 
     def _can_make_request(self) -> bool:
         """Check if we can make a request based on concurrent limits."""
@@ -163,6 +185,8 @@ class CircuitBreaker:
 
             self._total_failures += 1
             self._last_failure_at = now
+            if not self._enabled:
+                return
 
             if self._state == CircuitBreakerState.HALF_OPEN:
                 self._transition_to(CircuitBreakerState.OPEN, now)
@@ -179,18 +203,17 @@ class CircuitBreaker:
 
     def decorate(self, func: Callable[P, T]) -> Callable[P, T]:
         def wrapper(*args: P.args, **kwargs: P.kwargs) -> T:
-            if not self.allow_request():
+            if not self._acquire_request():
                 msg = f"Circuit '{self.name}' is OPEN"
                 raise RuntimeError(msg)
-
-            with self._lock:
-                self._total_requests += 1
-                self._concurrent_requests += 1
 
             try:
                 result = func(*args, **kwargs)
             except Exception as exc:
                 self.record_failure(exc)
+                raise
+            except BaseException:
+                self._release_interrupted_request()
                 raise
             else:
                 self.record_success()
@@ -200,13 +223,9 @@ class CircuitBreaker:
 
     def decorate_async(self, func: Callable[P, T | Awaitable[T]]) -> Callable[P, Awaitable[T]]:
         async def wrapper(*args: P.args, **kwargs: P.kwargs) -> T:
-            if not self.allow_request():
+            if not self._acquire_request():
                 msg = f"Circuit '{self.name}' is OPEN"
                 raise RuntimeError(msg)
-
-            with self._lock:
-                self._total_requests += 1
-                self._concurrent_requests += 1
 
             try:
                 result = func(*args, **kwargs)
@@ -214,6 +233,9 @@ class CircuitBreaker:
                     result = await result  # type: ignore[assignment]
             except Exception as exc:
                 self.record_failure(exc)
+                raise
+            except BaseException:
+                self._release_interrupted_request()
                 raise
             else:
                 self.record_success()
