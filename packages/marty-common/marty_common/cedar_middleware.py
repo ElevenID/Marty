@@ -45,11 +45,6 @@ class CedarAuthMiddleware(BaseHTTPMiddleware):
         r"^/v1/organizations/[^/]+/join$",
         r"^/v1/organizations/invitations/",
         r"^/v1/organizations/[^/]+/revocation-profiles/[^/]+/status-lists/[^/]+/[^/]+$",
-        r"^/v1/integrations/canvas/lti/jwks/?$",
-        r"^/v1/integrations/canvas/lti/config/[^/]+/?$",
-        r"^/v1/integrations/canvas/lti/platforms/[^/]+/(?:login|experience-login|launch|experience)/?$",
-        r"^/v1/integrations/canvas/oauth/callback/?$",
-        r"^/v1/integrations/canvas/lti/experience-sessions/(?:exchange|current(?:/(?:bootstrap|evidence-sync|deep-linking-response))?)/?$",
         r"^/health",
         r"^/.well-known/",
     ]

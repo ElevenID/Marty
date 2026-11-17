@@ -26,9 +26,15 @@ Choose the policy set for the decision being made:
 | --- | --- |
 | `CedarEngine.with_defaults()` | MIP schema and gateway role policies |
 | `CedarEngine.with_credential_verification()` | Gateway policies plus credential-verification rules |
-| `CedarEngine.with_approval_rules()` | Approval policies only |
+| `CedarEngine.with_approval_rules()` | Deny by default; no bundled automatic approval permits |
 | `CedarEngine.with_approval_policy_text(policies)` | Caller-provided approval policies with the MIP schema |
 | `CedarEngine.from_files(schema_path, policy_paths)` | Explicit schema and policy files; directories contribute `*.cedar` files |
+
+Bundled approval rules grant no automatic approval authority. Configure reviewed
+platform-owned rules explicitly before enabling automatic approval. Connectors
+submit evidence through the public Common Gateway; a connector service identity
+does not confer approval authority. Provider templates and identifiers belong
+in the connector repository, outside this shared package.
 
 Approval decisions deliberately exclude broad gateway permits. Keep policy
 selection explicit; adding gateway policies to an approval engine can change
