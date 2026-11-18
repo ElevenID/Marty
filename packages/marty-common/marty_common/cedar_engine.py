@@ -95,10 +95,11 @@ class CedarEngine:
 
     @classmethod
     def with_approval_rules(cls) -> "CedarEngine":
-        """Create engine with only MIP approval-rule policies.
+        """Create a deny-by-default approval engine without bundled permits.
 
-        Approval flows evaluate provider-neutral facts and should not inherit
-        broad gateway RBAC permits such as organization API-key full access.
+        Automatic approval requires explicit platform-owned policy configuration.
+        Approval engines must not inherit broad gateway RBAC permits such as
+        organization API-key full access.
         """
         schema = (_CEDAR_DIR / "mip.cedarschema").read_text()
         policies = (_CEDAR_DIR / "approval_rules.cedar").read_text()

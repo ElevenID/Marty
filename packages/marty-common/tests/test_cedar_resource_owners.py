@@ -54,13 +54,13 @@ def test_public_protocol_and_collection_routes_do_not_become_owner_lookups() -> 
     assert resolve_resource_lookup("/v1/issuance/offers/transaction-b") is None
     assert (
         resolve_resource_lookup(
-            "/v1/issuance/delivery-records/canvas-credentials/provenance"
+            "/v1/issuance/delivery-records/credential-a/provenance"
         )
         is None
     )
     assert (
         resolve_resource_lookup(
-            "/v1/issuance/organizations/org-a/canvas-mirror-health"
+            "/v1/issuance/organizations/org-a/status"
         )
         is None
     )
