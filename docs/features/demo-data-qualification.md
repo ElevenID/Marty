@@ -15,8 +15,11 @@ PEM/credential artifacts and could report success after individual failures.
 It never demonstrated schema, issuance or user-provisioning acceptance. The
 OpenBao org-catalog seeder remains a separate capability; the unconsumed
 synthetic dataset generator and its heuristic reader are retired. Current
-Rust vendor/Canvas/template seeders cover different scenarios; their existence
-does not establish parity with this historical demo.
+Retained Rust vendor/template seeders cover different scenarios; their existence
+does not establish parity with this historical demo. Provider setup belongs to
+[canvas-integration](https://github.com/ElevenID/canvas-integration), through the
+public Common Gateway only. Canvas seeders are no longer a current Marty UI
+capability; historical provider observations do not enable an integration.
 
 ## Retained data and behavior requirements
 
@@ -155,8 +158,9 @@ The uncalled `marty_common.demo_seed_data` module and its
 `get_demo_vendor_seed_bundle()` builder are retired. The full generated
 organization, seven credential types and eight credential templates already
 match `marty-ui/contracts/demo-seed-reference-v1.json` exactly. The Rust
-`demo-vendor-seed` crate consumes that corpus directly; Canvas's Rust seed
-configuration consumes its released system identifiers. In the UI checkout,
+`demo-vendor-seed` crate consumes that corpus directly. The former Canvas seed
+configuration used its released system identifiers; that provider consumer is
+historical and is not a supported platform seeding command. In the UI checkout,
 use the existing `seed-demo-vendor-fixtures` Make target and its packaged
 `marty-demo-vendor-seed` runner with the owning environment's prerequisites.
 
