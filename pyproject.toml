@@ -299,7 +299,7 @@ dev = [
     # Type stubs
     "types-requests>=2.33.0.20261030",
     "types-PyYAML>=6.0.0",
-    "grpcio-testing>=1.75.0",
+    "grpcio-testing>=1.85.1",
     "ruff>=0.13.2",
     "pyyaml>=6.0.3",
     "aiohttp>=3.12.15",
