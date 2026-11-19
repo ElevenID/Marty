@@ -289,7 +289,7 @@ dev = [
     # Code quality tools
     "pre-commit>=3.6.0",
     "black>=24.2.0",
-    "isort>=5.13.2",
+    "isort>=9.0.2",
     "mypy>=1.8.0",
     "bandit[toml]>=1.9.4",
     "xenon>=0.9.1",
